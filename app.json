@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "newArchEnabled": true,
+    "name": "Luna",
+    "slug": "luna",
+    "version": "1.0.0",
+    "runtimeVersion": "1.0.0",
+    "scheme": "luna",
+    "experiments": {
+      "tsconfigPaths": true
+    },
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-audio"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "bundleIdentifier": "com.thomino.luna",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app uses the microphone for speech-to-text functionality.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true,
+          "NSExceptionDomains": {
+            "47.242.248.240": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": true,
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": false,
+      "config": {
+        "enableOnBackInvokedCallback": false
+      },
+      "navigationBarColor": "transparent",
+      "navigationBarHidden": true,
+      "package": "com.thomino.luna",
+      "permissions": ["android.permission.RECORD_AUDIO"],
+      "usesCleartextTraffic": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "a0a0f625-0457-4ab7-a22f-509a24238a11"
+      }
+    },
+    "owner": "thomino",
+    "updates": {
+      "url": "https://u.expo.dev/a0a0f625-0457-4ab7-a22f-509a24238a11"
+    }
+  }
+}
