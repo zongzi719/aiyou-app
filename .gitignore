@@ -1,5 +1,10 @@
 node_modules
 
+# iOS dependencies & build
+ios/Pods/
+ios/build/
+ios/DerivedData/
+
 # Expo build artifacts
 dist/
 .expo/
