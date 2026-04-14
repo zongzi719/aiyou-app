@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Avatar from './Avatar';
 import { hasPrivateChatBackendSession } from '@/lib/authSession';
 import { searchPrivateThreads, type ThreadSummary } from '@/lib/privateChatApi';
+import { fetchProfile, bustAvatarCache, type UserProfile } from '@/services/profileApi';
 
 type Props = {
     drawerNavigation: { closeDrawer: () => void };
@@ -23,6 +24,7 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
     const drawerStatus = useDrawerStatus();
     const [privateThreads, setPrivateThreads] = useState<ThreadSummary[]>([]);
     const [threadsLoading, setThreadsLoading] = useState(false);
+    const [profile, setProfile] = useState<UserProfile | null>(null);
 
     useEffect(() => {
         if (drawerStatus !== 'open') return;
@@ -34,8 +36,14 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
                     if (!cancelled) setPrivateThreads([]);
                     return;
                 }
-                const list = await searchPrivateThreads({ limit: 40 });
-                if (!cancelled) setPrivateThreads(list);
+                const [list, prof] = await Promise.all([
+                    searchPrivateThreads({ limit: 40 }),
+                    fetchProfile().catch(() => null),
+                ]);
+                if (!cancelled) {
+                    setPrivateThreads(list);
+                    if (prof) setProfile(prof);
+                }
             } finally {
                 if (!cancelled) setThreadsLoading(false);
             }
@@ -83,6 +91,15 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
                             router.push('/screens/knowledge-base');
                         }}
                     />
+                    <NavItem
+                        href="/screens/memory"
+                        icon="Brain"
+                        label="记忆库"
+                        onPress={() => {
+                            drawerNavigation.closeDrawer();
+                            router.push('/screens/memory');
+                        }}
+                    />
                     <NavItem href="/screens/search-form" icon="LayoutGrid" label="Explore" />
                 </View>
 
@@ -117,12 +134,22 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
 
             </ThemedScroller>
             <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/screens/profile')} className='bg-background flex-row justify-start items-center pt-4 pb-4 border rounded-3xl px-4 border-border'>
-                <Avatar src={require('@/assets/img/thomino.jpg')} size="md" />
-                <View className='ml-4'>
-                    <ThemedText className='text-base font-semibold'>Thomino</ThemedText>
-                    <ThemedText className='opacity-50 text-xs'>thomino@gmail.com</ThemedText>
+                <Avatar
+                    src={profile?.avatar_url
+                        ? bustAvatarCache(profile.avatar_url)
+                        : require('@/assets/img/thomino.jpg')}
+                    name={profile?.display_name || profile?.username}
+                    size="md"
+                />
+                <View className='ml-4 flex-1'>
+                    <ThemedText className='text-base font-semibold' numberOfLines={1}>
+                        {profile?.display_name || profile?.username || 'AI You'}
+                    </ThemedText>
+                    <ThemedText className='opacity-50 text-xs' numberOfLines={1}>
+                        @{profile?.username || '—'}
+                    </ThemedText>
                 </View>
-                <Icon name="ChevronRight" size={18} className='ml-auto' />
+                <Icon name="ChevronRight" size={18} className='ml-2' />
             </TouchableOpacity>
 
         </View>

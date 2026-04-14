@@ -1,7 +1,46 @@
-import Constants from 'expo-constants';
+import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
+import { getAuthSession } from '@/lib/authSession';
 
-const BASE_URL = (Constants.expoConfig?.extra?.apiBaseUrl as string | undefined) ?? 'https://your-domain.com';
 const API_PREFIX = '/api/knowledge';
+
+async function getHeaders(): Promise<Record<string, string>> {
+  const [session, devUserId] = await Promise.all([getAuthSession(), getDevUserId()]);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (session.token) {
+    headers['Authorization'] = `Bearer ${session.token}`;
+    headers['x-auth-token'] = session.token;
+  }
+  headers['x-user-id'] = session.userId ?? devUserId;
+  if (session.tenantId) headers['x-tenant-id'] = session.tenantId;
+  if (session.workspaceId) headers['x-workspace-id'] = session.workspaceId;
+  return headers;
+}
+
+async function getBaseUrl(): Promise<string> {
+  return (await getApiBaseUrl()).replace(/\/$/, '');
+}
+
+function httpError(status: number, detail?: string): Error {
+  const base = detail?.trim() || `HTTP ${status}`;
+  return new Error(base);
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const [base, headers] = await Promise.all([getBaseUrl(), getHeaders()]);
+  const res = await fetch(`${base}${API_PREFIX}${path}`, {
+    ...options,
+    headers: { ...headers, ...(options?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw httpError(res.status, (err as { detail?: string } | null)?.detail);
+  }
+  return res.json().catch(() => {
+    throw new Error('服务器返回了无效的响应');
+  }) as Promise<T>;
+}
 
 export interface KnowledgeFolder {
   id: string;
@@ -40,24 +79,6 @@ export interface FileListParams {
   page_size?: number;
 }
 
-function getHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-  };
-}
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${API_PREFIX}${path}`, {
-    ...options,
-    headers: { ...getHeaders(), ...(options?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail ?? res.statusText);
-  }
-  return res.json() as Promise<T>;
-}
-
 export const knowledgeApi = {
   getFolders: () =>
     request<{ folders: KnowledgeFolder[] }>('/folders').then((r) => r.folders),
@@ -89,20 +110,38 @@ export const knowledgeApi = {
   },
 
   uploadFile: async (uri: string, filename: string, mimeType: string, folderId?: string) => {
+    const [base, session, devUserId] = await Promise.all([getBaseUrl(), getAuthSession(), getDevUserId()]);
+
     const formData = new FormData();
     formData.append('file', { uri, name: filename, type: mimeType } as unknown as Blob);
-    if (folderId && folderId !== 'all') {
+    if (folderId && folderId !== 'all' && folderId !== 'recent') {
       formData.append('folder_id', folderId);
     }
-    const res = await fetch(`${BASE_URL}${API_PREFIX}/upload`, {
+
+    const headers: Record<string, string> = {};
+    if (session.token) {
+      headers['Authorization'] = `Bearer ${session.token}`;
+      headers['x-auth-token'] = session.token;
+    }
+    headers['x-user-id'] = session.userId ?? devUserId;
+    if (session.tenantId) headers['x-tenant-id'] = session.tenantId;
+    if (session.workspaceId) headers['x-workspace-id'] = session.workspaceId;
+
+    const res = await fetch(`${base}${API_PREFIX}/upload`, {
       method: 'POST',
+      headers,
       body: formData,
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error((err as { detail?: string }).detail ?? res.statusText);
+      const text = await res.text().catch(() => '');
+      let detail: string | undefined;
+      try { detail = (JSON.parse(text) as { detail?: string }).detail; } catch { detail = text.slice(0, 200) || undefined; }
+      console.error(`[uploadFile] HTTP ${res.status}:`, text.slice(0, 500));
+      throw httpError(res.status, detail);
     }
-    return res.json() as Promise<{ file_id: string; status: string }>;
+    return res.json().catch(() => {
+      throw new Error('服务器返回了无效的响应');
+    }) as Promise<{ file_id: string; status: string }>;
   },
 
   deleteFile: (fileId: string) =>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, ScrollView, Pressable, Keyboard, Platform, StyleSheet, Image } from 'react-native';
+import { View, ScrollView, Pressable, Keyboard, Platform, StyleSheet, Image, Linking } from 'react-native';
 import ThemedText from './ThemedText';
 import Icon from './Icon';
 import { shadowPresets } from '@/utils/useShadow';
@@ -11,13 +11,21 @@ import { useThemeColors } from '@/app/contexts/ThemeColors';
 import Markdown from 'react-native-markdown-display';
 import { ShimmerText } from './ShimmerText';
 
+export type MessageFile = {
+    name: string;
+    mimeType: string;
+};
+
 export type Message = {
     id: string;
     type: 'user' | 'assistant';
     content: string;
     images?: string[];
+    files?: MessageFile[];
     timestamp: Date;
     isStreaming?: boolean;
+    /** 流式期间 AI 正在执行的步骤描述 */
+    thinkingStep?: string;
 };
 
 type ConversationProps = {
@@ -93,11 +101,12 @@ export const Conversation = ({ messages, isTyping }: ConversationProps) => {
                 {messages.map((message) => (
                     <View key={message.id} className="mb-6">
                         {message.type === 'user' ? (
-                            <UserMessage content={message.content} images={message.images} />
+                            <UserMessage content={message.content} images={message.images} files={message.files} />
                         ) : (
                             <AssistantMessage
                                 content={message.content}
                                 isStreaming={message.isStreaming}
+                                thinkingStep={message.thinkingStep}
                                 isLiked={likedMessages.has(message.id)}
                                 onLike={() => toggleLike(message.id)}
                             />
@@ -137,7 +146,50 @@ export const Conversation = ({ messages, isTyping }: ConversationProps) => {
     );
 };
 
-const UserMessage = ({ content, images }: { content: string; images?: string[] }) => (
+function fileIcon(mimeType: string): string {
+    if (mimeType.includes('pdf')) return '📄';
+    if (mimeType.includes('word') || mimeType.includes('doc')) return '📝';
+    if (mimeType.includes('excel') || mimeType.includes('xls') || mimeType.includes('spreadsheet')) return '📊';
+    if (mimeType.includes('powerpoint') || mimeType.includes('ppt') || mimeType.includes('presentation')) return '📑';
+    if (mimeType.includes('image')) return '🖼️';
+    if (mimeType.includes('audio')) return '🎵';
+    if (mimeType.includes('video')) return '🎬';
+    return '📎';
+}
+
+function fileTypeLabel(mimeType: string): string {
+    if (mimeType.includes('pdf')) return 'PDF';
+    if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc')) return 'Word 文档';
+    if (mimeType.includes('excel') || mimeType.includes('xlsx') || mimeType.includes('xls')) return 'Excel 表格';
+    if (mimeType.includes('powerpoint') || mimeType.includes('pptx') || mimeType.includes('ppt')) return 'PPT 演示文稿';
+    if (mimeType.includes('text/plain')) return '文本文件';
+    if (mimeType.includes('image')) return '图片';
+    return '文档';
+}
+
+const FileCard = ({ file }: { file: MessageFile }) => {
+    const colors = useThemeColors();
+    return (
+        <View
+            style={[shadowPresets.small, { backgroundColor: colors.secondary }]}
+            className="rounded-2xl overflow-hidden flex-row items-center gap-3 px-3 py-2.5 min-w-[180px] max-w-[280px]"
+        >
+            <View className="w-10 h-10 rounded-xl bg-blue-500 items-center justify-center flex-shrink-0">
+                <ThemedText className="text-lg">{fileIcon(file.mimeType)}</ThemedText>
+            </View>
+            <View className="flex-1 min-w-0">
+                <ThemedText className="text-sm font-medium text-primary" numberOfLines={2}>
+                    {file.name}
+                </ThemedText>
+                <ThemedText className="text-xs text-subtext mt-0.5">
+                    {fileTypeLabel(file.mimeType)}
+                </ThemedText>
+            </View>
+        </View>
+    );
+};
+
+const UserMessage = ({ content, images, files }: { content: string; images?: string[]; files?: MessageFile[] }) => (
     <AnimatedView animation="slideInBottom" duration={300}>
         <View className="self-end max-w-[85%] items-end gap-1">
             {images && images.length > 0 && (
@@ -152,6 +204,13 @@ const UserMessage = ({ content, images }: { content: string; images?: string[] }
                     ))}
                 </View>
             )}
+            {files && files.length > 0 && (
+                <View className="items-end gap-1">
+                    {files.map((f, i) => (
+                        <FileCard key={i} file={f} />
+                    ))}
+                </View>
+            )}
             {content.trim().length > 0 && (
                 <View style={shadowPresets.small} className="bg-secondary rounded-3xl p-global">
                     <ThemedText className="text-base">{content}</ThemedText>
@@ -161,15 +220,57 @@ const UserMessage = ({ content, images }: { content: string; images?: string[] }
     </AnimatedView>
 );
 
+/** 将内容拆分为 thinking 块和主体内容 */
+function parseThinkingBlocks(content: string): { thinking: string[]; main: string } {
+    const thinking: string[] = [];
+    const main = content.replace(/<thinking>([\s\S]*?)<\/thinking>/gi, (_, inner: string) => {
+        const trimmed = inner.trim();
+        if (trimmed) thinking.push(trimmed);
+        return '';
+    }).trim();
+    return { thinking, main };
+}
+
+const ThinkingBlock = ({ text }: { text: string }) => {
+    const [expanded, setExpanded] = useState(false);
+    const colors = useThemeColors();
+    // 只取第一行作为摘要
+    const summary = text.split('\n').find(l => l.trim().length > 0)?.trim().slice(0, 60) ?? '思考过程';
+
+    return (
+        <Pressable
+            onPress={() => setExpanded(v => !v)}
+            className="mb-3 rounded-xl overflow-hidden border border-border"
+            style={{ backgroundColor: colors.secondary + 'CC' }}
+        >
+            <View className="flex-row items-center gap-2 px-3 py-2">
+                <Icon name="Brain" size={14} color={colors.subtext} />
+                <ThemedText className="text-xs text-subtext flex-1" numberOfLines={1}>
+                    {summary}{summary.length < text.trim().split('\n').find(l => l.trim())?.trim().length! ? '…' : ''}
+                </ThemedText>
+                <Icon name={expanded ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.subtext} />
+            </View>
+            {expanded && (
+                <View className="px-3 pb-3 pt-1 border-t border-border">
+                    <ThemedText className="text-xs text-subtext leading-5">{text.trim()}</ThemedText>
+                </View>
+            )}
+        </Pressable>
+    );
+};
+
 type AssistantMessageProps = {
     content: string;
     isStreaming?: boolean;
+    /** 流式期间 AI 正在执行的步骤描述（如"正在读取文件…"） */
+    thinkingStep?: string;
     isLiked: boolean;
     onLike: () => void;
 };
 
-const AssistantMessage = ({ content, isStreaming, isLiked, onLike }: AssistantMessageProps) => {
+const AssistantMessage = ({ content, isStreaming, thinkingStep, isLiked, onLike }: AssistantMessageProps) => {
     const colors = useThemeColors();
+    const { thinking, main } = parseThinkingBlocks(content);
 
     const markdownStyles = StyleSheet.create({
         body: {
@@ -257,12 +358,23 @@ const AssistantMessage = ({ content, isStreaming, isLiked, onLike }: AssistantMe
         <AnimatedView animation="fadeIn" duration={400} delay={200}>
             <View className="max-w-[95%]">
                 <View className="mb-4">
-                    {content.trim().length > 0 ? (
-                        <Markdown style={markdownStyles}>{content}</Markdown>
+                    {/* 思考过程折叠块 */}
+                    {thinking.map((t, i) => (
+                        <ThinkingBlock key={i} text={t} />
+                    ))}
+                    {main.trim().length > 0 ? (
+                        <Markdown
+                            style={markdownStyles}
+                            onLinkPress={(url) => { Linking.openURL(url); return false; }}
+                        >
+                            {main}
+                        </Markdown>
                     ) : !isStreaming ? (
                         <ThemedText className="text-base text-subtext italic">（未收到回复）</ThemedText>
                     ) : null}
-                    {isStreaming ? <ShimmerText text="正在回复…" /> : null}
+                    {isStreaming ? (
+                        <ShimmerText text={thinkingStep ?? '正在回复…'} />
+                    ) : null}
                 </View>
                 {!isStreaming && content.trim().length > 0 && (
                     <>

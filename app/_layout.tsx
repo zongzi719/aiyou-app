@@ -14,10 +14,11 @@ function ThemedLayout() {
     <>
       <ThemedStatusBar />
         <Stack screenOptions={screenOptions}>
-          <Stack.Screen
-            name="(drawer)"
-            options={{ headerShown: false}}
-          />
+          <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
+          <Stack.Screen name="screens/welcome" options={{ headerShown: false }} />
+          <Stack.Screen name="screens/login" options={{ headerShown: false }} />
+          <Stack.Screen name="screens/signup" options={{ headerShown: false }} />
+          <Stack.Screen name="screens/forgot-password" options={{ headerShown: false }} />
           <Stack.Screen name="dev" options={{ headerShown: false }} />
         </Stack>
     </>

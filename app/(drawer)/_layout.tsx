@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { View } from 'react-native';
 import { Drawer } from 'expo-router/drawer';
+import { router } from 'expo-router';
 import { useThemeColors } from '../contexts/ThemeColors';
 import CustomDrawerContent from '@/components/CustomDrawerContent';
 import { useFonts, Outfit_400Regular, Outfit_700Bold } from '@expo-google-fonts/outfit';
+import { hasPrivateChatBackendSession } from '@/lib/authSession';
 
 export default function DrawerLayout() {
     const colors = useThemeColors();
@@ -10,9 +13,21 @@ export default function DrawerLayout() {
         Outfit_400Regular,
         Outfit_700Bold,
     });
+    const [authChecked, setAuthChecked] = useState(false);
 
-    if (!fontsLoaded) {
-        return null;
+    useEffect(() => {
+        hasPrivateChatBackendSession().then((loggedIn) => {
+            if (!loggedIn) {
+                router.replace('/screens/welcome');
+            } else {
+                setAuthChecked(true);
+            }
+        });
+    }, []);
+
+    // 未检查完 / 未登录时渲染空白背景，防止主页内容一闪而过
+    if (!fontsLoaded || !authChecked) {
+        return <View style={{ flex: 1 }} className="bg-background" />;
     }
 
     return (

@@ -15,6 +15,7 @@ import Animated, {
     Keyframe,
 } from "react-native-reanimated";
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { CardScroller } from "./CardScroller";
 import useThemeColors from "@/app/contexts/ThemeColors";
 import { LinearGradient } from "expo-linear-gradient";
@@ -30,8 +31,15 @@ const imageExitAnimation = new Keyframe({
 
 
 
+export interface SelectedFile {
+    uri: string;
+    name: string;
+    mimeType: string;
+    size?: number;
+}
+
 type ChatInputProps = {
-    onSendMessage?: (text: string, images?: string[]) => void;
+    onSendMessage?: (text: string, images?: string[], files?: SelectedFile[]) => void;
 };
 
 
@@ -41,6 +49,7 @@ export const ChatInput = (props: ChatInputProps) => {
 
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
+    const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
     const [inputText, setInputText] = useState('');
     const [isRecordingUI, setIsRecordingUI] = useState(false);
     const lottieRef = useRef<LottieView>(null);
@@ -308,11 +317,63 @@ export const ChatInput = (props: ChatInputProps) => {
         setSelectedImages(prev => prev.filter((_, index) => index !== indexToRemove));
     };
 
+    const pickDocument = async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: '*/*',
+                multiple: true,
+                copyToCacheDirectory: true,
+            });
+            if (!result.canceled && result.assets.length > 0) {
+                const unsupported: string[] = [];
+                const supported: SelectedFile[] = [];
+
+                for (const a of result.assets) {
+                    const ext = a.name.split('.').pop()?.toLowerCase() ?? '';
+                    // 旧版 Word .doc 格式服务器无法转换，需要用 .docx 或 PDF
+                    if (ext === 'doc') {
+                        unsupported.push(a.name);
+                    } else {
+                        supported.push({
+                            uri: a.uri,
+                            name: a.name,
+                            mimeType: a.mimeType ?? 'application/octet-stream',
+                            size: a.size,
+                        });
+                    }
+                }
+
+                if (unsupported.length > 0) {
+                    Alert.alert(
+                        '格式不支持',
+                        `以下文件为旧版 Word 格式（.doc），请在 Word 中另存为 .docx 或 PDF 后重新上传：\n\n${unsupported.join('\n')}`,
+                        [{ text: '知道了' }]
+                    );
+                }
+                if (supported.length > 0) {
+                    setSelectedFiles((prev) => [...prev, ...supported]);
+                }
+            }
+        } catch {
+            Alert.alert('无法打开文件', '请重试');
+        }
+    };
+
+    const removeFile = (indexToRemove: number) => {
+        setSelectedFiles(prev => prev.filter((_, index) => index !== indexToRemove));
+    };
+
     const handleSendMessage = () => {
-        if (props.onSendMessage && (inputText.trim() || selectedImages.length > 0)) {
-            props.onSendMessage(inputText, selectedImages.length > 0 ? selectedImages : undefined);
+        const hasContent = inputText.trim() || selectedImages.length > 0 || selectedFiles.length > 0;
+        if (props.onSendMessage && hasContent) {
+            props.onSendMessage(
+                inputText,
+                selectedImages.length > 0 ? selectedImages : undefined,
+                selectedFiles.length > 0 ? selectedFiles : undefined,
+            );
             setInputText('');
             setSelectedImages([]);
+            setSelectedFiles([]);
         }
     };
 
@@ -340,6 +401,18 @@ export const ChatInput = (props: ChatInputProps) => {
                         images={selectedImages}
                         onRemove={removeImage}
                     />
+                </View>
+            )}
+
+            {selectedFiles.length > 0 && (
+                <View className="mb-2 flex-row flex-wrap gap-2 px-1">
+                    {selectedFiles.map((file, index) => (
+                        <FileAttachmentBadge
+                            key={`${file.uri}-${index}`}
+                            file={file}
+                            onRemove={() => removeFile(index)}
+                        />
+                    ))}
                 </View>
             )}
 
@@ -409,7 +482,7 @@ export const ChatInput = (props: ChatInputProps) => {
                                     </TouchableOpacity>
                                 </Animated.View>
                                 <Animated.View style={attachButtonStyle}>
-                                    <TouchableOpacity activeOpacity={0.8} className='items-center justify-center w-10 h-10 rounded-full'>
+                                    <TouchableOpacity activeOpacity={0.8} onPress={pickDocument} className='items-center justify-center w-10 h-10 rounded-full'>
                                         <Icon name="File" size={20} />
                                     </TouchableOpacity>
                                 </Animated.View>
@@ -473,6 +546,24 @@ export const ChatInput = (props: ChatInputProps) => {
         </>
     );
 }
+
+const FileAttachmentBadge = ({ file, onRemove }: { file: SelectedFile; onRemove: () => void }) => {
+    const ext = file.name.split('.').pop()?.toUpperCase() ?? 'FILE';
+    const displayName = file.name.length > 20 ? `${file.name.slice(0, 18)}…` : file.name;
+    return (
+        <View className="flex-row items-center bg-secondary rounded-2xl px-3 py-2 gap-x-2 border border-border">
+            <View className="w-7 h-7 rounded-lg bg-primary items-center justify-center">
+                <Text className="text-invert text-[9px] font-bold">{ext.slice(0, 4)}</Text>
+            </View>
+            <Text className="text-primary text-xs font-medium max-w-[120px]" numberOfLines={1}>
+                {displayName}
+            </Text>
+            <Pressable onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Icon name="X" size={13} />
+            </Pressable>
+        </View>
+    );
+};
 
 const ScrollableImageList = ({ images, onRemove }: { images: string[], onRemove: (index: number) => void }) => {
     return (

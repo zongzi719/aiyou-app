@@ -4,11 +4,11 @@ import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView } fro
 import Icon, { IconName } from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
 import DrawerButton from '@/components/DrawerButton';
-import { ChatInput } from '@/components/ChatInput';
+import { ChatInput, SelectedFile } from '@/components/ChatInput';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '@/app/contexts/ThemeColors';
 import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
-import { Conversation, Message } from '@/components/Conversation';
+import { Conversation, Message, type MessageFile } from '@/components/Conversation';
 import { streamMessage, isConfigured, AIMessage } from '@/services/ai';
 import { hasPrivateChatBackendSession } from '@/lib/authSession';
 import {
@@ -16,9 +16,41 @@ import {
   streamPrivateChatRun,
   persistThreadTitleFireForget,
   getPrivateThreadStateMessages,
+  uploadFilesToThread,
+  type UploadedFileInfo,
 } from '@/lib/privateChatApi';
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
 import ModelSelector from '@/components/ModelSelector';
+import { fetchProfile } from '@/services/profileApi';
+
+/** 将英文后端错误转为中文友好提示 */
+function friendlyError(raw: string): string {
+    const s = raw.toLowerCase();
+    if (
+        s.includes('authentication') ||
+        s.includes('access is invalid') ||
+        s.includes('credentials') ||
+        s.includes('unauthorized') ||
+        s.includes('api key')
+    ) {
+        return '当前模型的 API 凭证无效或未在服务端配置，请点击右上角模型名称切换到其他可用模型后重试。';
+    }
+    if (s.includes('rate limit') || s.includes('quota') || s.includes('too many')) {
+        return '请求过于频繁，请稍后再试。';
+    }
+    if (s.includes('timeout') || s.includes('network') || s.includes('网络')) {
+        return '网络连接超时，请检查网络后重试。';
+    }
+    if (s.includes('context length') || s.includes('token') || s.includes('too long')) {
+        return '消息内容过长，请缩短后重试。';
+    }
+    if (s.includes('model') && (s.includes('not found') || s.includes('not exist') || s.includes('invalid'))) {
+        return '所选模型不存在或当前不可用，请点击右上角切换模型。';
+    }
+    // 回退：原样返回但截断过长英文
+    return raw.length > 200 ? raw.slice(0, 200) + '…' : raw;
+}
+
 
 function firstSearchParam(v: string | string[] | undefined): string | undefined {
     if (v == null) return undefined;
@@ -33,10 +65,13 @@ const HomeScreen = () => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const selectedModelRef = useRef<string>('');
+    const [userName, setUserName] = useState('');
 
-    // 初始化时读取上次选择的模型
     useEffect(() => {
         getSelectedModelName().then((name) => { selectedModelRef.current = name; });
+        fetchProfile()
+            .then((p) => setUserName(p.display_name || p.username))
+            .catch(() => {});
     }, []);
     const params = useLocalSearchParams<{ openThreadId?: string | string[]; newChat?: string | string[] }>();
     const openThreadIdParam = firstSearchParam(params.openThreadId);
@@ -76,12 +111,17 @@ const HomeScreen = () => {
         }, [])
     );
 
-    const handleSendMessage = async (text: string, images?: string[]) => {
+    const handleSendMessage = async (text: string, images?: string[], files?: SelectedFile[]) => {
+        const hasFiles = files && files.length > 0;
+        const messageFiles: MessageFile[] | undefined = hasFiles
+            ? files!.map((f) => ({ name: f.name, mimeType: f.mimeType }))
+            : undefined;
         const userMessage: Message = {
             id: Date.now().toString(),
             type: 'user',
             content: text,
             images: images && images.length > 0 ? images : undefined,
+            files: messageFiles,
             timestamp: new Date(),
         };
         setMessages(prev => [...prev, userMessage]);
@@ -109,19 +149,51 @@ const HomeScreen = () => {
                     privateThreadIdRef.current = threadId;
                 }
 
+                // 若有附件先上传到服务端，按 API 文档 Step 3+4 规范处理
+                let uploadedFileInfos: UploadedFileInfo[] | undefined;
+                if (hasFiles) {
+                    try {
+                        const uploaded: UploadedFileInfo[] = await uploadFilesToThread(threadId, files!);
+                        if (uploaded.length === 0) {
+                            throw new Error('文件上传成功但未返回路径，请重试');
+                        }
+                        uploadedFileInfos = uploaded;
+                    } catch (uploadErr) {
+                        const errMsg = uploadErr instanceof Error ? uploadErr.message : '文件上传失败';
+                        setMessages(prev => prev.map(m =>
+                            m.id === assistantId
+                                ? { ...m, content: errMsg, isStreaming: false }
+                                : m
+                        ));
+                        setIsTyping(false);
+                        return;
+                    }
+                }
+
                 const modelName = selectedModelRef.current || await getSelectedModelName();
+                // 用户原始文字直接作为 content，文件路径通过 additional_kwargs.files 结构化传递
+                const llmText = text.trim() || (uploadedFileInfos ? '请分析这个文件' : '');
 
                 let sseErrorMsg: string | undefined;
                 await streamPrivateChatRun(
                     threadId,
-                    text,
+                    llmText,
                     modelName,
                     images,
                     {
                         onAssistantText: (full) => {
                             setMessages(prev =>
                                 prev.map(m =>
-                                    m.id === assistantId ? { ...m, content: full } : m
+                                    m.id === assistantId
+                                        ? { ...m, content: full, thinkingStep: undefined }
+                                        : m
+                                )
+                            );
+                        },
+                        onThinkingStep: (step) => {
+                            setMessages(prev =>
+                                prev.map(m =>
+                                    m.id === assistantId ? { ...m, thinkingStep: step } : m
                                 )
                             );
                         },
@@ -131,9 +203,10 @@ const HomeScreen = () => {
                             }
                         },
                         onError: (errMsg) => {
-                            sseErrorMsg = errMsg;
+                            sseErrorMsg = friendlyError(errMsg);
                         },
-                    }
+                    },
+                    uploadedFileInfos,
                 );
 
                 if (sseErrorMsg) {
@@ -145,13 +218,16 @@ const HomeScreen = () => {
                 } else {
                     setMessages(prev =>
                         prev.map(m =>
-                            m.id === assistantId ? { ...m, isStreaming: false } : m
+                            m.id === assistantId
+                                ? { ...m, isStreaming: false, thinkingStep: undefined }
+                                : m
                         )
                     );
                 }
             } catch (error) {
                 setIsTyping(false);
-                const msg = error instanceof Error ? error.message : '私人模式请求失败';
+                const raw = error instanceof Error ? error.message : '请求失败，请稍后重试';
+                const msg = friendlyError(raw);
                 setMessages(prev => {
                     const filtered = prev.filter(m => m.id !== assistantId);
                     return [
@@ -204,7 +280,7 @@ const HomeScreen = () => {
                 role: m.type as 'user' | 'assistant',
                 content: m.content,
             })),
-            { role: 'user' as const, content: text },
+            { role: 'user' as const, content: llmText },
         ];
 
         try {
@@ -285,8 +361,8 @@ const HomeScreen = () => {
                                 overScrollMode='never'
                             >
                                 <View className='flex-1 items-center justify-center relative'>
-                                    <ThemedText className='text-4xl font-outfit-bold'>Welcome John<Text className='text-sky-500'>.</Text></ThemedText>
-                                    <ThemedText className='text-sm text-gray-500 mt-2'>What can I help you with today?</ThemedText>
+                                    <ThemedText className='text-4xl font-outfit-bold'>你好 {userName || 'AI You'}<Text className='text-sky-500'>.</Text></ThemedText>
+                                    <ThemedText className='text-sm text-gray-500 mt-2'>今天有什么我可以帮你的？</ThemedText>
                                     <View className='flex-row gap-x-2 flex-wrap items-center justify-center mt-8'>
                                         <TipCard title="Make a recipe" icon="Cookie" />
                                         <TipCard title="Generate image" icon="Image" />

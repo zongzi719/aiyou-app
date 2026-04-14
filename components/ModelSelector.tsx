@@ -15,10 +15,8 @@ import { fetchAvailableModels, type ModelInfo } from '@/lib/modelsApi';
 import { getSelectedModelName, setSelectedModelName } from '@/lib/privateChatUiModel';
 
 const FALLBACK_MODELS: ModelInfo[] = [
-  { id: 'gpt-4o', display_name: 'GPT-4o' },
-  { id: 'gpt-4o-mini', display_name: 'GPT-4o mini' },
-  { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet' },
-  { id: 'gemini-2.0-flash', display_name: 'Gemini Flash' },
+  { id: 'doubao-seed-2.0-mini', display_name: 'doubao-seed-2.0-mini' },
+  { id: 'qwen-turbo', display_name: 'qwen-turbo' },
 ];
 
 function shortLabel(id: string, displayName?: string): string {

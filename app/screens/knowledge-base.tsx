@@ -10,7 +10,10 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -54,24 +57,35 @@ interface FolderCardProps {
   onLongPress: () => void;
 }
 
+// 3列 grid，每格宽度 = (屏幕宽 - 水平padding*2 - 列间距*2) / 3
+const GRID_COLS = 3;
+const GRID_GAP = 12;
+const GRID_H_PADDING = 16; // px-global
+const FOLDER_ITEM_WIDTH = (SCREEN_WIDTH - GRID_H_PADDING * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+
 const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
+  const cardH = FOLDER_ITEM_WIDTH * 0.78;
   return (
     <TouchableOpacity
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.75}
-      className="mr-4 items-center"
-      style={{ width: 100 }}
+      style={{ width: FOLDER_ITEM_WIDTH, marginBottom: GRID_GAP }}
     >
-      <View className="w-24 h-20 rounded-xl bg-secondary items-center justify-center mb-2 relative">
-        <View className="absolute top-2 right-2 w-10 h-12 bg-background rounded-md opacity-60" />
-        <View className="absolute top-3 right-3 w-10 h-12 bg-background rounded-md opacity-80" />
-        <View className="w-10 h-12 bg-background rounded-md shadow-sm" />
-        <View className="absolute bottom-1.5 right-1.5 bg-background/80 rounded px-1">
+      <View
+        className="rounded-2xl bg-secondary items-center justify-center mb-1.5 relative overflow-hidden"
+        style={{ height: cardH }}
+      >
+        {/* 叠层文档效果 */}
+        <View className="absolute" style={{ bottom: 8, left: 10, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.35 }} />
+        <View className="absolute" style={{ bottom: 10, left: 14, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.55 }} />
+        <View className="absolute" style={{ bottom: 12, left: 18, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.8 }} />
+        {/* 文件数角标 */}
+        <View className="absolute top-2 right-2 bg-background/70 rounded-md px-1.5 py-0.5">
           <ThemedText className="text-[10px] text-subtext">{folder.count}</ThemedText>
         </View>
       </View>
-      <ThemedText className="text-xs text-center text-primary" numberOfLines={1}>
+      <ThemedText className="text-xs text-center text-primary px-1" numberOfLines={1}>
         {folder.name}
       </ThemedText>
     </TouchableOpacity>
@@ -411,6 +425,33 @@ export default function KnowledgeBaseScreen() {
 
   useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
 
+  const pollFileStatus = useCallback((fileId: string) => {
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60;
+
+    const tick = async () => {
+      attempts += 1;
+      if (attempts > MAX_ATTEMPTS) return;
+      try {
+        const result = await knowledgeApi.getFileStatus(fileId);
+        setFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? { ...f, status: result.status, progress: result.progress }
+              : f
+          )
+        );
+        if (result.status !== 'done' && result.status !== 'error') {
+          setTimeout(tick, 2000);
+        }
+      } catch {
+        // 轮询失败时静默忽略，不影响 UI
+      }
+    };
+
+    setTimeout(tick, 2000);
+  }, []);
+
   const uploadFile = async (uri: string, filename: string, mimeType: string) => {
     try {
       const { file_id } = await knowledgeApi.uploadFile(
@@ -431,8 +472,11 @@ export default function KnowledgeBaseScreen() {
         progress: 0,
       };
       setFiles((prev) => [newFile, ...prev]);
+      pollFileStatus(file_id);
     } catch (e) {
-      Alert.alert('上传失败', e instanceof Error ? e.message : '请稍后重试');
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('[uploadFile] error:', msg, e);
+      Alert.alert('上传失败', msg || '请稍后重试');
     }
   };
 
@@ -661,6 +705,58 @@ export default function KnowledgeBaseScreen() {
     </TouchableOpacity>
   );
 
+  const listHeader = (
+    <View>
+      {/* 搜索栏 */}
+      <View className="flex-row items-center bg-secondary rounded-full px-4 mb-4 h-11">
+        <Icon name="Search" size={18} />
+        <TextInput
+          className="flex-1 ml-2 text-sm text-primary"
+          placeholder="搜索文件"
+          placeholderTextColor={colors.placeholder}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          returnKeyType="search"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Icon name="X" size={16} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* 文件夹 3列 grid */}
+      {folders.length > 0 && !searchQuery && (
+        <View className="flex-row flex-wrap mb-2" style={{ gap: GRID_GAP }}>
+          {folders.map((folder) => (
+            <FolderCard
+              key={folder.id}
+              folder={folder}
+              onPress={() =>
+                setSelectedFolderId((prev) => (prev === folder.id ? null : folder.id))
+              }
+              onLongPress={() => handleFolderLongPress(folder)}
+            />
+          ))}
+        </View>
+      )}
+
+      {/* 文件列表标题行 */}
+      <View className="flex-row items-center justify-between mb-2 mt-1">
+        <ThemedText className="text-base font-bold">
+          {selectedFolderId
+            ? folders.find((f) => f.id === selectedFolderId)?.name ?? '文件列表'
+            : '近30天'}
+        </ThemedText>
+        <TouchableOpacity onPress={() => setSelectedFolderId(null)}>
+          <ThemedText className="text-sm text-subtext">
+            {selectedFolderId ? '显示全部' : '显示正文'}
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <View className="flex-1 bg-background">
       <Header
@@ -671,82 +767,32 @@ export default function KnowledgeBaseScreen() {
         rightComponents={[rightHeaderComponent]}
       />
 
-      <View className="flex-1 px-global">
-        <View className="flex-row items-center bg-secondary rounded-full px-4 mb-5 h-11">
-          <Icon name="Search" size={18} />
-          <TextInput
-            className="flex-1 ml-2 text-sm text-primary"
-            placeholder="搜索文件"
-            placeholderTextColor={colors.placeholder}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            returnKeyType="search"
+      <FlatList
+        data={filteredFiles}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        ListHeaderComponent={listHeader}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor={colors.icon} />
+        }
+        renderItem={({ item }) => (
+          <FileRow
+            file={item}
+            onPress={() => {
+              setSelectedFile(item);
+              setDetailVisible(true);
+            }}
+            onMenuPress={() => handleFileMenuPress(item)}
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Icon name="X" size={16} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {folders.length > 0 && !searchQuery && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            className="mb-5"
-            contentContainerStyle={{ paddingRight: 16 }}
-          >
-            {folders.map((folder) => (
-              <FolderCard
-                key={folder.id}
-                folder={folder}
-                onPress={() =>
-                  setSelectedFolderId((prev) => (prev === folder.id ? null : folder.id))
-                }
-                onLongPress={() => handleFolderLongPress(folder)}
-              />
-            ))}
-          </ScrollView>
         )}
-
-        <View className="flex-row items-center justify-between mb-3">
-          <ThemedText className="text-base font-bold">
-            {selectedFolderId
-              ? folders.find((f) => f.id === selectedFolderId)?.name ?? '文件列表'
-              : '近30天'}
-          </ThemedText>
-          {selectedFolderId && (
-            <TouchableOpacity onPress={() => setSelectedFolderId(null)}>
-              <ThemedText className="text-sm text-subtext">显示全部</ThemedText>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <FlatList
-          data={filteredFiles}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor={colors.icon} />
-          }
-          renderItem={({ item }) => (
-            <FileRow
-              file={item}
-              onPress={() => {
-                setSelectedFile(item);
-                setDetailVisible(true);
-              }}
-              onMenuPress={() => handleFileMenuPress(item)}
-            />
-          )}
-          ListEmptyComponent={
-            <View className="items-center py-16">
-              <Icon name="FolderOpen" size={48} />
-              <ThemedText className="text-subtext mt-3">暂无文件</ThemedText>
-            </View>
-          }
-        />
-      </View>
+        ListEmptyComponent={
+          <View className="items-center py-16">
+            <Icon name="FolderOpen" size={48} />
+            <ThemedText className="text-subtext mt-3">暂无文件</ThemedText>
+          </View>
+        }
+      />
 
       <FileDetailModal
         file={selectedFile}

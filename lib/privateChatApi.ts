@@ -8,6 +8,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 export interface PrivateStreamHandlers {
   onAssistantText: (fullText: string) => void;
   onTitleDetected?: (title: string) => void;
+  /** 流式期间 AI 正在调用工具时触发，传入可读的步骤描述 */
+  onThinkingStep?: (step: string) => void;
   onError?: (msg: string) => void;
 }
 
@@ -186,6 +188,83 @@ export function registerPrivateSessionFireForget(threadId: string): void {
   })();
 }
 
+export interface UploadedFileInfo {
+  /** AI 应读取的路径：DOCX/PDF 优先用 markdown_virtual_path，否则用 virtual_path */
+  readPath: string;
+  /** 原始文件的 virtual_path */
+  virtualPath: string;
+  filename: string;
+}
+
+/** 将文件上传到指定 thread 的 uploads 目录，返回上传结果列表 */
+export async function uploadFilesToThread(
+  threadId: string,
+  files: Array<{ uri: string; name: string; mimeType: string }>,
+): Promise<UploadedFileInfo[]> {
+  const [base, headers] = await Promise.all([getApiBaseUrl(), getPrivateChatAuthHeaders()]);
+  const url = `${base.replace(/\/$/, '')}/api/threads/${encodeURIComponent(threadId)}/uploads`;
+
+  const formData = new FormData();
+
+  // React Native 标准文件上传方式：直接传 { uri, name, type }，由 RN 原生网络层读取文件内容
+  // 注意：base64 → dataURL → Blob 这条路在 iOS 上 Blob 序列化为 0 字节，不能用
+  for (const f of files) {
+    formData.append('files', { uri: f.uri, name: f.name, type: f.mimeType } as unknown as Blob);
+  }
+
+  // 移除 Content-Type，让 fetch 自动设置 multipart boundary
+  const uploadHeaders: Record<string, string> = { ...headers };
+  delete uploadHeaders['Content-Type'];
+
+  const res = await fetch(url, { method: 'POST', headers: uploadHeaders, body: formData });
+  const rawText = await res.text().catch(() => '');
+
+  if (__DEV__) {
+    console.log('[uploadFilesToThread] status:', res.status, 'body:', rawText.slice(0, 500));
+  }
+
+  if (!res.ok) {
+    throw new Error(`文件上传失败 HTTP ${res.status}: ${rawText.slice(0, 200)}`);
+  }
+
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(rawText) as Record<string, unknown>;
+  } catch {
+    throw new Error(`文件上传响应解析失败: ${rawText.slice(0, 200)}`);
+  }
+
+  type RawFileEntry = {
+    filename?: string;
+    virtual_path?: string;
+    markdown_virtual_path?: string;
+  };
+
+  const rawFiles = (Array.isArray(json.files) ? json.files : []) as RawFileEntry[];
+
+  const result = rawFiles
+    .filter((f) => f.virtual_path)
+    .map((f) => ({
+      // DOCX/PDF 服务器会自动转 markdown，优先用 markdown 路径供 AI 读取
+      readPath: f.markdown_virtual_path ?? f.virtual_path!,
+      virtualPath: f.virtual_path!,
+      filename: f.filename ?? '',
+    }));
+
+  if (__DEV__) {
+    console.log('[uploadFilesToThread] parsed files:', JSON.stringify(result));
+    result.forEach((f) => {
+      if (f.readPath === f.virtualPath) {
+        console.warn(
+          `[uploadFilesToThread] ⚠️ 服务端未返回 markdown_virtual_path，文件将以原始路径发给 AI（可能无法读取）: ${f.filename} → ${f.readPath}`,
+        );
+      }
+    });
+  }
+
+  return result;
+}
+
 export function persistThreadTitleFireForget(threadId: string, title: string): void {
   void (async () => {
     try {
@@ -233,6 +312,66 @@ function normalizeAiContent(content: unknown): string {
       return '';
     })
     .join('');
+}
+
+/** 从 AI 消息对象中提取模型的 thinking/reasoning 内容（doubao-seed 等推理模型会输出此字段） */
+function extractAiThinkingContent(msg: Record<string, unknown>): string {
+  const kwargs = asRecord(msg.kwargs);
+  const src = kwargs ?? msg;
+  const addKwargs = asRecord(src.additional_kwargs);
+  const respMeta = asRecord(src.response_metadata);
+  const raw =
+    addKwargs?.thinking_content ??
+    addKwargs?.reasoning_content ??
+    respMeta?.thinking_content ??
+    respMeta?.reasoning_content ??
+    '';
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+/** 工具名称 → 用户可读描述 */
+function toolNameToLabel(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes('read') || n.includes('file')) return '读取文件';
+  if (n.includes('write') || n.includes('save') || n.includes('create')) return '保存文件';
+  if (n.includes('search') || n.includes('web') || n.includes('browse')) return '搜索信息';
+  if (n.includes('code') || n.includes('execute') || n.includes('run')) return '执行代码';
+  if (n.includes('memory') || n.includes('remember')) return '更新记忆';
+  if (n.includes('report') || n.includes('answer')) return '整理回答';
+  if (n.includes('think') || n.includes('reason') || n.includes('plan')) return '深度思考';
+  return name;
+}
+
+/** 从 updates/values payload 中提取 AI 当前正在调用的工具名称列表 */
+function extractToolCallNamesFromPayload(payload: unknown): string[] {
+  const names: string[] = [];
+  const stack: unknown[] = [payload];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object') continue;
+    const o = cur as Record<string, unknown>;
+    if (Array.isArray(o.messages)) {
+      for (const m of o.messages) {
+        const msg = asRecord(m);
+        if (!msg) continue;
+        const kwargs = asRecord(msg.kwargs);
+        const src = kwargs ?? msg;
+        const type = typeof src.type === 'string' ? src.type : '';
+        const role = typeof src.role === 'string' ? src.role : '';
+        const isAi = type === 'ai' || type === 'assistant' || role === 'assistant';
+        if (isAi && Array.isArray(src.tool_calls)) {
+          for (const tc of src.tool_calls) {
+            const t = asRecord(tc);
+            if (t && typeof t.name === 'string' && t.name) names.push(t.name);
+          }
+        }
+      }
+    }
+    for (const v of Object.values(o)) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) stack.push(v);
+    }
+  }
+  return [...new Set(names)];
 }
 
 function rawMessageLooksLikeChatEntry(m: unknown): boolean {
@@ -343,9 +482,45 @@ export async function getPrivateThreadStateMessages(threadId: string): Promise<M
   return getPrivateThreadHistoryMessages(threadId);
 }
 
-function extractLastAssistantFromMessageList(raw: unknown[]): string | undefined {
-  let last = '';
-  for (const m of raw) {
+/** 获取消息列表中最后一条 human 消息的下一个索引，使提取只针对当前轮次 */
+function sliceAfterLastHuman(raw: unknown[]): unknown[] {
+  for (let i = raw.length - 1; i >= 0; i--) {
+    const msg = asRecord(raw[i]);
+    if (!msg) continue;
+    const kwargs = asRecord(msg.kwargs);
+    const type = kwargs
+      ? (typeof kwargs.type === 'string' ? kwargs.type : '')
+      : (typeof msg.type === 'string' ? msg.type : '');
+    const role = kwargs
+      ? (typeof kwargs.role === 'string' ? kwargs.role : '')
+      : (typeof msg.role === 'string' ? msg.role : '');
+    if (type === 'human' || type === 'user' || role === 'human' || role === 'user') {
+      return raw.slice(i + 1);
+    }
+  }
+  return raw;
+}
+
+/**
+ * 从消息列表中提取 AI 响应。
+ *
+ * includeToolContent=true  → 同时兼容 doubao-seed 等通过 report tool 返回最终回复的模式
+ * includeToolContent=false → 流式中间态：只取 ai/assistant 文字，避免 tool 中间结果闪屏
+ *
+ * 注意：始终从最后一条 human 消息之后开始遍历，防止多轮对话时把上一轮答案显示给新一轮。
+ */
+function extractLastAssistantFromMessageList(
+  raw: unknown[],
+  includeToolContent = true,
+): string | undefined {
+  // 只看当前轮次（最后一条 human 消息之后）—— 修复问题2
+  const slice = sliceAfterLastHuman(raw);
+
+  let lastAi = '';
+  let toolAfterAi = '';
+  let seenAi = false;
+
+  for (const m of slice) {
     const msg = asRecord(m);
     if (!msg) continue;
     const kwargs = asRecord(msg.kwargs);
@@ -359,26 +534,68 @@ function extractLastAssistantFromMessageList(raw: unknown[]): string | undefined
     }
     const isAssistant =
       type === 'ai' || type === 'assistant' || role === 'assistant' || role === 'ai';
+    const isTool = type === 'tool';
+
     if (isAssistant) {
-      last = normalizeAiContent(contentSrc);
+      seenAi = true;
+      const c = normalizeAiContent(contentSrc);
+      if (c) {
+        // 附加模型的 reasoning/thinking 内容（doubao-seed 等推理模型）
+        const thinking = extractAiThinkingContent(msg);
+        lastAi = thinking ? `<thinking>${thinking}</thinking>\n${c}` : c;
+        toolAfterAi = '';
+      }
+    } else if (isTool && seenAi && includeToolContent) {
+      const c = normalizeAiContent(contentSrc);
+      if (c) toolAfterAi = c;
     }
   }
-  return last.length > 0 ? last : undefined;
+
+  const result = (includeToolContent ? toolAfterAi : '') || lastAi;
+  return result.length > 0 ? result : undefined;
 }
 
-/** 顶层或子图嵌套（如 lead_agent.messages）的 values 事件 */
-function extractLastAiFromValuesPayloadDeep(payload: unknown): string | undefined {
+/** 判断 values payload 中的最后一条消息是否来自 agent（ai / tool），
+ *  若最后一条是 human 说明 AI 还未响应，应跳过此次 UI 更新 */
+function valuesPayloadHasAgentResponse(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const root = payload as { messages?: unknown };
+  const msgs = Array.isArray(root.messages) ? root.messages : null;
+  if (!msgs || msgs.length === 0) return false;
+  const last = asRecord(msgs[msgs.length - 1]);
+  if (!last) return false;
+  const kwargs = asRecord(last.kwargs);
+  const type = kwargs
+    ? (typeof kwargs.type === 'string' ? kwargs.type : '')
+    : (typeof last.type === 'string' ? last.type : '');
+  const role = kwargs
+    ? (typeof kwargs.role === 'string' ? kwargs.role : '')
+    : (typeof last.role === 'string' ? last.role : '');
+  const isHuman = type === 'human' || type === 'user' || role === 'human' || role === 'user';
+  return !isHuman;
+}
+
+/**
+ * 顶层或子图嵌套（如 lead_agent.messages）的 values 事件提取。
+ * streamingMode=true  → 只取纯 AI 文字，不显示 tool 中间结果（避免闪屏）
+ * streamingMode=false → 允许 tool 内容兜底（给 end 事件最终提取用）
+ */
+function extractLastAiFromValuesPayloadDeep(
+  payload: unknown,
+  streamingMode = false,
+): string | undefined {
   if (!payload || typeof payload !== 'object') return undefined;
+  const includeToolContent = !streamingMode;
   const root = payload as { messages?: unknown };
   if (Array.isArray(root.messages)) {
-    const t = extractLastAssistantFromMessageList(root.messages);
+    const t = extractLastAssistantFromMessageList(root.messages, includeToolContent);
     if (t) return t;
   }
   const buckets: unknown[][] = [];
   collectMessageArrays(payload, 0, buckets);
   if (buckets.length === 0) return undefined;
   const best = buckets.reduce((a, b) => (b.length > a.length ? b : a));
-  return extractLastAssistantFromMessageList(best);
+  return extractLastAssistantFromMessageList(best, includeToolContent);
 }
 
 function parseSseBlocks(buffer: string): { blocks: string[]; rest: string } {
@@ -479,7 +696,8 @@ export async function streamPrivateChatRun(
   userText: string,
   modelName: string,
   images: string[] | undefined,
-  handlers: PrivateStreamHandlers
+  handlers: PrivateStreamHandlers,
+  uploadedFiles?: UploadedFileInfo[],
 ): Promise<void> {
   const base = await getApiBaseUrl();
   const headers = await getPrivateChatAuthHeaders();
@@ -497,14 +715,7 @@ export async function streamPrivateChatRun(
       ? multitask
       : 'reject';
 
-  // 只有环境变量明确指定了模型名才下发，否则让服务端用其 config.yaml 默认模型
   const resolvedModel = modelName.trim();
-  const envDefault = (
-    process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_OPENAI?.trim() ||
-    process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_CLAUDE?.trim() ||
-    process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_GEMINI?.trim()
-  );
-  const sendModelName = envDefault ? resolvedModel : undefined;
 
   const baseContext: Record<string, unknown> = {
     user_id: s.userId,
@@ -514,35 +725,64 @@ export async function streamPrivateChatRun(
     thinking_enabled: thinking,
     is_plan_mode: plan,
     subagent_enabled: sub,
+    // 禁止 AI 在未被明确要求时自动调用文件保存工具；所有回复默认以文字格式直接展示
+    output_guidelines: '除非用户明确要求，否则禁止调用文件保存工具，所有回答直接以 Markdown 文字在对话中输出。',
+    disable_auto_file_output: true,
   };
-  if (sendModelName) {
-    baseContext.model_name = sendModelName;
+  if (resolvedModel) {
+    baseContext.model_name = resolvedModel;
   }
 
-  // 构建多模态 content：先图片后文字
+  // 构建消息 content：
+  //   - 纯文字 → 直接发字符串（与 web 端保持一致，部分 LLM Provider 不接受数组格式）
+  //   - 含图片或文件 → 发 multimodal 数组（API 文档 Step 4 要求）
   type ContentPart =
     | { type: 'text'; text: string }
     | { type: 'image_url'; image_url: { url: string } };
 
-  const contentParts: ContentPart[] = [];
-  if (images && images.length > 0) {
-    const dataUrls = await Promise.all(images.map((uri) => imageUriToDataUrl(uri)));
-    for (const url of dataUrls) {
-      contentParts.push({ type: 'image_url', image_url: { url } });
+  const hasImages = images && images.length > 0;
+  const hasFiles = uploadedFiles && uploadedFiles.length > 0;
+  let messageContent: string | ContentPart[];
+
+  if (hasImages || hasFiles) {
+    const contentParts: ContentPart[] = [];
+    if (hasImages) {
+      const dataUrls = await Promise.all(images!.map((uri) => imageUriToDataUrl(uri)));
+      for (const url of dataUrls) {
+        contentParts.push({ type: 'image_url', image_url: { url } });
+      }
     }
+    if (userText.trim()) {
+      contentParts.push({ type: 'text', text: userText });
+    }
+    messageContent = contentParts;
+  } else {
+    messageContent = userText.trim();
   }
-  if (userText.trim()) {
-    contentParts.push({ type: 'text', text: userText });
+
+  // 按 API 文档 Step 4 规范：文件信息放在 additional_kwargs.files，不拼入文字
+  type FileKwarg = { filename: string; path: string; status: 'uploaded' };
+  const additionalKwargs: { files?: FileKwarg[] } | undefined = hasFiles
+    ? {
+        files: uploadedFiles!.map((f) => ({
+          filename: f.filename,
+          path: f.virtualPath,
+          status: 'uploaded' as const,
+        })),
+      }
+    : undefined;
+
+  const humanMessage: Record<string, unknown> = {
+    type: 'human',
+    content: messageContent,
+  };
+  if (additionalKwargs) {
+    humanMessage.additional_kwargs = additionalKwargs;
   }
 
   const body = {
     input: {
-      messages: [
-        {
-          type: 'human',
-          content: contentParts,
-        },
-      ],
+      messages: [humanMessage],
     },
     config: { recursion_limit: 1000 },
     context: baseContext,
@@ -562,6 +802,7 @@ export async function streamPrivateChatRun(
 
   let carry = '';
   let chunkAccum = '';
+  let lastValuesPayload: unknown = null; // 用于 end 事件后最终提取（兜底 doubao-seed tool 回复）
 
   const processBlock = (block: string) => {
     let eventName = 'message';
@@ -590,8 +831,16 @@ export async function streamPrivateChatRun(
 
     if (eventName === 'error') {
       const o = asRecord(parsed);
+      // 优先取 message，然后 detail，最后 JSON 全文（便于排查）
       const msg =
-        typeof o?.message === 'string' ? o.message.trim().slice(0, 400) : JSON.stringify(parsed);
+        typeof o?.message === 'string' && o.message.trim()
+          ? o.message.trim().slice(0, 400)
+          : typeof o?.detail === 'string' && o.detail.trim()
+          ? o.detail.trim().slice(0, 400)
+          : JSON.stringify(parsed).slice(0, 400);
+      if (__DEV__) {
+        console.warn('[SSE error event]', JSON.stringify(parsed));
+      }
       handlers.onError?.(msg);
       return;
     }
@@ -599,25 +848,43 @@ export async function streamPrivateChatRun(
     if (eventName === 'updates') {
       const t = extractNestedTitle(parsed);
       if (t) handlers.onTitleDetected?.(t);
+      // 提取 AI 正在调用的工具名称，告知前端"思考步骤"
+      const toolNames = extractToolCallNamesFromPayload(parsed);
+      if (toolNames.length > 0) {
+        const labels = toolNames.map(toolNameToLabel);
+        handlers.onThinkingStep?.(`正在${labels.join('、')}…`);
+      }
       return;
     }
 
     if (eventName === 'values') {
       chunkAccum = '';
-      const fromMessages = extractLastAiFromValuesPayloadDeep(parsed);
+      lastValuesPayload = parsed;
       const topTitle =
         extractNestedTitle(parsed) ||
         (parsed && typeof parsed === 'object' && typeof (parsed as { title?: string }).title === 'string'
           ? (parsed as { title: string }).title.trim()
           : undefined);
       if (topTitle) handlers.onTitleDetected?.(topTitle);
-      if (fromMessages !== undefined) {
-        handlers.onAssistantText(fromMessages);
+      // 流式期间只取纯 AI 文字（streamingMode=true），不显示 tool 中间结果，避免闪屏（问题1）
+      // 从最后一条 human 消息之后提取，避免把上一轮答案显示给新一轮（问题2）
+      if (valuesPayloadHasAgentResponse(parsed)) {
+        const fromMessages = extractLastAiFromValuesPayloadDeep(parsed, true);
+        if (fromMessages !== undefined) {
+          handlers.onAssistantText(fromMessages);
+        }
       }
       return;
     }
 
     if (eventName === 'end') {
+      // 流结束后用完整模式再提取一次（兜底 doubao-seed 等通过 tool 返回最终回复的模型）
+      if (lastValuesPayload) {
+        const finalText = extractLastAiFromValuesPayloadDeep(lastValuesPayload, false);
+        if (finalText) {
+          handlers.onAssistantText(finalText);
+        }
+      }
       return;
     }
 

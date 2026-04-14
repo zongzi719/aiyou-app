@@ -6,7 +6,7 @@ const DEFAULT_MODEL =
   process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_OPENAI?.trim() ||
   process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_CLAUDE?.trim() ||
   process.env.EXPO_PUBLIC_PRIVATE_CHAT_MODEL_GEMINI?.trim() ||
-  'gpt-4o';
+  'doubao-seed-2.0-mini';
 
 /** 读取上次选择的模型名（model_name），默认 DEFAULT_MODEL */
 export async function getSelectedModelName(): Promise<string> {
