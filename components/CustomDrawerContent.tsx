@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useDrawerStatus } from '@react-navigation/drawer';
-import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
 import { shadowPresets } from '@/utils/useShadow';
 import ThemedText from './ThemedText';
 import Icon, { IconName } from './Icon';
@@ -13,6 +13,12 @@ import Avatar from './Avatar';
 import { hasPrivateChatBackendSession } from '@/lib/authSession';
 import { searchPrivateThreads, type ThreadSummary } from '@/lib/privateChatApi';
 import { fetchProfile, bustAvatarCache, type UserProfile } from '@/services/profileApi';
+import {
+  peekPrivateThreadsCache,
+  putPrivateThreadsCache,
+  privateThreadsCacheStale,
+  LIST_CACHE_POLL_INTERVAL_MS,
+} from '@/lib/listDataCache';
 
 type Props = {
     drawerNavigation: { closeDrawer: () => void };
@@ -22,40 +28,86 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
     const insets = useSafeAreaInsets();
     const colors = useThemeColors();
     const drawerStatus = useDrawerStatus();
-    const [privateThreads, setPrivateThreads] = useState<ThreadSummary[]>([]);
+    const [privateThreads, setPrivateThreads] = useState<ThreadSummary[]>(
+        () => peekPrivateThreadsCache() ?? []
+    );
     const [threadsLoading, setThreadsLoading] = useState(false);
+    const [threadsRefreshing, setThreadsRefreshing] = useState(false);
     const [profile, setProfile] = useState<UserProfile | null>(null);
+
+    const loadThreads = useCallback(async (force: boolean) => {
+        const cached = peekPrivateThreadsCache();
+        if (cached != null) {
+            setPrivateThreads(cached);
+        }
+        if (!force && !privateThreadsCacheStale()) {
+            setThreadsLoading(false);
+            return;
+        }
+        if (cached == null || cached.length === 0) {
+            setThreadsLoading(true);
+        }
+        try {
+            if (!(await hasPrivateChatBackendSession())) {
+                setPrivateThreads([]);
+                return;
+            }
+            const list = await searchPrivateThreads({ limit: 40 });
+            putPrivateThreadsCache(list);
+            setPrivateThreads(list);
+        } finally {
+            setThreadsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (drawerStatus !== 'open') return;
         let cancelled = false;
         void (async () => {
-            setThreadsLoading(true);
+            await loadThreads(false);
+            if (cancelled) return;
             try {
-                if (!(await hasPrivateChatBackendSession())) {
-                    if (!cancelled) setPrivateThreads([]);
-                    return;
-                }
-                const [list, prof] = await Promise.all([
-                    searchPrivateThreads({ limit: 40 }),
-                    fetchProfile().catch(() => null),
-                ]);
-                if (!cancelled) {
-                    setPrivateThreads(list);
-                    if (prof) setProfile(prof);
-                }
-            } finally {
-                if (!cancelled) setThreadsLoading(false);
+                const prof = await fetchProfile().catch(() => null);
+                if (!cancelled && prof) setProfile(prof);
+            } catch {
+                /* ignore */
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [drawerStatus]);
+    }, [drawerStatus, loadThreads]);
+
+    useEffect(() => {
+        if (drawerStatus !== 'open') return;
+        const id = setInterval(() => {
+            void loadThreads(false);
+        }, LIST_CACHE_POLL_INTERVAL_MS);
+        return () => clearInterval(id);
+    }, [drawerStatus, loadThreads]);
+
+    const onThreadsPullRefresh = useCallback(async () => {
+        setThreadsRefreshing(true);
+        try {
+            await loadThreads(true);
+        } finally {
+            setThreadsRefreshing(false);
+        }
+    }, [loadThreads]);
 
     return (
         <View className="flex-1 px-global bg-background" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
-            <ThemedScroller className='flex-1 px-0 '>
+            <ThemedScroller
+                className='flex-1 px-0 '
+                bounces
+                refreshControl={
+                    <RefreshControl
+                        refreshing={threadsRefreshing}
+                        onRefresh={onThreadsPullRefresh}
+                        tintColor={colors.highlight}
+                    />
+                }
+            >
                 <View className='flex-row justify-between items-center mt-4'>
                     <View
                         className='bg-secondary rounded-full relative flex-1 mr-4' style={shadowPresets.medium}>

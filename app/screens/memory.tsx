@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
+import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
 import ThemedText from '@/components/ThemedText';
@@ -34,6 +35,18 @@ import {
   resolveMemoryTime,
 } from '@/services/memoryApi';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import {
+  peekMemoryMemories,
+  putMemoryMemories,
+  memoryMemoriesStale,
+  peekMemoryDocuments,
+  putMemoryDocuments,
+  memoryDocumentsStale,
+  peekMemoryTodos,
+  putMemoryTodos,
+  memoryTodosStale,
+  LIST_CACHE_POLL_INTERVAL_MS,
+} from '@/lib/listDataCache';
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
@@ -173,27 +186,48 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
 };
 
 interface MemoriesTabProps {
-  refreshing: boolean;
-  onRefresh: () => void;
   contentBottomPad: number;
 }
 
-const MemoriesTab = ({ refreshing, onRefresh, contentBottomPad }: MemoriesTabProps) => {
+const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
   const colors = useThemeColors();
-  const [memories, setMemories] = useState<UserMemory[]>([]);
+  const [memories, setMemories] = useState<UserMemory[]>(() => peekMemoryMemories() ?? []);
   const [activeCategory, setActiveCategory] = useState('全部');
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (!force && !memoryMemoriesStale()) return;
     try {
       const list = await memoryApi.getMemories();
+      putMemoryMemories(list);
       setMemories(list);
     } catch {
-      setMemories([]);
+      if (!peekMemoryMemories()?.length) setMemories([]);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load(false);
+    }, [load])
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void load(false);
+    }, LIST_CACHE_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [load]);
 
   // 从实际数据动态提取分类列表
   const categories = extractCategories(memories);
@@ -217,7 +251,11 @@ const MemoriesTab = ({ refreshing, onRefresh, contentBottomPad }: MemoriesTabPro
     .sort((a, b) => memorySortTime(b) - memorySortTime(a));
 
   const handleDelete = async (id: string) => {
-    setMemories((prev) => prev.filter((m) => m.id !== id));
+    setMemories((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      putMemoryMemories(next);
+      return next;
+    });
     try { await memoryApi.deleteMemory(id); } catch { /* ignore */ }
   };
 
@@ -227,7 +265,7 @@ const MemoriesTab = ({ refreshing, onRefresh, contentBottomPad }: MemoriesTabPro
       keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.highlight} />
+        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
       }
       ListHeaderComponent={
         <>
@@ -319,27 +357,48 @@ const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
 };
 
 interface DocumentsTabProps {
-  refreshing: boolean;
-  onRefresh: () => void;
   contentBottomPad: number;
 }
 
-const DocumentsTab = ({ refreshing, onRefresh, contentBottomPad }: DocumentsTabProps) => {
+const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
   const colors = useThemeColors();
-  const [documents, setDocuments] = useState<HistoryDocument[]>([]);
+  const [documents, setDocuments] = useState<HistoryDocument[]>(() => peekMemoryDocuments() ?? []);
   const [search, setSearch] = useState('');
   const [showTitleOnly, setShowTitleOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
+    if (!force && !memoryDocumentsStale()) return;
     try {
       const list = await memoryApi.getDocuments();
+      putMemoryDocuments(list);
       setDocuments(list);
     } catch {
-      setDocuments([]);
+      if (!peekMemoryDocuments()?.length) setDocuments([]);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load(true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load(false);
+    }, [load])
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void load(false);
+    }, LIST_CACHE_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [load]);
 
   const filtered = documents.filter((d) =>
     search ? d.title.toLowerCase().includes(search.toLowerCase()) : true
@@ -351,7 +410,7 @@ const DocumentsTab = ({ refreshing, onRefresh, contentBottomPad }: DocumentsTabP
       keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.highlight} />
+        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
       }
       ListHeaderComponent={
         <>
@@ -425,27 +484,53 @@ const TodoItem = ({ todo, onToggle }: TodoItemProps) => {
 };
 
 interface TodosTabProps {
-  refreshing: boolean;
-  onRefresh: () => void;
   contentBottomPad: number;
 }
 
-const TodosTab = ({ refreshing, onRefresh, contentBottomPad }: TodosTabProps) => {
+const TodosTab = ({ contentBottomPad }: TodosTabProps) => {
   const colors = useThemeColors();
-  const [todos, setTodos] = useState<HistoryTodo[]>([]);
+  const [todos, setTodos] = useState<HistoryTodo[]>(() => peekMemoryTodos('全部') ?? []);
   const [activeCategory, setActiveCategory] = useState('全部');
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(
+    async (force = false) => {
+      if (!force && !memoryTodosStale(activeCategory)) return;
+      try {
+        const list = await memoryApi.getTodos(activeCategory);
+        putMemoryTodos(activeCategory, list);
+        setTodos(list);
+      } catch {
+        if (!peekMemoryTodos(activeCategory)?.length) setTodos([]);
+      }
+    },
+    [activeCategory]
+  );
+
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
     try {
-      const list = await memoryApi.getTodos(activeCategory);
-      setTodos(list);
-    } catch {
-      setTodos([]);
+      await load(true);
+    } finally {
+      setRefreshing(false);
     }
-  }, [activeCategory]);
+  }, [load]);
 
-  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      const cached = peekMemoryTodos(activeCategory);
+      setTodos(cached ?? []);
+      void load(false);
+    }, [load, activeCategory])
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void load(false);
+    }, LIST_CACHE_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [load]);
 
   const filtered = todos.filter((t) =>
     search ? t.title.toLowerCase().includes(search.toLowerCase()) : true
@@ -455,9 +540,11 @@ const TodosTab = ({ refreshing, onRefresh, contentBottomPad }: TodosTabProps) =>
   const dateKeys = Object.keys(grouped);
 
   const handleToggle = async (id: string, newStatus: 'active' | 'done') => {
-    setTodos((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t))
-    );
+    setTodos((prev) => {
+      const next = prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t));
+      putMemoryTodos(activeCategory, next);
+      return next;
+    });
     try { await memoryApi.toggleTodo(id, newStatus); } catch { /* ignore */ }
   };
 
@@ -466,7 +553,7 @@ const TodosTab = ({ refreshing, onRefresh, contentBottomPad }: TodosTabProps) =>
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.highlight} />
+        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
       }
     >
       <SearchBar value={search} onChangeText={setSearch} placeholder="搜索事项" />
@@ -515,46 +602,21 @@ const TodosTab = ({ refreshing, onRefresh, contentBottomPad }: TodosTabProps) =>
 export default function MemoryScreen() {
   const listBottomPad = useGlobalFloatingTabBarInset();
   const [activeTab, setActiveTab] = useState<TabKey>('用户记忆');
-  const [refreshing, setRefreshing] = useState(false);
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setRefreshing(false);
-  }, []);
 
   return (
     <View className="flex-1 bg-background">
       <Header
         title="记忆库"
         showBackButton
-        onBackPress={() => router.back()}
+        onBackPress={safeRouterBackOrHome}
       />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
 
       <View className="flex-1">
-        {activeTab === '用户记忆' && (
-          <MemoriesTab
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            contentBottomPad={listBottomPad}
-          />
-        )}
-        {activeTab === '历史文档' && (
-          <DocumentsTab
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            contentBottomPad={listBottomPad}
-          />
-        )}
-        {activeTab === '历史事项' && (
-          <TodosTab
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            contentBottomPad={listBottomPad}
-          />
-        )}
+        {activeTab === '用户记忆' && <MemoriesTab contentBottomPad={listBottomPad} />}
+        {activeTab === '历史文档' && <DocumentsTab contentBottomPad={listBottomPad} />}
+        {activeTab === '历史事项' && <TodosTab contentBottomPad={listBottomPad} />}
       </View>
     </View>
   );

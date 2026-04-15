@@ -18,6 +18,7 @@ import {
   UserProfile,
 } from '@/services/profileApi';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { putProfileCache } from '@/lib/profileCache';
 
 export default function EditProfileScreen() {
   const listBottomPad = useGlobalFloatingTabBarInset();
@@ -34,6 +35,7 @@ export default function EditProfileScreen() {
   useEffect(() => {
     fetchProfile()
       .then((p) => {
+        putProfileCache(p);
         setProfile(p);
         setDisplayName(p.display_name ?? '');
         setBio(p.bio ?? '');
@@ -61,6 +63,7 @@ export default function EditProfileScreen() {
     setAvatarUploading(true);
     try {
       const updated = await uploadAvatar(asset.uri, asset.mimeType ?? 'image/jpeg');
+      putProfileCache(updated);
       setProfile(updated);
     } catch (e) {
       Alert.alert('上传失败', e instanceof Error ? e.message : '请稍后重试');
@@ -77,7 +80,8 @@ export default function EditProfileScreen() {
         .split(/[，,、\s]+/)
         .map((t) => t.trim())
         .filter(Boolean);
-      await updateProfile({ display_name: displayName.trim(), bio: bio.trim(), tags });
+      const next = await updateProfile({ display_name: displayName.trim(), bio: bio.trim(), tags });
+      putProfileCache(next);
       router.back();
     } catch (e) {
       Alert.alert('保存失败', e instanceof Error ? e.message : '请稍后重试');

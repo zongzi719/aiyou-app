@@ -89,7 +89,6 @@ export const ChatInput = (props: ChatInputProps) => {
     // Animation shared values
     const rotation = useSharedValue(0);
     const attachExpand = useSharedValue(0);
-    const secondaryVisible = useSharedValue(1);
     const containerScale = useSharedValue(1);
     const audioButtonsVisible = useSharedValue(1);
     const stopButtonVisible = useSharedValue(0);
@@ -129,16 +128,8 @@ export const ChatInput = (props: ChatInputProps) => {
             attachExpand.value = withTiming(0, animConfig);
             containerScale.value = withTiming(1, animConfig);
 
-            // Fade secondary back in after collapse
-            setTimeout(() => {
-                secondaryVisible.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.ease) });
-            }, 280);
-
             setIsExpanded(false);
         } else {
-            // Expand: fade out secondary first, then expand with bounce
-            secondaryVisible.value = withTiming(0, { duration: 0, easing: Easing.out(Easing.ease) });
-
             setTimeout(() => {
                 rotation.value = withSpring(135, { damping: 90, stiffness: 600 });
                 attachExpand.value = withSpring(1, { damping: 80, stiffness: 600 });
@@ -176,13 +167,6 @@ export const ChatInput = (props: ChatInputProps) => {
         opacity: attachExpand.value,
         transform: [
             { scale: interpolate(attachExpand.value, [0, 1], [0.5, 1], Extrapolation.CLAMP) },
-        ],
-    }));
-
-    const secondaryButtonStyle = useAnimatedStyle(() => ({
-        opacity: secondaryVisible.value,
-        transform: [
-            { scale: interpolate(secondaryVisible.value, [0, 1], [0.9, 1], Extrapolation.CLAMP) },
         ],
     }));
 
@@ -488,18 +472,6 @@ export const ChatInput = (props: ChatInputProps) => {
                                         <Icon name="File" size={20} />
                                     </TouchableOpacity>
                                 </Animated.View>
-                            </Animated.View>
-
-                            {/* Globe and Telescope - fade out when expanded */}
-                            <Animated.View className="p-1.5" style={secondaryButtonStyle}>
-                                <TouchableOpacity activeOpacity={0.8} className='items-center justify-center w-10 h-10 rounded-full'>
-                                    <Icon name='Globe' size={20} />
-                                </TouchableOpacity>
-                            </Animated.View>
-                            <Animated.View style={secondaryButtonStyle}>
-                                <TouchableOpacity activeOpacity={0.8} className='items-center justify-center w-10 h-10 rounded-full'>
-                                    <Icon name='Telescope' size={20} />
-                                </TouchableOpacity>
                             </Animated.View>
                         </View>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Image, Platform, StyleSheet, Alert, Dimensions } from 'react-native';
+import { View, Pressable, Image, Platform, StyleSheet, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import {
   shouldShowGlobalBottomTabBar,
   getGlobalBottomTabKey,
 } from '@/lib/globalBottomTabBar';
+import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
 
 const CHAT_ACTIVE = require('@/assets/tabbar/chat-active.png');
 const CHAT_INACTIVE = require('@/assets/tabbar/chat-inactive.png');
@@ -29,6 +30,7 @@ const CENTER_SIZE = 45;
 export default function GlobalBottomTabBar() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  const { openAiRecord } = useAiRecordModal();
 
   if (!shouldShowGlobalBottomTabBar(pathname)) {
     return null;
@@ -42,7 +44,7 @@ export default function GlobalBottomTabBar() {
   const goProfile = () => router.replace('/screens/profile');
 
   const onInspirationNotePress = () => {
-    Alert.alert('敬请期待', '灵感笔记功能开发中，敬请期待。');
+    openAiRecord();
   };
 
   const screenW = Dimensions.get('window').width;

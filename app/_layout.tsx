@@ -7,6 +7,7 @@ import { DrawerProvider } from '@/app/contexts/DrawerContext';
 import useThemedNavigation from './hooks/useThemedNavigation';
 import { Platform, View } from 'react-native';
 import GlobalBottomTabBar from '@/components/GlobalBottomTabBar';
+import { AiRecordModalProvider } from '@/app/contexts/AiRecordModalContext';
 
 function ThemedLayout() {
   const { ThemedStatusBar, screenOptions } = useThemedNavigation();
@@ -32,7 +33,9 @@ export default function RootLayout() {
     <GestureHandlerRootView className={`bg-background ${Platform.OS === 'ios' ? 'pb-0 ' : ''}`} style={{ flex: 1 }}>
         <ThemeProvider>
           <DrawerProvider>
-            <ThemedLayout />
+            <AiRecordModalProvider>
+              <ThemedLayout />
+            </AiRecordModalProvider>
           </DrawerProvider>
         </ThemeProvider>
     </GestureHandlerRootView>

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
+import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
 import Header from '@/components/Header';
 import ThemedText from '@/components/ThemedText';
 import Avatar from '@/components/Avatar';
@@ -13,19 +14,31 @@ import { shadowPresets } from '@/utils/useShadow';
 import { clearAuthSession } from '@/lib/authSession';
 import { fetchProfile, uploadAvatar, bustAvatarCache, UserProfile } from '@/services/profileApi';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 
 export default function ProfileScreen() {
   const listBottomPad = useGlobalFloatingTabBarInset();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(() => peekProfileCache());
+  const [loading, setLoading] = useState(() => peekProfileCache() === null);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      setLoading(true);
+      const cached = peekProfileCache();
+      if (cached) {
+        setProfile(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       fetchProfile()
-        .then((p) => { if (!cancelled) setProfile(p); })
+        .then((p) => {
+          if (!cancelled) {
+            putProfileCache(p);
+            setProfile(p);
+          }
+        })
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoading(false); });
       return () => { cancelled = true; };
@@ -49,6 +62,7 @@ export default function ProfileScreen() {
     setAvatarUploading(true);
     try {
       const updated = await uploadAvatar(asset.uri, asset.mimeType ?? 'image/jpeg');
+      putProfileCache(updated);
       setProfile(updated);
     } catch (e) {
       Alert.alert('上传失败', e instanceof Error ? e.message : '请稍后重试');
@@ -73,7 +87,7 @@ export default function ProfileScreen() {
 
   return (
     <AnimatedView className='flex-1 bg-background' animation='fadeIn' duration={350} playOnlyOnce={false}>
-      <Header showBackButton title="个人资料" />
+      <Header showBackButton title="个人资料" onBackPress={safeRouterBackOrHome} />
       <ThemedScroller
         className="!px-6"
         footerSpacer={false}

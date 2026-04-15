@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
+import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
+import {
+  peekKnowledgeData,
+  putKnowledgeData,
+  knowledgeDataStale,
+  LIST_CACHE_POLL_INTERVAL_MS,
+} from '@/lib/listDataCache';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
@@ -272,8 +279,9 @@ export default function KnowledgeBaseScreen() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const floatListPad = useGlobalFloatingTabBarInset();
-  const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
-  const [files, setFiles] = useState<KnowledgeFile[]>([]);
+  const initialKb = peekKnowledgeData();
+  const [folders, setFolders] = useState<KnowledgeFolder[]>(() => initialKb?.folders ?? []);
+  const [files, setFiles] = useState<KnowledgeFile[]>(() => initialKb?.files ?? []);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [newFolderVisible, setNewFolderVisible] = useState(false);
@@ -291,8 +299,10 @@ export default function KnowledgeBaseScreen() {
     return matchFolder && matchSearch;
   });
 
-  const loadData = useCallback(async () => {
-    setRefreshing(true);
+  const loadData = useCallback(async (opts?: { force?: boolean }) => {
+    const force = opts?.force === true;
+    if (!force && !knowledgeDataStale()) return;
+    if (force) setRefreshing(true);
     try {
       const [folderList, fileList] = await Promise.all([
         knowledgeApi.getFolders().catch(() => [] as KnowledgeFolder[]),
@@ -301,11 +311,28 @@ export default function KnowledgeBaseScreen() {
       setFolders(folderList);
       setFiles(fileList.files);
     } finally {
-      setRefreshing(false);
+      if (force) setRefreshing(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { void loadData(); }, [loadData]));
+  useFocusEffect(
+    useCallback(() => {
+      void loadData({ force: false });
+    }, [loadData])
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void loadData({ force: false });
+    }, LIST_CACHE_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [loadData]);
+
+  useEffect(() => {
+    const seeded = peekKnowledgeData() != null;
+    if (folders.length === 0 && files.length === 0 && !seeded) return;
+    putKnowledgeData(folders, files);
+  }, [folders, files]);
 
   const pollFileStatus = useCallback((fileId: string) => {
     let attempts = 0;
@@ -478,7 +505,7 @@ export default function KnowledgeBaseScreen() {
               await Promise.all(ids.map((id) => knowledgeApi.deleteFile(id)));
             } catch {
               Alert.alert('删除失败', '部分文件可能未删除，请下拉刷新重试');
-              void loadData();
+              void loadData({ force: true });
             } finally {
               setBatchBusy(false);
             }
@@ -672,7 +699,7 @@ export default function KnowledgeBaseScreen() {
       <Header
         title="知识库"
         showBackButton
-        onBackPress={() => router.back()}
+        onBackPress={safeRouterBackOrHome}
         leftComponent={leftHeaderComponent}
         rightComponents={selectionMode ? [] : [rightHeaderComponent]}
       />
@@ -689,7 +716,11 @@ export default function KnowledgeBaseScreen() {
         }}
         ListHeaderComponent={listHeader}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor={colors.icon} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadData({ force: true })}
+            tintColor={colors.icon}
+          />
         }
         renderItem={({ item }) => (
           <FileRow

@@ -19,6 +19,7 @@ import {
   uploadFilesToThread,
   type UploadedFileInfo,
 } from '@/lib/privateChatApi';
+import { prependPrivateThreadCache } from '@/lib/listDataCache';
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
 import ModelSelector from '@/components/ModelSelector';
 import { fetchProfile } from '@/services/profileApi';
@@ -31,6 +32,7 @@ import {
     type ChatHomeSuggestion,
 } from '@/lib/memorySuggestedPrompts';
 import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
+import { consumePendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 
 /** 将英文后端错误转为中文友好提示 */
 function friendlyError(raw: string): string {
@@ -72,6 +74,9 @@ const HomeScreen = () => {
     const colors = useThemeColors();
     const scrollViewRef = useRef<ScrollView>(null);
     const privateThreadIdRef = useRef<string | null>(null);
+    const handleSendMessageRef = useRef<
+        (text: string, images?: string[], files?: SelectedFile[]) => Promise<void>
+    >(() => Promise.resolve());
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const selectedModelRef = useRef<string>('');
@@ -88,30 +93,6 @@ const HomeScreen = () => {
     const params = useLocalSearchParams<{ openThreadId?: string | string[]; newChat?: string | string[] }>();
     const openThreadIdParam = firstSearchParam(params.openThreadId);
     const newChatParam = firstSearchParam(params.newChat);
-
-    useEffect(() => {
-        const run = async () => {
-            if (typeof openThreadIdParam === 'string' && openThreadIdParam.length > 0) {
-                const tid = openThreadIdParam;
-                privateThreadIdRef.current = tid;
-                if (!(await hasPrivateChatBackendSession())) return;
-                try {
-                    const msgs = await getPrivateThreadStateMessages(tid);
-                    setMessages(msgs);
-                } catch {
-                    setMessages([]);
-                }
-                return;
-            }
-            if (newChatParam === '1') {
-                privateThreadIdRef.current = null;
-                setMessages([]);
-                router.replace('/');
-                return;
-            }
-        };
-        void run();
-    }, [newChatParam, openThreadIdParam]);
 
     useFocusEffect(
         useCallback(() => {
@@ -159,6 +140,11 @@ const HomeScreen = () => {
                 if (!threadId) {
                     threadId = await createPrivateThread('新对话');
                     privateThreadIdRef.current = threadId;
+                    prependPrivateThreadCache({
+                        thread_id: threadId,
+                        title: '新对话',
+                        updated_at: new Date().toISOString(),
+                    });
                 }
 
                 // 若有附件先上传到服务端，按 API 文档 Step 3+4 规范处理
@@ -333,6 +319,38 @@ const HomeScreen = () => {
             });
         }
     };
+
+    handleSendMessageRef.current = handleSendMessage;
+
+    useEffect(() => {
+        const run = async () => {
+            if (typeof openThreadIdParam === 'string' && openThreadIdParam.length > 0) {
+                const tid = openThreadIdParam;
+                privateThreadIdRef.current = tid;
+                if (!(await hasPrivateChatBackendSession())) return;
+                try {
+                    const msgs = await getPrivateThreadStateMessages(tid);
+                    setMessages(msgs);
+                } catch {
+                    setMessages([]);
+                }
+                return;
+            }
+            if (newChatParam === '1') {
+                privateThreadIdRef.current = null;
+                setMessages([]);
+                const pending = consumePendingHomeChatMessage();
+                router.replace('/');
+                if (pending) {
+                    setTimeout(() => {
+                        void handleSendMessageRef.current(pending);
+                    }, 200);
+                }
+                return;
+            }
+        };
+        void run();
+    }, [newChatParam, openThreadIdParam]);
 
     const leftComponent = [
         <DrawerButton key="drawer-button" />,
