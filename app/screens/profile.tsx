@@ -1,26 +1,138 @@
-import React, { useState, useCallback } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
-import Header from '@/components/Header';
-import ThemedText from '@/components/ThemedText';
-import Avatar from '@/components/Avatar';
-import ListLink from '@/components/ListLink';
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, TouchableOpacity, ActivityIndicator, Alert, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useTheme } from '@/app/contexts/ThemeContext';
 import AnimatedView from '@/components/AnimatedView';
-import ThemedScroller from '@/components/ThemeScroller';
+import Avatar from '@/components/Avatar';
 import Icon from '@/components/Icon';
-import { shadowPresets } from '@/utils/useShadow';
-import { clearAuthSession } from '@/lib/authSession';
-import { fetchProfile, uploadAvatar, bustAvatarCache, UserProfile } from '@/services/profileApi';
+import ThemedScroller from '@/components/ThemeScroller';
+import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { clearAuthSession } from '@/lib/authSession';
 import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
+import { fetchProfile, uploadAvatar, bustAvatarCache, UserProfile } from '@/services/profileApi';
+
+/** 设计稿 mock：待办进度（后续可对接真实统计） */
+const PENDING_PROGRESS = { percent: 63, done: 3, total: 8 };
+
+/** 今日重点：示意「由日程经 AI 提炼」的摘要项（后续由服务端/AI 生成） */
+const INITIAL_KEY_MATTERS: { id: string; title: string; done: boolean }[] = [
+  { id: '1', title: '投资人会议准备', done: false },
+  { id: '2', title: '设计产品原型', done: false },
+  { id: '3', title: '更新市场调研', done: true },
+  { id: '4', title: '团队产品讨论', done: true },
+];
+
+type TaskPriority = 'core' | 'important' | 'minor';
+
+interface TodayTaskItem {
+  id: string;
+  title: string;
+  timeRange: string;
+  bullets: string[];
+  priorityLabel: string;
+  priority: TaskPriority;
+  doneSub: number;
+  totalSub: number;
+}
+
+/** 今日任务：完整日程明细 mock */
+const TODAY_TASKS: TodayTaskItem[] = [
+  {
+    id: 't1',
+    title: '产品策略会议准备',
+    timeRange: '09:30 – 10:30',
+    bullets: ['准备演示PPT', '整理产品数据', '确认演讲结构'],
+    priorityLabel: '核心',
+    priority: 'core',
+    doneSub: 2,
+    totalSub: 3,
+  },
+  {
+    id: 't2',
+    title: '设计产品原型',
+    timeRange: '11:00 – 12:30',
+    bullets: ['绘制关键流程', '对齐交互稿', '标注组件状态'],
+    priorityLabel: '重要',
+    priority: 'important',
+    doneSub: 0,
+    totalSub: 3,
+  },
+  {
+    id: 't3',
+    title: '客户回访纪要',
+    timeRange: '15:00 – 15:30',
+    bullets: ['整理上周反馈', '列出待办'],
+    priorityLabel: '次要',
+    priority: 'minor',
+    doneSub: 1,
+    totalSub: 2,
+  },
+];
+
+const DEFAULT_TAG_PILLS = ['创始人 · 科技创业者', 'AI · 互联网 · SaaS'];
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <View className="mb-3 mt-1 flex-row items-center">
+      <View className="mr-2 h-4 w-1 rounded-full bg-[#C9A227]" />
+      <ThemedText className="text-base font-semibold">{title}</ThemedText>
+    </View>
+  );
+}
+
+function priorityPillClass(p: TaskPriority): string {
+  switch (p) {
+    case 'core':
+      return 'bg-amber-500/20 border border-amber-500/40';
+    case 'important':
+      return 'bg-amber-600/20 border border-amber-600/35';
+    case 'minor':
+      return 'bg-stone-600/35 border border-stone-500/30';
+    default:
+      return 'bg-secondary border border-border';
+  }
+}
+
+function priorityTextClass(p: TaskPriority): string {
+  switch (p) {
+    case 'core':
+      return 'text-amber-400';
+    case 'important':
+      return 'text-amber-200';
+    case 'minor':
+      return 'text-stone-300';
+    default:
+      return 'text-subtext';
+  }
+}
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
+  const { isDark } = useTheme();
   const listBottomPad = useGlobalFloatingTabBarInset();
   const [profile, setProfile] = useState<UserProfile | null>(() => peekProfileCache());
   const [loading, setLoading] = useState(() => peekProfileCache() === null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [keyMatters, setKeyMatters] = useState(INITIAL_KEY_MATTERS);
+
+  const headerGradient = useMemo(
+    () =>
+      (isDark ? ['#12281c', '#0a120e', '#000000'] : ['#dce8e0', '#eef2ef', '#f5f5f5']) as [
+        string,
+        string,
+        string,
+      ],
+    [isDark]
+  );
+
+  const sheetBg = isDark ? 'bg-[#141416]' : 'bg-secondary';
+  const cardBg = isDark ? 'bg-[#2C2C2E]' : 'bg-background';
+  const progressTrack = isDark ? 'bg-[#3A3A3C]' : 'bg-border';
 
   useFocusEffect(
     useCallback(() => {
@@ -40,10 +152,21 @@ export default function ProfileScreen() {
           }
         })
         .catch(() => {})
-        .finally(() => { if (!cancelled) setLoading(false); });
-      return () => { cancelled = true; };
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+      return () => {
+        cancelled = true;
+      };
     }, [])
   );
+
+  const tagPills = useMemo(() => {
+    const fromApi = profile?.tags?.filter(Boolean) ?? [];
+    if (fromApi.length >= 2) return fromApi.slice(0, 2);
+    if (fromApi.length === 1) return [fromApi[0], DEFAULT_TAG_PILLS[1]];
+    return DEFAULT_TAG_PILLS;
+  }, [profile?.tags]);
 
   const handleAvatarPress = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -85,79 +208,183 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const toggleKeyMatter = (id: string) => {
+    setKeyMatters((prev) => prev.map((m) => (m.id === id ? { ...m, done: !m.done } : m)));
+  };
+
+  const displayName = profile?.display_name || profile?.username || '用户';
+
   return (
-    <AnimatedView className='flex-1 bg-background' animation='fadeIn' duration={350} playOnlyOnce={false}>
-      <Header showBackButton title="个人资料" onBackPress={safeRouterBackOrHome} />
+    <AnimatedView
+      className="flex-1 bg-background"
+      animation="fadeIn"
+      duration={350}
+      playOnlyOnce={false}>
       <ThemedScroller
-        className="!px-6"
+        className="!px-0"
         footerSpacer={false}
         contentContainerStyle={{ paddingBottom: listBottomPad }}
-      >
+        showsVerticalScrollIndicator={false}>
+        <LinearGradient
+          colors={headerGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0.2, y: 1 }}
+          className="w-full pb-10"
+          style={{ paddingTop: insets.top + 8 }}>
+          <View className="mb-4 flex-row justify-end px-4">
+            <TouchableOpacity
+              onPress={() => router.push('/screens/edit-profile')}
+              hitSlop={12}
+              className="p-1"
+              accessibilityLabel="设置">
+              <Icon name="Settings" size={22} color={isDark ? '#ffffff' : '#1a1a1a'} />
+            </TouchableOpacity>
+          </View>
 
-        {/* 头像 + 基本信息卡片 */}
-        <View className="px-6 py-8 w-full border border-border rounded-3xl mb-4">
-          <View className="flex-col justify-center items-center">
-
-            {/* 头像（可点击更换） */}
+          <View className="flex-row items-start gap-4 px-4">
             <TouchableOpacity
               onPress={handleAvatarPress}
               activeOpacity={0.8}
-              className="relative"
               disabled={avatarUploading || loading}
-            >
+              className="relative">
               <Avatar
-                src={profile?.avatar_url ? bustAvatarCache(profile.avatar_url) : require('@/assets/img/thomino.jpg')}
+                src={
+                  profile?.avatar_url
+                    ? bustAvatarCache(profile.avatar_url)
+                    : require('@/assets/img/thomino.jpg')
+                }
                 size="xl"
               />
-              <View className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-primary items-center justify-center border-2 border-background">
-                {avatarUploading
-                  ? <ActivityIndicator size="small" color="white" />
-                  : <Icon name="Camera" size={13} color="white" />
-                }
+              <View className="absolute bottom-0 right-0 h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-primary">
+                {avatarUploading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Icon name="Camera" size={13} color="white" />
+                )}
               </View>
             </TouchableOpacity>
 
-            {/* 姓名 + 用户名 */}
-            {loading ? (
-              <View className="mt-4 items-center gap-y-2">
+            <View className="flex-1 pt-0.5">
+              {loading ? (
                 <ActivityIndicator />
-              </View>
-            ) : (
-              <View className="items-center flex-1 mt-3">
-                <ThemedText className="text-2xl font-bold">
-                  {profile?.display_name || profile?.username || '—'}
-                </ThemedText>
-                <ThemedText className="text-sm text-subtext mt-0.5">
-                  @{profile?.username || '—'}
-                </ThemedText>
-                {!!profile?.bio && (
-                  <ThemedText className="text-sm text-subtext text-center mt-2 px-4">
-                    {profile.bio}
+              ) : (
+                <>
+                  <ThemedText className="text-2xl font-bold tracking-wide">
+                    {displayName}
                   </ThemedText>
-                )}
-                {profile?.tags && profile.tags.length > 0 && (
-                  <View className="flex-row flex-wrap justify-center gap-x-2 gap-y-1 mt-3">
-                    {profile.tags.map((tag) => (
-                      <View key={tag} className="bg-secondary rounded-full px-3 py-1">
+                  <View className="mt-2 flex-row flex-wrap gap-2">
+                    {tagPills.map((tag) => (
+                      <View
+                        key={tag}
+                        className={
+                          isDark
+                            ? 'rounded-full border border-white/10 bg-white/10 px-3 py-1.5'
+                            : 'rounded-full border border-black/10 bg-black/5 px-3 py-1.5'
+                        }>
                         <ThemedText className="text-xs text-subtext">{tag}</ThemedText>
                       </View>
                     ))}
                   </View>
-                )}
-              </View>
-            )}
+                  <ThemedText className="mt-2 text-xs leading-5 text-subtext">
+                    AI学习数据 · 35份资料 · 2.5小时访谈
+                  </ThemedText>
+                </>
+              )}
+            </View>
           </View>
-        </View>
+        </LinearGradient>
 
-        {/* 功能菜单 */}
-        <View style={shadowPresets.medium} className='bg-secondary rounded-3xl mb-6'>
-          <ListLink className='px-5' hasBorder title="编辑资料" icon="Settings" href="/screens/edit-profile" />
-          <ListLink className='px-5' hasBorder title="升级 Plus" icon="Zap" href="/screens/subscription" />
-          <ListLink className='px-5' hasBorder title="AI 语音" icon="MicVocal" href="/screens/ai-voice" />
-          <ListLink className='px-5' hasBorder title="帮助" icon="HelpCircle" href="/screens/help" />
-          <ListLink className='px-5' title="退出登录" icon="LogOut" onPress={handleLogout} />
-        </View>
+        <View className={`${sheetBg} -mt-5 rounded-t-[28px] px-4 pb-4 pt-6`}>
+          <TouchableOpacity
+            onPress={() => router.push('/screens/memory?tab=inspiration')}
+            activeOpacity={0.8}
+            className={`mb-4 flex-row items-center justify-between rounded-2xl px-4 py-3 ${cardBg}`}>
+            <View className="flex-row items-center gap-2">
+              <Icon name="NotebookPen" size={18} />
+              <ThemedText className="text-sm font-semibold">灵感笔记与日程</ThemedText>
+            </View>
+            <Icon name="ChevronRight" size={18} className="text-subtext" />
+          </TouchableOpacity>
 
+          <SectionTitle title="待处理事务" />
+          <View className="mb-6 flex-row items-center gap-3">
+            <ThemedText className="min-w-[40px] text-sm font-semibold text-[#C9A227]">
+              {PENDING_PROGRESS.percent}%
+            </ThemedText>
+            <View className={`h-2 flex-1 overflow-hidden rounded-full ${progressTrack}`}>
+              <View
+                className="h-full rounded-full bg-[#C9A227]"
+                style={{ width: `${PENDING_PROGRESS.percent}%` }}
+              />
+            </View>
+            <ThemedText className="text-sm font-semibold text-[#C9A227]">
+              {PENDING_PROGRESS.done}/{PENDING_PROGRESS.total}
+            </ThemedText>
+          </View>
+
+          <SectionTitle title="今日重点事项" />
+          <ThemedText className="-mt-2 mb-3 text-xs text-subtext">
+            由今日日程智能提炼，便于快速把握重点
+          </ThemedText>
+
+          {keyMatters.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => toggleKeyMatter(item.id)}
+              className={`mb-2 flex-row items-center rounded-2xl px-3 py-3.5 ${cardBg} ${item.done ? 'opacity-55' : ''}`}>
+              <ThemedText
+                className={`flex-1 pr-3 text-base ${item.done ? 'text-subtext' : 'text-primary'}`}>
+                {item.title}
+              </ThemedText>
+              <View
+                className={`h-7 w-7 items-center justify-center rounded-full border ${
+                  item.done ? 'border-subtext bg-transparent' : 'border-white/50'
+                }`}>
+                {item.done ? <Icon name="Check" size={16} color="#8E8E93" /> : null}
+              </View>
+            </Pressable>
+          ))}
+
+          <View className="mt-4">
+            <SectionTitle title="今日任务" />
+            <ThemedText className="-mt-2 mb-3 text-xs text-subtext">今日完整日程安排</ThemedText>
+          </View>
+
+          {TODAY_TASKS.map((task) => (
+            <View key={task.id} className={`mb-3 rounded-2xl p-4 ${cardBg}`}>
+              <View className="flex-row items-start justify-between gap-2">
+                <ThemedText className="flex-1 text-base font-semibold text-[#D4AF37]">
+                  {task.title}
+                </ThemedText>
+                <View className="shrink-0 flex-row items-center gap-1">
+                  <Icon name="Clock" size={14} color={isDark ? '#a3a3a3' : '#737373'} />
+                  <ThemedText className="text-xs text-subtext">{task.timeRange}</ThemedText>
+                </View>
+              </View>
+              <View className="mt-3 gap-1.5">
+                {task.bullets.map((line) => (
+                  <ThemedText key={line} className="text-sm leading-5 text-subtext">
+                    · {line}
+                  </ThemedText>
+                ))}
+              </View>
+              <View className="mt-4 flex-row items-center justify-between">
+                <View className={`rounded-full px-3 py-1 ${priorityPillClass(task.priority)}`}>
+                  <ThemedText className={`text-xs font-medium ${priorityTextClass(task.priority)}`}>
+                    {task.priorityLabel}
+                  </ThemedText>
+                </View>
+                <ThemedText className="text-xs text-subtext">
+                  {task.doneSub} / {task.totalSub} 完成
+                </ThemedText>
+              </View>
+            </View>
+          ))}
+
+          <TouchableOpacity onPress={handleLogout} className="mb-2 mt-6 items-center py-3">
+            <ThemedText className="text-sm text-red-400">退出登录</ThemedText>
+          </TouchableOpacity>
+        </View>
       </ThemedScroller>
     </AnimatedView>
   );

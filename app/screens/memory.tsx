@@ -1,3 +1,4 @@
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -8,32 +9,12 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { router, useFocusEffect } from 'expo-router';
-import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Header from '@/components/Header';
-import ThemedText from '@/components/ThemedText';
-import Icon, { IconName } from '@/components/Icon';
-import { Chip } from '@/components/Chip';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
-import {
-  memoryApi,
-  UserMemory,
-  HistoryDocument,
-  HistoryTodo,
-  TODO_CATEGORIES,
-  getCategoryIcon,
-  getCategoryColor,
-  getTodoCategoryIcon,
-  getMimeLabel,
-  getMimeColor,
-  formatMemoryDate,
-  groupByDate,
-  translateCategory,
-  extractCategories,
-  confidenceLabel,
-  resolveMemoryTime,
-} from '@/services/memoryApi';
+import { Chip } from '@/components/Chip';
+import Header from '@/components/Header';
+import Icon, { IconName } from '@/components/Icon';
+import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 import {
   peekMemoryMemories,
@@ -42,16 +23,41 @@ import {
   peekMemoryDocuments,
   putMemoryDocuments,
   memoryDocumentsStale,
-  peekMemoryTodos,
-  putMemoryTodos,
-  memoryTodosStale,
   LIST_CACHE_POLL_INTERVAL_MS,
 } from '@/lib/listDataCache';
+import {
+  deleteInspirationNote,
+  deleteSchedule,
+  listInspirationNotes,
+  listSchedules,
+  NotesApiError,
+  type InspirationNote,
+  type Schedule,
+  updateScheduleTask,
+} from '@/lib/notesApi';
+import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
+import {
+  memoryApi,
+  UserMemory,
+  HistoryDocument,
+  getCategoryIcon,
+  getCategoryColor,
+  getMimeLabel,
+  getMimeColor,
+  formatMemoryDate,
+  translateCategory,
+  extractCategories,
+  confidenceLabel,
+  resolveMemoryTime,
+} from '@/services/memoryApi';
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
-type TabKey = '用户记忆' | '历史文档' | '历史事项';
-const TABS: TabKey[] = ['用户记忆', '历史文档', '历史事项'];
+type TabKey = '灵感笔记' | '用户记忆' | '历史文档';
+const TABS: TabKey[] = ['灵感笔记', '用户记忆', '历史文档'];
+type NotesTabKey = '灵感笔记' | '日程安排';
+
+const NOTES_TABS: NotesTabKey[] = ['灵感笔记', '日程安排'];
 
 // ─── Tab Bar ─────────────────────────────────────────────────────────────────
 
@@ -63,7 +69,7 @@ interface TabBarProps {
 const TabBar = ({ active, onChange }: TabBarProps) => {
   const colors = useThemeColors();
   return (
-    <View className="flex-row bg-secondary rounded-full mx-global mb-4 p-1">
+    <View className="mx-global mb-4 flex-row rounded-full bg-secondary p-1">
       {TABS.map((tab) => {
         const isActive = tab === active;
         return (
@@ -71,12 +77,14 @@ const TabBar = ({ active, onChange }: TabBarProps) => {
             key={tab}
             onPress={() => onChange(tab)}
             activeOpacity={0.7}
-            className="flex-1 items-center py-2 rounded-full"
-            style={isActive ? { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border } : undefined}
-          >
+            className="flex-1 items-center rounded-full py-2"
+            style={
+              isActive
+                ? { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }
+                : undefined
+            }>
             <ThemedText
-              className={`text-sm font-semibold ${isActive ? 'text-primary' : 'text-subtext'}`}
-            >
+              className={`text-sm font-semibold ${isActive ? 'text-primary' : 'text-subtext'}`}>
               {tab}
             </ThemedText>
           </TouchableOpacity>
@@ -97,10 +105,10 @@ interface SearchBarProps {
 const SearchBar = ({ value, onChangeText, placeholder }: SearchBarProps) => {
   const colors = useThemeColors();
   return (
-    <View className="flex-row items-center bg-secondary rounded-full px-4 mb-4 h-11 mx-global">
+    <View className="mx-global mb-4 h-11 flex-row items-center rounded-full bg-secondary px-4">
       <Icon name="Search" size={18} />
       <TextInput
-        className="flex-1 ml-2 text-sm text-primary"
+        className="ml-2 flex-1 text-sm text-primary"
         placeholder={placeholder}
         placeholderTextColor={colors.placeholder}
         value={value}
@@ -146,27 +154,27 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
     <TouchableOpacity
       onLongPress={handleLongPress}
       activeOpacity={0.75}
-      className="bg-secondary rounded-2xl px-4 py-4 mb-3 mx-global"
-    >
+      className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
       <View className="flex-row items-start">
         <View
-          className="w-9 h-9 rounded-xl items-center justify-center mr-3 mt-0.5"
-          style={{ backgroundColor: `${iconColor}22` }}
-        >
+          className="mr-3 mt-0.5 h-9 w-9 items-center justify-center rounded-xl"
+          style={{ backgroundColor: `${iconColor}22` }}>
           <Icon name={iconName} size={18} color={iconColor} />
         </View>
         <View className="flex-1">
-          <ThemedText className="text-sm font-bold text-primary mb-1">
+          <ThemedText className="mb-1 text-sm font-bold text-primary">
             {translateCategory(memory.category)}
           </ThemedText>
 
           {/* 置信度 · 创建时间 */}
-          {(confLabel || timeLabel) ? (
-            <View className="flex-row flex-wrap items-center gap-x-3 mb-2">
+          {confLabel || timeLabel ? (
+            <View className="mb-2 flex-row flex-wrap items-center gap-x-3">
               {confLabel ? (
                 <View className="flex-row items-center gap-x-1">
                   <ThemedText className="text-xs text-subtext">置信度</ThemedText>
-                  <ThemedText className="text-xs font-semibold text-primary">{confLabel}</ThemedText>
+                  <ThemedText className="text-xs font-semibold text-primary">
+                    {confLabel}
+                  </ThemedText>
                 </View>
               ) : null}
               {timeLabel ? (
@@ -178,7 +186,7 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
             </View>
           ) : null}
 
-          <ThemedText className="text-sm text-subtext leading-5">{memory.content}</ThemedText>
+          <ThemedText className="text-sm leading-5 text-subtext">{memory.content}</ThemedText>
         </View>
       </View>
     </TouchableOpacity>
@@ -218,13 +226,13 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
 
   useFocusEffect(
     useCallback(() => {
-      void load(false);
+      load(false);
     }, [load])
   );
 
   useEffect(() => {
     const id = setInterval(() => {
-      void load(false);
+      load(false);
     }, LIST_CACHE_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [load]);
@@ -256,7 +264,11 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
       putMemoryMemories(next);
       return next;
     });
-    try { await memoryApi.deleteMemory(id); } catch { /* ignore */ }
+    try {
+      await memoryApi.deleteMemory(id);
+    } catch {
+      /* ignore */
+    }
   };
 
   return (
@@ -265,7 +277,11 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
       keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onPullRefresh}
+          tintColor={colors.highlight}
+        />
       }
       ListHeaderComponent={
         <>
@@ -274,8 +290,7 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
             horizontal
             showsHorizontalScrollIndicator={false}
             className="mb-4"
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-          >
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
             {categories.map((cat) => (
               <Chip
                 key={cat}
@@ -292,7 +307,301 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
       ListEmptyComponent={
         <View className="items-center py-16">
           <Icon name="Brain" size={44} />
-          <ThemedText className="text-subtext mt-3">暂无记忆</ThemedText>
+          <ThemedText className="mt-3 text-subtext">暂无记忆</ThemedText>
+        </View>
+      }
+      contentContainerStyle={{ paddingBottom: contentBottomPad }}
+    />
+  );
+};
+
+interface InspirationListTabProps {
+  contentBottomPad: number;
+  initialNotesTab?: NotesTabKey;
+}
+
+const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationListTabProps) => {
+  const colors = useThemeColors();
+  const [activeNotesTab, setActiveNotesTab] = useState<NotesTabKey>(initialNotesTab ?? '灵感笔记');
+  const [notes, setNotes] = useState<InspirationNote[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const [noteRows, scheduleRows] = await Promise.all([
+        listInspirationNotes({ limit: 100 }),
+        listSchedules({ limit: 100 }),
+      ]);
+      setNotes(noteRows);
+      setSchedules(scheduleRows);
+    } catch (error) {
+      const apiError = error as NotesApiError;
+      Alert.alert('加载失败', apiError?.message || '请稍后重试');
+      setNotes([]);
+      setSchedules([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      load();
+    }, [load])
+  );
+
+  useEffect(() => {
+    if (initialNotesTab) setActiveNotesTab(initialNotesTab);
+  }, [initialNotesTab]);
+
+  const onPullRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  const handleDelete = async (note: InspirationNote) => {
+    Alert.alert('删除灵感', `确认删除「${note.title}」吗？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteInspirationNote(note.id);
+            setNotes((prev) => prev.filter((row) => row.id !== note.id));
+          } catch (error) {
+            const apiError = error as NotesApiError;
+            Alert.alert('删除失败', apiError?.message || '请稍后重试');
+          }
+        },
+      },
+    ]);
+  };
+
+  const filteredNotes = notes.filter((n) => {
+    if (!search.trim()) return true;
+    const keyword = search.toLowerCase();
+    return (
+      n.title.toLowerCase().includes(keyword) ||
+      n.raw_content.toLowerCase().includes(keyword) ||
+      n.ai_content?.toLowerCase().includes(keyword)
+    );
+  });
+
+  const filteredSchedules = schedules.filter((s) => {
+    if (!search.trim()) return true;
+    const keyword = search.toLowerCase();
+    const taskText = s.tasks.map((t) => t.content).join(' ');
+    return (
+      s.title.toLowerCase().includes(keyword) ||
+      (s.description?.toLowerCase().includes(keyword) ?? false) ||
+      taskText.toLowerCase().includes(keyword)
+    );
+  });
+
+  const handleDeleteSchedule = (schedule: Schedule) => {
+    Alert.alert('删除日程', `确认删除「${schedule.title}」吗？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteSchedule(schedule.id);
+            setSchedules((prev) => prev.filter((row) => row.id !== schedule.id));
+          } catch (error) {
+            const apiError = error as NotesApiError;
+            Alert.alert('删除失败', apiError?.message || '请稍后重试');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleToggleScheduleTask = async (schedule: Schedule, taskIndex: number) => {
+    const current = schedule.tasks[taskIndex];
+    if (!current) return;
+    const next = !current.is_completed;
+
+    setSchedules((prev) =>
+      prev.map((row) =>
+        row.id === schedule.id
+          ? {
+              ...row,
+              tasks: row.tasks.map((task, idx) =>
+                idx === taskIndex ? { ...task, is_completed: next } : task
+              ),
+            }
+          : row
+      )
+    );
+
+    try {
+      const tasks = await updateScheduleTask(schedule.id, taskIndex, next);
+      setSchedules((prev) => prev.map((row) => (row.id === schedule.id ? { ...row, tasks } : row)));
+    } catch (error) {
+      setSchedules((prev) =>
+        prev.map((row) =>
+          row.id === schedule.id
+            ? {
+                ...row,
+                tasks: row.tasks.map((task, idx) =>
+                  idx === taskIndex ? { ...task, is_completed: !next } : task
+                ),
+              }
+            : row
+        )
+      );
+      const apiError = error as NotesApiError;
+      Alert.alert('更新失败', apiError?.message || '请稍后重试');
+    }
+  };
+
+  return (
+    <FlatList
+      data={activeNotesTab === '灵感笔记' ? filteredNotes : filteredSchedules}
+      keyExtractor={(item) => item.id}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onPullRefresh}
+          tintColor={colors.highlight}
+        />
+      }
+      ListHeaderComponent={
+        <>
+          <View className="mb-3 flex-row gap-2 px-global">
+            {NOTES_TABS.map((tab) => (
+              <Chip
+                key={tab}
+                label={tab}
+                isSelected={activeNotesTab === tab}
+                onPress={() => setActiveNotesTab(tab)}
+                size="sm"
+              />
+            ))}
+          </View>
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder={activeNotesTab === '灵感笔记' ? '搜索灵感笔记' : '搜索日程安排'}
+          />
+        </>
+      }
+      renderItem={({ item }) => {
+        if (activeNotesTab === '灵感笔记') {
+          const note = item as InspirationNote;
+          return (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
+              <View className="flex-row items-start gap-2">
+                <View className="flex-1">
+                  <ThemedText className="text-sm font-bold text-primary">{note.title}</ThemedText>
+                  <ThemedText className="mt-1 text-xs text-subtext">
+                    {formatMemoryDate(note.created_at)}
+                  </ThemedText>
+                </View>
+                <TouchableOpacity onPress={() => handleDelete(note)}>
+                  <Icon name="Trash2" size={16} />
+                </TouchableOpacity>
+              </View>
+              <ThemedText className="mt-2 text-sm leading-5 text-subtext">
+                {note.ai_content || note.raw_content || '暂无内容'}
+              </ThemedText>
+              {note.tags.length > 0 ? (
+                <View className="mt-3 flex-row flex-wrap gap-2">
+                  {note.tags.map((tag) => (
+                    <View
+                      key={`${note.id}-${tag}`}
+                      className="rounded-full border border-border bg-background px-2 py-1">
+                      <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </TouchableOpacity>
+          );
+        }
+        const schedule = item as Schedule;
+        return (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
+            <View className="flex-row items-start gap-2">
+              <View className="flex-1">
+                <ThemedText className="text-sm font-bold text-primary">{schedule.title}</ThemedText>
+                <ThemedText className="mt-1 text-xs text-subtext">
+                  {schedule.start_time || '时间待定'}
+                  {schedule.end_time ? ` - ${schedule.end_time}` : ''}
+                </ThemedText>
+              </View>
+              <TouchableOpacity onPress={() => handleDeleteSchedule(schedule)}>
+                <Icon name="Trash2" size={16} />
+              </TouchableOpacity>
+            </View>
+            {schedule.description ? (
+              <ThemedText className="mt-2 text-sm leading-5 text-subtext">
+                {schedule.description}
+              </ThemedText>
+            ) : null}
+            {schedule.tasks.length > 0 ? (
+              <View className="mt-2">
+                {schedule.tasks.map((task, idx) => (
+                  <TouchableOpacity
+                    key={`${schedule.id}-${task.content}-${idx}`}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      handleToggleScheduleTask(schedule, idx);
+                    }}
+                    className="flex-row items-center gap-2 py-1">
+                    <View
+                      className={`h-5 w-5 items-center justify-center rounded-full border ${
+                        task.is_completed ? 'border-primary bg-primary' : 'border-border'
+                      }`}>
+                      {task.is_completed ? <Icon name="Check" size={12} color="#fff" /> : null}
+                    </View>
+                    <ThemedText
+                      className={`text-sm ${task.is_completed ? 'text-subtext line-through' : 'text-primary'}`}>
+                      {task.content}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+            {schedule.tags.length > 0 ? (
+              <View className="mt-3 flex-row flex-wrap gap-2">
+                {schedule.tags.map((tag) => (
+                  <View
+                    key={`${schedule.id}-${tag}`}
+                    className="rounded-full border border-border bg-background px-2 py-1">
+                    <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        );
+      }}
+      ListEmptyComponent={
+        <View className="items-center py-16">
+          <Icon name={activeNotesTab === '灵感笔记' ? 'NotebookPen' : 'Calendar'} size={44} />
+          <ThemedText className="mt-3 text-subtext">
+            {loading
+              ? '加载中...'
+              : activeNotesTab === '灵感笔记'
+                ? '暂无灵感笔记'
+                : '暂无日程安排'}
+          </ThemedText>
         </View>
       }
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
@@ -314,33 +623,28 @@ const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
   return (
     <TouchableOpacity
       activeOpacity={0.75}
-      className="mb-3 rounded-2xl bg-secondary overflow-hidden mx-global"
-    >
+      className="mx-global mb-3 overflow-hidden rounded-2xl bg-secondary">
       <View style={{ backgroundColor: color }} className="flex-row items-center px-4 py-2.5">
         <ThemedText className="flex-1 text-sm font-bold text-white" numberOfLines={1}>
           {doc.title}
         </ThemedText>
-        <TouchableOpacity
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          onPress={() => {}}
-        >
+        <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => {}}>
           <Icon name="MoreHorizontal" size={18} color="white" />
         </TouchableOpacity>
       </View>
       {!showTitleOnly && (
         <View className="flex-row px-4 py-3">
-          <View className="flex-1 mr-3">
-            <ThemedText className="text-sm text-subtext leading-5" numberOfLines={3}>
+          <View className="mr-3 flex-1">
+            <ThemedText className="text-sm leading-5 text-subtext" numberOfLines={3}>
               {doc.preview}
             </ThemedText>
-            <ThemedText className="text-xs text-subtext mt-2">
+            <ThemedText className="mt-2 text-xs text-subtext">
               {formatMemoryDate(doc.created_at)}
             </ThemedText>
           </View>
           <View
             style={{ backgroundColor: color }}
-            className="w-14 h-16 rounded-xl items-center justify-center"
-          >
+            className="h-16 w-14 items-center justify-center rounded-xl">
             <ThemedText className="text-sm font-bold text-white">{label}</ThemedText>
           </View>
         </View>
@@ -389,13 +693,13 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
 
   useFocusEffect(
     useCallback(() => {
-      void load(false);
+      load(false);
     }, [load])
   );
 
   useEffect(() => {
     const id = setInterval(() => {
-      void load(false);
+      load(false);
     }, LIST_CACHE_POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [load]);
@@ -410,12 +714,16 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
       keyExtractor={(item) => item.id}
       showsVerticalScrollIndicator={false}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onPullRefresh}
+          tintColor={colors.highlight}
+        />
       }
       ListHeaderComponent={
         <>
           <SearchBar value={search} onChangeText={setSearch} placeholder="搜索文档" />
-          <View className="flex-row items-center justify-between px-global mb-3">
+          <View className="mb-3 flex-row items-center justify-between px-global">
             <ThemedText className="text-base font-bold">近30天</ThemedText>
             <TouchableOpacity onPress={() => setShowTitleOnly((v) => !v)}>
               <ThemedText className="text-sm text-subtext">
@@ -425,13 +733,11 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
           </View>
         </>
       }
-      renderItem={({ item }) => (
-        <DocumentCard doc={item} showTitleOnly={showTitleOnly} />
-      )}
+      renderItem={({ item }) => <DocumentCard doc={item} showTitleOnly={showTitleOnly} />}
       ListEmptyComponent={
         <View className="items-center py-16">
           <Icon name="FileText" size={44} />
-          <ThemedText className="text-subtext mt-3">暂无历史文档</ThemedText>
+          <ThemedText className="mt-3 text-subtext">暂无历史文档</ThemedText>
         </View>
       }
       contentContainerStyle={{ paddingBottom: contentBottomPad }}
@@ -439,184 +745,32 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
   );
 };
 
-// ─── 历史事项 ─────────────────────────────────────────────────────────────────
-
-interface TodoItemProps {
-  todo: HistoryTodo;
-  onToggle: (id: string, status: 'active' | 'done') => void;
-}
-
-const TodoItem = ({ todo, onToggle }: TodoItemProps) => {
-  const iconName = getTodoCategoryIcon(todo.category) as IconName;
-  const isDone = todo.status === 'done';
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.75}
-      onPress={() => onToggle(todo.id, isDone ? 'active' : 'done')}
-      className="flex-row items-center bg-secondary rounded-2xl px-4 py-3.5 mb-2.5 mx-global"
-    >
-      <View
-        className="w-9 h-9 rounded-xl items-center justify-center mr-3"
-        style={{ backgroundColor: isDone ? 'transparent' : '#1A1A2E', borderWidth: isDone ? 0 : 0 }}
-      >
-        <Icon name={iconName} size={18} className={isDone ? 'opacity-40' : ''} />
-      </View>
-      <ThemedText
-        className={`flex-1 text-sm font-medium ${isDone ? 'text-subtext' : 'text-primary'}`}
-        numberOfLines={1}
-      >
-        {todo.title}
-      </ThemedText>
-      <View className="ml-3">
-        {isDone ? (
-          <View className="w-6 h-6 rounded-full border-2 border-border items-center justify-center">
-            <Icon name="Check" size={12} />
-          </View>
-        ) : (
-          <View className="w-6 h-6 rounded-full border-2 border-primary items-center justify-center">
-            <View className="w-3 h-3 rounded-full bg-primary" />
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-};
-
-interface TodosTabProps {
-  contentBottomPad: number;
-}
-
-const TodosTab = ({ contentBottomPad }: TodosTabProps) => {
-  const colors = useThemeColors();
-  const [todos, setTodos] = useState<HistoryTodo[]>(() => peekMemoryTodos('全部') ?? []);
-  const [activeCategory, setActiveCategory] = useState('全部');
-  const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(
-    async (force = false) => {
-      if (!force && !memoryTodosStale(activeCategory)) return;
-      try {
-        const list = await memoryApi.getTodos(activeCategory);
-        putMemoryTodos(activeCategory, list);
-        setTodos(list);
-      } catch {
-        if (!peekMemoryTodos(activeCategory)?.length) setTodos([]);
-      }
-    },
-    [activeCategory]
-  );
-
-  const onPullRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await load(true);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [load]);
-
-  useFocusEffect(
-    useCallback(() => {
-      const cached = peekMemoryTodos(activeCategory);
-      setTodos(cached ?? []);
-      void load(false);
-    }, [load, activeCategory])
-  );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      void load(false);
-    }, LIST_CACHE_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [load]);
-
-  const filtered = todos.filter((t) =>
-    search ? t.title.toLowerCase().includes(search.toLowerCase()) : true
-  );
-
-  const grouped = groupByDate(filtered) as Record<string, HistoryTodo[]>;
-  const dateKeys = Object.keys(grouped);
-
-  const handleToggle = async (id: string, newStatus: 'active' | 'done') => {
-    setTodos((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t));
-      putMemoryTodos(activeCategory, next);
-      return next;
-    });
-    try { await memoryApi.toggleTodo(id, newStatus); } catch { /* ignore */ }
-  };
-
-  return (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingBottom: contentBottomPad }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.highlight} />
-      }
-    >
-      <SearchBar value={search} onChangeText={setSearch} placeholder="搜索事项" />
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="mb-4"
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-      >
-        {TODO_CATEGORIES.map((cat) => (
-          <Chip
-            key={cat}
-            label={cat}
-            isSelected={activeCategory === cat}
-            onPress={() => setActiveCategory(cat)}
-            size="sm"
-          />
-        ))}
-      </ScrollView>
-
-      {dateKeys.length === 0 ? (
-        <View className="items-center py-16">
-          <Icon name="CheckSquare" size={44} />
-          <ThemedText className="text-subtext mt-3">暂无历史事项</ThemedText>
-        </View>
-      ) : (
-        dateKeys.map((dateKey) => (
-          <View key={dateKey}>
-            <ThemedText className="text-sm font-bold text-primary px-global mb-2">
-              {dateKey}
-            </ThemedText>
-            {grouped[dateKey].map((todo) => (
-              <TodoItem key={todo.id} todo={todo} onToggle={handleToggle} />
-            ))}
-            <View className="mb-3" />
-          </View>
-        ))
-      )}
-      <View className="h-8" />
-    </ScrollView>
-  );
-};
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MemoryScreen() {
+  const params = useLocalSearchParams<{ tab?: string; notesTab?: string }>();
   const listBottomPad = useGlobalFloatingTabBarInset();
-  const [activeTab, setActiveTab] = useState<TabKey>('用户记忆');
+  const [activeTab, setActiveTab] = useState<TabKey>('灵感笔记');
+  const notesInitialTab: NotesTabKey = params.notesTab === 'schedule' ? '日程安排' : '灵感笔记';
+
+  useEffect(() => {
+    if (params.tab === 'memory') setActiveTab('用户记忆');
+    if (params.tab === 'inspiration') setActiveTab('灵感笔记');
+    if (params.tab === 'documents') setActiveTab('历史文档');
+  }, [params.tab]);
 
   return (
     <View className="flex-1 bg-background">
-      <Header
-        title="记忆库"
-        showBackButton
-        onBackPress={safeRouterBackOrHome}
-      />
+      <Header title="记忆库" showBackButton onBackPress={safeRouterBackOrHome} />
 
       <TabBar active={activeTab} onChange={setActiveTab} />
 
       <View className="flex-1">
+        {activeTab === '灵感笔记' && (
+          <InspirationListTab contentBottomPad={listBottomPad} initialNotesTab={notesInitialTab} />
+        )}
         {activeTab === '用户记忆' && <MemoriesTab contentBottomPad={listBottomPad} />}
         {activeTab === '历史文档' && <DocumentsTab contentBottomPad={listBottomPad} />}
-        {activeTab === '历史事项' && <TodosTab contentBottomPad={listBottomPad} />}
       </View>
     </View>
   );
