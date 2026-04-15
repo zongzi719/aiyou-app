@@ -7,6 +7,8 @@ interface ThemeScrollerProps extends ScrollViewProps {
   contentContainerStyle?: any;
   scrollEventThrottle?: number;
   headerSpace?: boolean;
+  /** 默认 true；为 false 时不追加底部占位 View，便于自行用 contentContainerStyle 控制 */
+  footerSpacer?: boolean;
 }
 
 export default function ThemedScroller({
@@ -16,6 +18,7 @@ export default function ThemedScroller({
   contentContainerStyle,
   scrollEventThrottle = 16,
   headerSpace = false,
+  footerSpacer = true,
   ...props
 }: ThemeScrollerProps) {
   return (
@@ -34,7 +37,7 @@ export default function ThemedScroller({
       {...props}
     >
       {children}
-      <View className="h-20 w-full" />
+      {footerSpacer ? <View className="h-20 w-full" /> : null}
     </ScrollView>
   );
 }

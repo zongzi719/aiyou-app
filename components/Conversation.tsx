@@ -6,6 +6,7 @@ import { shadowPresets } from '@/utils/useShadow';
 import { Divider } from './layout/Divider';
 import AnimatedView from './AnimatedView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '@/app/contexts/ThemeColors';
 import Markdown from 'react-native-markdown-display';
@@ -35,6 +36,7 @@ type ConversationProps = {
 
 export const Conversation = ({ messages, isTyping }: ConversationProps) => {
     const insets = useSafeAreaInsets();
+    const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
     const scrollViewRef = useRef<ScrollView>(null);
     const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set());
     const [showScrollButton, setShowScrollButton] = useState(false);
@@ -91,7 +93,10 @@ export const Conversation = ({ messages, isTyping }: ConversationProps) => {
             <ScrollView
                 ref={scrollViewRef}
                 className="flex-1 px-6"
-                contentContainerStyle={{ paddingBottom: insets.bottom + 140, paddingTop: insets.top + 80 }}
+                contentContainerStyle={{
+                    paddingBottom: insets.bottom + 140 + floatingTabExtra,
+                    paddingTop: insets.top + 80,
+                }}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"

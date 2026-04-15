@@ -31,9 +31,9 @@ import {
   translateCategory,
   extractCategories,
   confidenceLabel,
-  relativeTime,
   resolveMemoryTime,
 } from '@/services/memoryApi';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
@@ -114,9 +114,11 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
   const iconName = getCategoryIcon(memory.category) as IconName;
   const iconColor = getCategoryColor(memory.category);
   const confLabel = confidenceLabel(memory.confidence);
-  const timeLabel = relativeTime(resolveMemoryTime(memory));
+  const timeIso = resolveMemoryTime(memory);
+  const timeLabel = timeIso ? formatMemoryDate(timeIso) : '';
 
   const handleLongPress = () => {
+    if (memory.deletable === false) return;
     Alert.alert(translateCategory(memory.category), undefined, [
       {
         text: '删除',
@@ -173,9 +175,10 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
 interface MemoriesTabProps {
   refreshing: boolean;
   onRefresh: () => void;
+  contentBottomPad: number;
 }
 
-const MemoriesTab = ({ refreshing, onRefresh }: MemoriesTabProps) => {
+const MemoriesTab = ({ refreshing, onRefresh, contentBottomPad }: MemoriesTabProps) => {
   const colors = useThemeColors();
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [activeCategory, setActiveCategory] = useState('全部');
@@ -195,14 +198,23 @@ const MemoriesTab = ({ refreshing, onRefresh }: MemoriesTabProps) => {
   // 从实际数据动态提取分类列表
   const categories = extractCategories(memories);
 
-  const filtered = memories.filter((m) => {
-    const matchCat = activeCategory === '全部' || m.category === activeCategory;
-    const matchSearch = search
-      ? m.content.toLowerCase().includes(search.toLowerCase()) ||
-        translateCategory(m.category).includes(search)
-      : true;
-    return matchCat && matchSearch;
-  });
+  const memorySortTime = (m: UserMemory) => {
+    const iso = resolveMemoryTime(m);
+    if (!iso) return Number.NEGATIVE_INFINITY;
+    const t = new Date(iso).getTime();
+    return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
+  };
+
+  const filtered = memories
+    .filter((m) => {
+      const matchCat = activeCategory === '全部' || m.category === activeCategory;
+      const matchSearch = search
+        ? m.content.toLowerCase().includes(search.toLowerCase()) ||
+          translateCategory(m.category).includes(search)
+        : true;
+      return matchCat && matchSearch;
+    })
+    .sort((a, b) => memorySortTime(b) - memorySortTime(a));
 
   const handleDelete = async (id: string) => {
     setMemories((prev) => prev.filter((m) => m.id !== id));
@@ -245,6 +257,7 @@ const MemoriesTab = ({ refreshing, onRefresh }: MemoriesTabProps) => {
           <ThemedText className="text-subtext mt-3">暂无记忆</ThemedText>
         </View>
       }
+      contentContainerStyle={{ paddingBottom: contentBottomPad }}
     />
   );
 };
@@ -308,9 +321,10 @@ const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
 interface DocumentsTabProps {
   refreshing: boolean;
   onRefresh: () => void;
+  contentBottomPad: number;
 }
 
-const DocumentsTab = ({ refreshing, onRefresh }: DocumentsTabProps) => {
+const DocumentsTab = ({ refreshing, onRefresh, contentBottomPad }: DocumentsTabProps) => {
   const colors = useThemeColors();
   const [documents, setDocuments] = useState<HistoryDocument[]>([]);
   const [search, setSearch] = useState('');
@@ -361,6 +375,7 @@ const DocumentsTab = ({ refreshing, onRefresh }: DocumentsTabProps) => {
           <ThemedText className="text-subtext mt-3">暂无历史文档</ThemedText>
         </View>
       }
+      contentContainerStyle={{ paddingBottom: contentBottomPad }}
     />
   );
 };
@@ -412,9 +427,10 @@ const TodoItem = ({ todo, onToggle }: TodoItemProps) => {
 interface TodosTabProps {
   refreshing: boolean;
   onRefresh: () => void;
+  contentBottomPad: number;
 }
 
-const TodosTab = ({ refreshing, onRefresh }: TodosTabProps) => {
+const TodosTab = ({ refreshing, onRefresh, contentBottomPad }: TodosTabProps) => {
   const colors = useThemeColors();
   const [todos, setTodos] = useState<HistoryTodo[]>([]);
   const [activeCategory, setActiveCategory] = useState('全部');
@@ -448,6 +464,7 @@ const TodosTab = ({ refreshing, onRefresh }: TodosTabProps) => {
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: contentBottomPad }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.highlight} />
       }
@@ -496,6 +513,7 @@ const TodosTab = ({ refreshing, onRefresh }: TodosTabProps) => {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MemoryScreen() {
+  const listBottomPad = useGlobalFloatingTabBarInset();
   const [activeTab, setActiveTab] = useState<TabKey>('用户记忆');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -517,13 +535,25 @@ export default function MemoryScreen() {
 
       <View className="flex-1">
         {activeTab === '用户记忆' && (
-          <MemoriesTab refreshing={refreshing} onRefresh={handleRefresh} />
+          <MemoriesTab
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            contentBottomPad={listBottomPad}
+          />
         )}
         {activeTab === '历史文档' && (
-          <DocumentsTab refreshing={refreshing} onRefresh={handleRefresh} />
+          <DocumentsTab
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            contentBottomPad={listBottomPad}
+          />
         )}
         {activeTab === '历史事项' && (
-          <TodosTab refreshing={refreshing} onRefresh={handleRefresh} />
+          <TodosTab
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            contentBottomPad={listBottomPad}
+          />
         )}
       </View>
     </View>

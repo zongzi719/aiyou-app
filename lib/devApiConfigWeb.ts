@@ -2,12 +2,12 @@
  * Dev 工具页（仅 Web）的同步 localStorage 版 API 配置 + 直连请求。
  * 不要在 React Native 原生端使用此文件。
  */
+import { PRODUCTION_API_BASE_URL } from '@/lib/devApiConfig';
 import { addApiLog } from '@/src/dev/data/apiLogStore';
 
 const KEY_BASE = 'dev_api_base_url';
 const KEY_USER = 'dev_user_id';
 const KEY_GLOBAL_MOCK = 'dev_global_mock';
-const FALLBACK_BASE = 'http://47.242.248.240:2026';
 
 function normalizeUrl(raw: string): string {
   const t = raw.trim().replace(/\/$/, '');
@@ -17,12 +17,12 @@ function normalizeUrl(raw: string): string {
 }
 
 export function getApiBaseUrlSync(): string {
-  if (typeof localStorage === 'undefined') return FALLBACK_BASE;
+  if (typeof localStorage === 'undefined') return PRODUCTION_API_BASE_URL;
   const v = localStorage.getItem(KEY_BASE);
   if (v?.trim()) return normalizeUrl(v);
   const e = process.env.EXPO_PUBLIC_DEV_API_BASE_URL;
   if (e?.trim()) return normalizeUrl(e);
-  return FALLBACK_BASE;
+  return PRODUCTION_API_BASE_URL;
 }
 
 export function getDevUserIdSync(): string {

@@ -17,8 +17,10 @@ import {
   bustAvatarCache,
   UserProfile,
 } from '@/services/profileApi';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 
 export default function EditProfileScreen() {
+  const listBottomPad = useGlobalFloatingTabBarInset();
   const colors = useThemeColors();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [displayName, setDisplayName] = useState('');
@@ -109,7 +111,11 @@ export default function EditProfileScreen() {
           <ActivityIndicator size="large" />
         </View>
       ) : (
-        <ThemedScroller className='px-8'>
+        <ThemedScroller
+          className="px-8"
+          footerSpacer={false}
+          contentContainerStyle={{ paddingBottom: listBottomPad }}
+        >
           {/* 头像选择 */}
           <View className="items-center flex-col mb-8 mt-8">
             <TouchableOpacity

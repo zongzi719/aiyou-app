@@ -6,7 +6,8 @@ const KEY_BASE = 'dev_api_base_url';
 const KEY_USER = 'dev_user_id';
 const KEY_GLOBAL_MOCK = 'dev_global_mock';
 
-const FALLBACK_BASE = 'http://47.242.248.240:2026';
+/** AIYOU 线上网关（与 MOBILE_CHAT_API 文档一致） */
+export const PRODUCTION_API_BASE_URL = 'http://47.242.248.240:2026';
 
 /** 补全 `http(s)://`，避免仅保存 `host:port` 时 fetch 变成非法相对 URL导致 Network request failed */
 export function normalizeApiBaseUrl(raw: string): string {
@@ -21,7 +22,17 @@ export async function getApiBaseUrl(): Promise<string> {
   if (v?.trim()) return normalizeApiBaseUrl(v);
   const e = process.env.EXPO_PUBLIC_DEV_API_BASE_URL;
   if (e?.trim()) return normalizeApiBaseUrl(e);
-  return FALLBACK_BASE;
+  return PRODUCTION_API_BASE_URL;
+}
+
+/** 将 AsyncStorage 中的 API 地址固定为线上网关（曾保存过本机代理时可用来恢复） */
+export async function persistProductionApiBaseUrl(): Promise<void> {
+  await AsyncStorage.setItem(KEY_BASE, normalizeApiBaseUrl(PRODUCTION_API_BASE_URL));
+}
+
+/** 清除已保存的 API 地址，改由 EXPO_PUBLIC_DEV_API_BASE_URL 或默认线上网关决定 */
+export async function clearDevApiBaseUrlOverride(): Promise<void> {
+  await AsyncStorage.removeItem(KEY_BASE);
 }
 
 export async function getDevUserId(): Promise<string> {

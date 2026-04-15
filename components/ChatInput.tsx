@@ -18,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { CardScroller } from "./CardScroller";
 import useThemeColors from "@/app/contexts/ThemeColors";
+import { useGlobalFloatingTabBarExtraBottom } from "@/hooks/useGlobalFloatingTabBarInset";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
 import { useRecording } from "@/hooks/useRecording";
@@ -46,6 +47,7 @@ type ChatInputProps = {
 export const ChatInput = (props: ChatInputProps) => {
     const colors = useThemeColors();
     const insets = useSafeAreaInsets();
+    const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
 
     const [isExpanded, setIsExpanded] = useState(false);
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
@@ -390,7 +392,7 @@ export const ChatInput = (props: ChatInputProps) => {
 
             <Animated.View
                 style={[
-                    { paddingBottom: insets.bottom + 0, zIndex: 999 },
+                    { paddingBottom: insets.bottom + floatingTabExtra, zIndex: 999 },
                     Platform.OS === 'android' ? androidInputStyle : {}
                 ]}
                 className="px-global w-full absolute bottom-0 left-0 right-0"

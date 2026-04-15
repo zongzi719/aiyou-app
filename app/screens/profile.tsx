@@ -12,8 +12,10 @@ import Icon from '@/components/Icon';
 import { shadowPresets } from '@/utils/useShadow';
 import { clearAuthSession } from '@/lib/authSession';
 import { fetchProfile, uploadAvatar, bustAvatarCache, UserProfile } from '@/services/profileApi';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 
 export default function ProfileScreen() {
+  const listBottomPad = useGlobalFloatingTabBarInset();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -72,7 +74,11 @@ export default function ProfileScreen() {
   return (
     <AnimatedView className='flex-1 bg-background' animation='fadeIn' duration={350} playOnlyOnce={false}>
       <Header showBackButton title="个人资料" />
-      <ThemedScroller className='!px-6'>
+      <ThemedScroller
+        className="!px-6"
+        footerSpacer={false}
+        contentContainerStyle={{ paddingBottom: listBottomPad }}
+      >
 
         {/* 头像 + 基本信息卡片 */}
         <View className="px-6 py-8 w-full border border-border rounded-3xl mb-4">

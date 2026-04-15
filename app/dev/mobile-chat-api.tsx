@@ -23,7 +23,7 @@ export default function MobileChatApiDocScreen() {
 
         <ThemedText className="mb-2 text-sm font-semibold text-neutral-200">网关</ThemedText>
         <ThemedText className="mb-4 text-xs leading-5 text-neutral-500">
-          基础 URL：http://&lt;host&gt;:2026，API 前缀 /api。开发环境可在「环境配置」中设置 Base URL，或使用
+          默认线上网关：http://47.242.248.240:2026，API 前缀 /api。Web 端「环境配置」可改 Base URL；移动端在 .env 使用
           EXPO_PUBLIC_DEV_API_BASE_URL。
         </ThemedText>
 

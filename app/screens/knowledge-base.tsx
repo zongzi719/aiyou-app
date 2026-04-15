@@ -5,19 +5,17 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  ScrollView,
   Modal,
   Alert,
   ActivityIndicator,
   RefreshControl,
   Dimensions,
 } from 'react-native';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
 import Header from '@/components/Header';
 import ThemedText from '@/components/ThemedText';
 import Icon, { IconName } from '@/components/Icon';
@@ -26,11 +24,14 @@ import {
   knowledgeApi,
   KnowledgeFolder,
   KnowledgeFile,
-  formatFileSize,
   formatDate,
   getMimeLabel,
   getMimeColor,
 } from '@/services/knowledgeApi';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT } from '@/lib/globalBottomTabBar';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 // ─── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -95,166 +96,44 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
 interface FileRowProps {
   file: KnowledgeFile;
   onPress: () => void;
-  onMenuPress: () => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
 }
 
-const FileRow = ({ file, onPress, onMenuPress }: FileRowProps) => (
-  <TouchableOpacity
-    onPress={onPress}
-    activeOpacity={0.7}
-    className="flex-row items-center py-3 border-b border-border"
-  >
-    <FileBadge mimeType={file.mime_type} />
-    <View className="flex-1 ml-3">
-      <ThemedText className="text-sm font-medium text-primary" numberOfLines={1}>
-        {file.filename}
-      </ThemedText>
-      <ThemedText className="text-xs text-subtext mt-0.5">
-        {formatDate(file.created_at)}
-      </ThemedText>
-    </View>
-    {file.status === 'processing' && (
-      <ActivityIndicator size="small" style={{ marginRight: 8 }} />
-    )}
-    {file.status === 'error' && (
-      <Icon name="AlertCircle" size={16} color="#E53935" style={{ marginRight: 8 }} />
-    )}
-    <TouchableOpacity onPress={onMenuPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-      <Icon name="MoreHorizontal" size={20} />
-    </TouchableOpacity>
-  </TouchableOpacity>
-);
-
-// ─── File Detail Modal ──────────────────────────────────────────────────────────
-
-interface FileDetailModalProps {
-  file: KnowledgeFile | null;
-  visible: boolean;
-  onClose: () => void;
-  onDelete: (id: string) => void;
-  onReindex: (id: string) => void;
-}
-
-const FileDetailModal = ({ file, visible, onClose, onDelete, onReindex }: FileDetailModalProps) => {
-  const insets = useSafeAreaInsets();
-  if (!file) return null;
-
-  const label = getMimeLabel(file.mime_type);
-  const color = getMimeColor(file.mime_type);
-
+const FileRow = ({ file, onPress, selectionMode, selected, onToggleSelect }: FileRowProps) => {
+  const colors = useThemeColors();
   return (
-    <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen">
-      <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+    <TouchableOpacity
+      onPress={() => (selectionMode ? onToggleSelect() : onPress())}
+      activeOpacity={0.7}
+      className="flex-row items-center py-3 border-b border-border"
+    >
+      {selectionMode && (
         <View
-          className="bg-background rounded-t-3xl"
-          style={{ maxHeight: '90%', paddingBottom: insets.bottom + 16 }}
+          className={`w-6 h-6 rounded border items-center justify-center mr-2 ${
+            selected ? 'bg-primary border-primary' : 'border-border'
+          }`}
         >
-          <View className="items-center pt-3 pb-1">
-            <View className="w-10 h-1 rounded-full bg-border" />
-          </View>
-
-          <View className="flex-row justify-between items-center px-global pt-2 pb-3">
-            <ThemedText className="text-lg font-bold">预览</ThemedText>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <View className="w-8 h-8 rounded-full bg-secondary items-center justify-center">
-                <Icon name="X" size={16} />
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView className="px-global" showsVerticalScrollIndicator={false}>
-            <View className="bg-secondary rounded-2xl p-4 mb-4">
-              <View className="flex-row items-start">
-                <View className="flex-1 mr-3">
-                  <ThemedText className="text-base font-bold text-primary mb-1">
-                    {file.filename}
-                  </ThemedText>
-                  <View className="flex-row items-center gap-x-3">
-                    <ThemedText className="text-xs text-subtext">{formatFileSize(file.file_size)}</ThemedText>
-                    <ThemedText className="text-xs text-subtext">{formatDate(file.created_at)}</ThemedText>
-                  </View>
-                </View>
-                <View
-                  style={{ backgroundColor: color }}
-                  className="w-14 h-16 rounded-xl items-center justify-center"
-                >
-                  <ThemedText className="text-sm font-bold text-white">{label}</ThemedText>
-                </View>
-              </View>
-
-              {file.status === 'processing' && (
-                <View className="mt-3">
-                  <View className="flex-row items-center justify-between mb-1">
-                    <ThemedText className="text-xs text-subtext">处理中…</ThemedText>
-                    <ThemedText className="text-xs text-subtext">
-                      {Math.round((file.progress ?? 0) * 100)}%
-                    </ThemedText>
-                  </View>
-                  <View className="h-1 bg-border rounded-full overflow-hidden">
-                    <View
-                      className="h-1 rounded-full bg-primary"
-                      style={{ width: `${Math.round((file.progress ?? 0) * 100)}%` }}
-                    />
-                  </View>
-                </View>
-              )}
-
-              {file.status === 'error' && (
-                <View className="mt-3 flex-row items-center">
-                  <Icon name="AlertCircle" size={14} color="#E53935" />
-                  <ThemedText className="text-xs ml-1.5" style={{ color: '#E53935' }}>
-                    处理失败
-                  </ThemedText>
-                  <TouchableOpacity
-                    onPress={() => { onReindex(file.id); onClose(); }}
-                    className="ml-3 bg-secondary rounded-lg px-2 py-1"
-                  >
-                    <ThemedText className="text-xs text-primary">重新处理</ThemedText>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {file.status === 'done' && file.chunk_count > 0 && (
-              <View className="mb-4 flex-row items-center bg-secondary rounded-xl px-4 py-3">
-                <Icon name="Database" size={16} />
-                <ThemedText className="text-sm text-subtext ml-2">
-                  已拆分为 <ThemedText className="font-bold text-primary">{file.chunk_count}</ThemedText> 个知识块，可被 AI 检索
-                </ThemedText>
-              </View>
-            )}
-
-            <View className="flex-row gap-x-3 mb-4">
-              <TouchableOpacity
-                onPress={onClose}
-                className="flex-1 bg-secondary rounded-2xl py-4 items-center"
-              >
-                <ThemedText className="text-base font-semibold">查看更多</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  Alert.alert(
-                    '删除文件',
-                    `确定删除「${file.filename}」？此操作不可撤销。`,
-                    [
-                      { text: '取消', style: 'cancel' },
-                      {
-                        text: '删除',
-                        style: 'destructive',
-                        onPress: () => { onDelete(file.id); onClose(); },
-                      },
-                    ]
-                  );
-                }}
-                className="flex-1 bg-primary rounded-2xl py-4 items-center"
-              >
-                <Text className="text-base font-semibold text-invert">修改</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+          {selected ? <Icon name="Check" size={14} color={colors.invert} /> : null}
         </View>
+      )}
+      <FileBadge mimeType={file.mime_type} />
+      <View className="flex-1 ml-3">
+        <ThemedText className="text-sm font-medium text-primary" numberOfLines={1}>
+          {file.filename}
+        </ThemedText>
+        <ThemedText className="text-xs text-subtext mt-0.5">
+          {formatDate(file.created_at)}
+        </ThemedText>
       </View>
-    </Modal>
+      {file.status === 'processing' && (
+        <ActivityIndicator size="small" style={{ marginRight: 8 }} />
+      )}
+      {file.status === 'error' && (
+        <Icon name="AlertCircle" size={16} color="#E53935" style={{ marginRight: 8 }} />
+      )}
+    </TouchableOpacity>
   );
 };
 
@@ -391,15 +270,18 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
 
 export default function KnowledgeBaseScreen() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
+  const floatListPad = useGlobalFloatingTabBarInset();
   const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
   const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<KnowledgeFile | null>(null);
-  const [detailVisible, setDetailVisible] = useState(false);
   const [newFolderVisible, setNewFolderVisible] = useState(false);
   const [uploadSheetVisible, setUploadSheetVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const filteredFiles = files.filter((f) => {
     const matchFolder = selectedFolderId ? f.folder_id === selectedFolderId : true;
@@ -541,26 +423,6 @@ export default function KnowledgeBaseScreen() {
     }
   };
 
-  const handleDeleteFile = async (fileId: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== fileId));
-    try {
-      await knowledgeApi.deleteFile(fileId);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleReindex = async (fileId: string) => {
-    setFiles((prev) =>
-      prev.map((f) => (f.id === fileId ? { ...f, status: 'queued' as const, progress: 0 } : f))
-    );
-    try {
-      await knowledgeApi.reindexFile(fileId);
-    } catch {
-      // ignore
-    }
-  };
-
   const handleFolderLongPress = (folder: KnowledgeFolder) => {
     Alert.alert(folder.name, undefined, [
       { text: '重命名', onPress: () => promptRenameFolder(folder) },
@@ -592,22 +454,61 @@ export default function KnowledgeBaseScreen() {
     );
   };
 
-  const handleFileMenuPress = (file: KnowledgeFile) => {
-    const actions: Array<{ text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }> = [
+  const toggleFileSelected = (fileId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId],
+    );
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0) return;
+    Alert.alert('批量删除', `确定删除已选中的 ${selectedIds.length} 个文件？此操作不可撤销。`, [
+      { text: '取消', style: 'cancel' },
       {
         text: '删除',
         style: 'destructive',
-        onPress: () => handleDeleteFile(file.id),
+        onPress: () => {
+          void (async () => {
+            const ids = [...selectedIds];
+            setBatchBusy(true);
+            setFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
+            setSelectedIds([]);
+            setSelectionMode(false);
+            try {
+              await Promise.all(ids.map((id) => knowledgeApi.deleteFile(id)));
+            } catch {
+              Alert.alert('删除失败', '部分文件可能未删除，请下拉刷新重试');
+              void loadData();
+            } finally {
+              setBatchBusy(false);
+            }
+          })();
+        },
       },
-    ];
-    if (file.status === 'error') {
-      actions.unshift({
-        text: '重新处理',
-        onPress: () => handleReindex(file.id),
-      });
+    ]);
+  };
+
+  const handleBatchDownload = async () => {
+    if (selectedIds.length === 0) return;
+    const list = files.filter((f) => selectedIds.includes(f.id));
+    setBatchBusy(true);
+    try {
+      const canShare = await Sharing.isAvailableAsync();
+      for (const f of list) {
+        const uri = await knowledgeApi.downloadOriginalFile(f.id, f.filename);
+        if (canShare) {
+          await Sharing.shareAsync(uri, { mimeType: f.mime_type, dialogTitle: f.filename });
+        }
+      }
+      if (!canShare) {
+        Alert.alert('下载完成', `已将 ${list.length} 个文件保存到应用缓存`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert('下载失败', msg || '请稍后重试');
+    } finally {
+      setBatchBusy(false);
     }
-    actions.push({ text: '取消', style: 'cancel' });
-    Alert.alert(file.filename, undefined, actions);
   };
 
   const handleMockUpload = () => {
@@ -686,11 +587,20 @@ export default function KnowledgeBaseScreen() {
 
   const leftHeaderComponent = (
     <TouchableOpacity
-      onPress={() => {}}
+      onPress={() => {
+        if (selectionMode) {
+          setSelectionMode(false);
+          setSelectedIds([]);
+        } else {
+          setSelectionMode(true);
+        }
+      }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       className="mr-2"
     >
-      <ThemedText className="text-base text-primary">多选</ThemedText>
+      <ThemedText className="text-base text-primary">
+        {selectionMode ? '取消' : '批量选择'}
+      </ThemedText>
     </TouchableOpacity>
   );
 
@@ -758,20 +668,25 @@ export default function KnowledgeBaseScreen() {
   );
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1 bg-background relative">
       <Header
         title="知识库"
         showBackButton
         onBackPress={() => router.back()}
         leftComponent={leftHeaderComponent}
-        rightComponents={[rightHeaderComponent]}
+        rightComponents={selectionMode ? [] : [rightHeaderComponent]}
       />
 
       <FlatList
         data={filteredFiles}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingBottom: selectionMode
+            ? 24 + insets.bottom + 72 + GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT
+            : floatListPad,
+        }}
         ListHeaderComponent={listHeader}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={loadData} tintColor={colors.icon} />
@@ -779,11 +694,26 @@ export default function KnowledgeBaseScreen() {
         renderItem={({ item }) => (
           <FileRow
             file={item}
-            onPress={() => {
-              setSelectedFile(item);
-              setDetailVisible(true);
-            }}
-            onMenuPress={() => handleFileMenuPress(item)}
+            selectionMode={selectionMode}
+            selected={selectedIds.includes(item.id)}
+            onToggleSelect={() => toggleFileSelected(item.id)}
+            onPress={() =>
+              router.push({
+                pathname: '/screens/knowledge-file-detail',
+                params: {
+                  fileId: item.id,
+                  filename: item.filename,
+                  mime_type: item.mime_type,
+                  file_size: String(item.file_size),
+                  created_at: item.created_at,
+                  status: item.status,
+                  chunk_count: String(item.chunk_count ?? 0),
+                  progress:
+                    item.progress != null ? String(item.progress) : '',
+                  folder_id: item.folder_id ?? '',
+                },
+              })
+            }
           />
         )}
         ListEmptyComponent={
@@ -792,14 +722,6 @@ export default function KnowledgeBaseScreen() {
             <ThemedText className="text-subtext mt-3">暂无文件</ThemedText>
           </View>
         }
-      />
-
-      <FileDetailModal
-        file={selectedFile}
-        visible={detailVisible}
-        onClose={() => setDetailVisible(false)}
-        onDelete={handleDeleteFile}
-        onReindex={handleReindex}
       />
 
       <NewFolderModal
@@ -818,6 +740,34 @@ export default function KnowledgeBaseScreen() {
           onPress: () => setNewFolderVisible(true),
         }}
       />
+
+      {selectionMode && (
+        <View
+          className="absolute left-0 right-0 bottom-0 flex-row border-t border-border bg-background px-4 pt-3 gap-3"
+          style={{
+            paddingBottom: Math.max(insets.bottom, 12) + GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT,
+          }}
+        >
+          <TouchableOpacity
+            disabled={batchBusy || selectedIds.length === 0}
+            className={`flex-1 rounded-xl py-3 items-center bg-secondary ${
+              batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
+            }`}
+            onPress={handleBatchDownload}
+          >
+            <ThemedText className="text-base font-semibold text-primary">批量下载</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity
+            disabled={batchBusy || selectedIds.length === 0}
+            className={`flex-1 rounded-xl py-3 items-center bg-secondary ${
+              batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
+            }`}
+            onPress={handleBatchDelete}
+          >
+            <ThemedText className="text-base font-semibold text-red-500">批量删除</ThemedText>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }

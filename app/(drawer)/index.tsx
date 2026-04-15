@@ -1,5 +1,5 @@
 import Header from '@/components/Header';
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import Icon, { IconName } from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
@@ -22,6 +22,15 @@ import {
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
 import ModelSelector from '@/components/ModelSelector';
 import { fetchProfile } from '@/services/profileApi';
+import { memoryApi } from '@/services/memoryApi';
+import {
+    buildMemorySuggestedPrompts,
+    DEFAULT_CHAT_HOME_SUGGESTIONS,
+    mergeChatHomeSuggestionPools,
+    sliceChatHomeSuggestionBatch,
+    type ChatHomeSuggestion,
+} from '@/lib/memorySuggestedPrompts';
+import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
 
 /** 将英文后端错误转为中文友好提示 */
 function friendlyError(raw: string): string {
@@ -59,6 +68,7 @@ function firstSearchParam(v: string | string[] | undefined): string | undefined 
 }
 
 const HomeScreen = () => {
+    const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
     const colors = useThemeColors();
     const scrollViewRef = useRef<ScrollView>(null);
     const privateThreadIdRef = useRef<string | null>(null);
@@ -66,6 +76,8 @@ const HomeScreen = () => {
     const [isTyping, setIsTyping] = useState(false);
     const selectedModelRef = useRef<string>('');
     const [userName, setUserName] = useState('');
+    const [suggestionPool, setSuggestionPool] = useState<ChatHomeSuggestion[]>(DEFAULT_CHAT_HOME_SUGGESTIONS);
+    const [suggestionBatchIndex, setSuggestionBatchIndex] = useState(0);
 
     useEffect(() => {
         getSelectedModelName().then((name) => { selectedModelRef.current = name; });
@@ -280,7 +292,7 @@ const HomeScreen = () => {
                 role: m.type as 'user' | 'assistant',
                 content: m.content,
             })),
-            { role: 'user' as const, content: llmText },
+            { role: 'user' as const, content: text.trim() || (hasFiles ? '请分析这个文件' : '') },
         ];
 
         try {
@@ -335,6 +347,31 @@ const HomeScreen = () => {
 
     const hasMessages = messages.length > 0;
 
+    useEffect(() => {
+        if (hasMessages) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const memories = await memoryApi.getMemories();
+                if (cancelled) return;
+                const merged = mergeChatHomeSuggestionPools(buildMemorySuggestedPrompts(memories));
+                setSuggestionPool(merged);
+            } catch {
+                if (!cancelled) setSuggestionPool([...DEFAULT_CHAT_HOME_SUGGESTIONS]);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [hasMessages]);
+
+    useEffect(() => {
+        setSuggestionBatchIndex(0);
+    }, [suggestionPool]);
+
+    const visibleSuggestions = useMemo(
+        () => sliceChatHomeSuggestionBatch(suggestionPool, suggestionBatchIndex, 4),
+        [suggestionPool, suggestionBatchIndex],
+    );
+
     return (
         <View className="flex-1 bg-background relative">
             <LinearGradient style={{ width: '100%', display: 'flex', flex: 1, flexDirection: 'column' }} colors={['transparent', 'transparent', colors.gradient]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}>
@@ -355,7 +392,11 @@ const HomeScreen = () => {
                             <ScrollView
                                 ref={scrollViewRef}
                                 className='flex-1 px-8 pt-10 pb-10'
-                                contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end', paddingBottom: 20 }}
+                                contentContainerStyle={{
+                                    flexGrow: 1,
+                                    justifyContent: 'flex-end',
+                                    paddingBottom: 20 + floatingTabExtra,
+                                }}
                                 showsVerticalScrollIndicator={false}
                                 bounces={false}
                                 overScrollMode='never'
@@ -363,11 +404,26 @@ const HomeScreen = () => {
                                 <View className='flex-1 items-center justify-center relative'>
                                     <ThemedText className='text-4xl font-outfit-bold'>你好 {userName || 'AI You'}<Text className='text-sky-500'>.</Text></ThemedText>
                                     <ThemedText className='text-sm text-gray-500 mt-2'>今天有什么我可以帮你的？</ThemedText>
-                                    <View className='flex-row gap-x-2 flex-wrap items-center justify-center mt-8'>
-                                        <TipCard title="Make a recipe" icon="Cookie" />
-                                        <TipCard title="Generate image" icon="Image" />
-                                        <TipCard title="Generate text" icon="Text" />
-                                        <TipCard title="Generate code" icon="Code" />
+                                    <View className='w-full max-w-md mt-6 px-1'>
+                                        <Pressable
+                                            onPress={() => setSuggestionBatchIndex((i) => i + 1)}
+                                            className='flex-row items-center justify-end gap-1 self-end py-1 active:opacity-70'
+                                            accessibilityRole='button'
+                                            accessibilityLabel='换一批常见问题'
+                                        >
+                                            <Icon name="RefreshCw" size={14} color={colors.placeholder} />
+                                            <ThemedText className='text-sm text-gray-500'>换一批</ThemedText>
+                                        </Pressable>
+                                    </View>
+                                    <View className='flex-row gap-x-2 flex-wrap items-stretch justify-center mt-2 max-w-md'>
+                                        {visibleSuggestions.map((s, idx) => (
+                                            <TipCard
+                                                key={`${suggestionBatchIndex}-${idx}-${s.prompt.slice(0, 24)}`}
+                                                title={s.prompt}
+                                                icon={s.icon}
+                                                onPress={() => void handleSendMessage(s.prompt)}
+                                            />
+                                        ))}
                                     </View>
                                 </View>
                             </ScrollView>
@@ -380,11 +436,22 @@ const HomeScreen = () => {
     );
 };
 
-const TipCard = ({ title, icon }: { title: string, icon: string }) => {
+const TipCard = ({
+    title,
+    icon,
+    onPress,
+}: {
+    title: string;
+    icon: IconName;
+    onPress: () => void;
+}) => {
     return (
-        <Pressable className='p-3 mb-2 bg-background border border-border flex flex-row items-center rounded-3xl'>
-            <Icon name={icon as IconName} size={15} className=' rounded-xl' />
-            <ThemedText className='text-sm font-semibold ml-2 mr-1'>{title}</ThemedText>
+        <Pressable
+            onPress={onPress}
+            className='p-3 mb-2 bg-background border border-border flex flex-row items-center rounded-3xl w-[47%] min-w-[140px]'
+        >
+            <Icon name={icon} size={15} className=' rounded-xl shrink-0' />
+            <ThemedText className='text-sm font-semibold ml-2 mr-1 flex-1' numberOfLines={3}>{title}</ThemedText>
         </Pressable>
     );
 };

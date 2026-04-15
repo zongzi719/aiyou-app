@@ -1,3 +1,5 @@
+import * as FileSystem from 'expo-file-system/legacy';
+
 import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
 import { getAuthSession } from '@/lib/authSession';
 
@@ -27,6 +29,155 @@ function httpError(status: number, detail?: string): Error {
   return new Error(base);
 }
 
+function sanitizeKnowledgeDownloadFilename(name: string): string {
+  const base = name.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'file';
+  return base.length > 120 ? base.slice(0, 120) : base;
+}
+
+/** 将后端可能出现的别名统一为文档约定四种状态，避免未知值在 UI 上被当成「处理失败」 */
+const KNOWLEDGE_STATUS_ALIASES: Record<string, KnowledgeFile['status']> = {
+  queued: 'queued',
+  pending: 'queued',
+  waiting: 'queued',
+  processing: 'processing',
+  running: 'processing',
+  in_progress: 'processing',
+  inprogress: 'processing',
+  parsing: 'processing',
+  indexing: 'processing',
+  vectorizing: 'processing',
+  embedding: 'processing',
+  done: 'done',
+  completed: 'done',
+  complete: 'done',
+  success: 'done',
+  succeeded: 'done',
+  finished: 'done',
+  ready: 'done',
+  indexed: 'done',
+  ok: 'done',
+  error: 'error',
+  failed: 'error',
+  failure: 'error',
+};
+
+function normStatusKey(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+/** 部分后端用数字表示阶段（0~3，与文档字符串枚举并存；若与贵司后端不一致可再调映射） */
+const KNOWLEDGE_STATUS_BY_NUMBER: Record<number, KnowledgeFile['status']> = {
+  0: 'queued',
+  1: 'processing',
+  2: 'done',
+  3: 'error',
+};
+
+export function normalizeKnowledgeFileStatus(raw: unknown): KnowledgeFile['status'] {
+  if (raw == null) return 'queued';
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const mapped = KNOWLEDGE_STATUS_BY_NUMBER[raw];
+    if (mapped) return mapped;
+    return 'queued';
+  }
+  if (typeof raw !== 'string') return 'queued';
+  const key = normStatusKey(raw);
+  const mapped = KNOWLEDGE_STATUS_ALIASES[key];
+  if (mapped) return mapped;
+  const valid: KnowledgeFile['status'][] = ['queued', 'processing', 'done', 'error'];
+  if (valid.includes(raw as KnowledgeFile['status'])) return raw as KnowledgeFile['status'];
+  return 'queued';
+}
+
+function pickChunkArray(o: Record<string, unknown>): unknown[] {
+  if (Array.isArray(o.chunks)) return o.chunks;
+  if (Array.isArray(o.items)) return o.items;
+  if (Array.isArray(o.records)) return o.records;
+  if (Array.isArray(o.list)) return o.list;
+  if (Array.isArray(o.rows)) return o.rows;
+  if (Array.isArray(o.data)) return o.data;
+  return [];
+}
+
+function normalizeKnowledgeChunk(raw: unknown, fileId: string, fallbackIndex: number): KnowledgeChunk {
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const id =
+    typeof o.id === 'string' && o.id
+      ? o.id
+      : typeof o.chunk_id === 'string' && o.chunk_id
+        ? o.chunk_id
+        : typeof o._id === 'string' && o._id
+          ? o._id
+          : `${fileId}-chunk-${fallbackIndex}`;
+  const index =
+    typeof o.index === 'number' && Number.isFinite(o.index)
+      ? o.index
+      : typeof o.chunk_index === 'number' && Number.isFinite(o.chunk_index)
+        ? o.chunk_index
+        : fallbackIndex;
+  const content =
+    typeof o.content === 'string'
+      ? o.content
+      : typeof o.text === 'string'
+        ? o.text
+        : typeof o.body === 'string'
+          ? o.body
+          : '';
+  const token_count =
+    typeof o.token_count === 'number' && Number.isFinite(o.token_count)
+      ? o.token_count
+      : typeof o.tokenCount === 'number' && Number.isFinite(o.tokenCount)
+        ? o.tokenCount
+        : typeof o.tokens === 'number' && Number.isFinite(o.tokens)
+          ? o.tokens
+          : 0;
+  const fromApi: Record<string, unknown> =
+    o.metadata && typeof o.metadata === 'object' && !Array.isArray(o.metadata)
+      ? { ...(o.metadata as Record<string, unknown>) }
+      : {};
+  if (typeof o.char_count === 'number' && Number.isFinite(o.char_count)) {
+    fromApi.char_count = o.char_count;
+  }
+  if (o.section_title != null && o.section_title !== '') {
+    fromApi.section_title = o.section_title;
+  }
+  const metadata = Object.keys(fromApi).length > 0 ? fromApi : undefined;
+  return { id, index, content, token_count, metadata };
+}
+
+function normalizeFileChunksPayload(json: unknown, fileId: string): FileChunksResponse {
+  const o = json && typeof json === 'object' ? (json as Record<string, unknown>) : {};
+  let src: Record<string, unknown> = o;
+  let list = pickChunkArray(o);
+  if (list.length === 0) {
+    const data = o.data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const inner = data as Record<string, unknown>;
+      const innerList = pickChunkArray(inner);
+      if (innerList.length > 0) {
+        src = inner;
+        list = innerList;
+      }
+    }
+  }
+
+  const file_id = typeof src.file_id === 'string' ? src.file_id : fileId;
+  const filename = typeof src.filename === 'string' ? src.filename : '';
+  const totalRaw =
+    typeof src.total === 'number'
+      ? src.total
+      : typeof src.total_count === 'number'
+        ? src.total_count
+        : typeof src.count === 'number'
+          ? src.count
+          : list.length;
+  const chunks = list.map((item, i) => normalizeKnowledgeChunk(item, file_id, i));
+  return { file_id, filename, chunks, total: totalRaw };
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const [base, headers] = await Promise.all([getBaseUrl(), getHeaders()]);
   const res = await fetch(`${base}${API_PREFIX}${path}`, {
@@ -40,6 +191,67 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json().catch(() => {
     throw new Error('服务器返回了无效的响应');
   }) as Promise<T>;
+}
+
+function isNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg === 'Not Found' ||
+    /\b404\b/.test(msg) ||
+    msg.toLowerCase().includes('not found')
+  );
+}
+
+/** 与 Web 管理端 `preview-chunks` 请求体一致（重新索引、拉取分块共用默认值） */
+export interface KnowledgeChunkProcessingConfig {
+  separator?: string;
+  chunk_size?: number;
+  chunk_overlap?: number;
+}
+
+export const DEFAULT_KNOWLEDGE_CHUNK_CONFIG: Required<KnowledgeChunkProcessingConfig> = {
+  separator: '\n\n',
+  chunk_size: 512,
+  chunk_overlap: 50,
+};
+
+function mergeChunkConfig(overrides?: KnowledgeChunkProcessingConfig): Required<KnowledgeChunkProcessingConfig> {
+  return { ...DEFAULT_KNOWLEDGE_CHUNK_CONFIG, ...overrides };
+}
+
+function chunkQueryString(params?: { page?: number; page_size?: number }): string {
+  const qs = new URLSearchParams();
+  if (params?.page != null) qs.set('page', String(params.page));
+  if (params?.page_size != null) qs.set('page_size', String(params.page_size));
+  const q = qs.toString();
+  return q ? `?${q}` : '';
+}
+
+async function fetchChunksViaPreview(
+  fileId: string,
+  params?: { page?: number; page_size?: number },
+  chunkConfig?: KnowledgeChunkProcessingConfig,
+): Promise<FileChunksResponse> {
+  const cfg = mergeChunkConfig(chunkConfig);
+  const path = `/preview-chunks/${encodeURIComponent(fileId)}${chunkQueryString(params)}`;
+  const json = await request<unknown>(path, {
+    method: 'POST',
+    body: JSON.stringify({
+      separator: cfg.separator,
+      chunk_size: cfg.chunk_size,
+      chunk_overlap: cfg.chunk_overlap,
+    }),
+  });
+  return normalizeFileChunksPayload(json, fileId);
+}
+
+async function fetchChunksViaDocGet(
+  fileId: string,
+  params?: { page?: number; page_size?: number },
+): Promise<FileChunksResponse> {
+  const path = `/files/${encodeURIComponent(fileId)}/chunks${chunkQueryString(params)}`;
+  const json = await request<unknown>(path);
+  return normalizeFileChunksPayload(json, fileId);
 }
 
 export interface KnowledgeFolder {
@@ -69,6 +281,27 @@ export interface FileStatusResponse {
   status: KnowledgeFile['status'];
   progress: number | null;
   error_message: string | null;
+}
+
+/** RAG 分块（preview-chunks 或 GET /files/{id}/chunks） */
+export interface KnowledgeChunk {
+  id: string;
+  index: number;
+  content: string;
+  token_count: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FileChunksResponse {
+  file_id: string;
+  filename: string;
+  chunks: KnowledgeChunk[];
+  total: number;
+}
+
+export interface KnowledgeChunkDetail extends KnowledgeChunk {
+  file_id: string;
+  filename: string;
 }
 
 export interface FileListParams {
@@ -106,17 +339,37 @@ export const knowledgeApi = {
     if (params?.page) qs.set('page', String(params.page));
     if (params?.page_size) qs.set('page_size', String(params.page_size));
     const query = qs.toString();
-    return request<FileListResponse>(`/files${query ? `?${query}` : ''}`);
+    return request<FileListResponse>(`/files${query ? `?${query}` : ''}`).then((r) => ({
+      ...r,
+      files: (Array.isArray(r.files) ? r.files : []).map((f) => ({
+        ...f,
+        status: normalizeKnowledgeFileStatus(f.status),
+      })),
+    }));
   },
 
-  uploadFile: async (uri: string, filename: string, mimeType: string, folderId?: string) => {
+  /**
+   * 上传文件（multipart）。与 Web 一致附带 `chunk_separator` / `chunk_size` / `chunk_overlap`；
+   * 未传 `chunkProcessing` 时使用 `DEFAULT_KNOWLEDGE_CHUNK_CONFIG`。
+   */
+  uploadFile: async (
+    uri: string,
+    filename: string,
+    mimeType: string,
+    folderId?: string,
+    chunkProcessing?: KnowledgeChunkProcessingConfig,
+  ) => {
     const [base, session, devUserId] = await Promise.all([getBaseUrl(), getAuthSession(), getDevUserId()]);
 
+    const cfg = mergeChunkConfig(chunkProcessing);
     const formData = new FormData();
     formData.append('file', { uri, name: filename, type: mimeType } as unknown as Blob);
     if (folderId && folderId !== 'all' && folderId !== 'recent') {
       formData.append('folder_id', folderId);
     }
+    formData.append('chunk_separator', cfg.separator);
+    formData.append('chunk_size', String(cfg.chunk_size));
+    formData.append('chunk_overlap', String(cfg.chunk_overlap));
 
     const headers: Record<string, string> = {};
     if (session.token) {
@@ -147,11 +400,68 @@ export const knowledgeApi = {
   deleteFile: (fileId: string) =>
     request<{ deleted: boolean }>(`/files/${fileId}`, { method: 'DELETE' }),
 
-  getFileStatus: (fileId: string) =>
-    request<FileStatusResponse>(`/status/${fileId}`),
+  /**
+   * 下载原始文件到应用缓存目录（GET /files/{id}/download，需服务端提供）。
+   * 成功后返回本地 `file://` URI，可配合 expo-sharing 交给系统「存储到文件」等。
+   */
+  downloadOriginalFile: async (fileId: string, filename: string): Promise<string> => {
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) {
+      throw new Error('当前环境无法写入缓存，请在 App 内重试');
+    }
+    const [base, headers] = await Promise.all([getBaseUrl(), getHeaders()]);
+    const url = `${base}${API_PREFIX}/files/${encodeURIComponent(fileId)}/download`;
+    const hdrs: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers)) {
+      if (k.toLowerCase() === 'content-type') continue;
+      hdrs[k] = v;
+    }
+    const safeId = fileId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'file';
+    const dest = `${cacheDir}kb_${safeId}_${sanitizeKnowledgeDownloadFilename(filename)}`;
+    const result = await FileSystem.downloadAsync(url, dest, { headers: hdrs });
+    if (result.status != null && (result.status < 200 || result.status >= 300)) {
+      throw new Error(`下载失败（HTTP ${result.status}）`);
+    }
+    return result.uri;
+  },
 
-  reindexFile: (fileId: string) =>
-    request<{ queued: boolean }>(`/reindex/${fileId}`, { method: 'POST' }),
+  getFileStatus: (fileId: string) =>
+    request<FileStatusResponse>(`/status/${fileId}`).then((r) => ({
+      ...r,
+      status: normalizeKnowledgeFileStatus(r.status),
+    })),
+
+  reindexFile: (fileId: string, chunkConfig?: KnowledgeChunkProcessingConfig) => {
+    const cfg = mergeChunkConfig(chunkConfig);
+    return request<{ queued: boolean }>(`/reindex/${encodeURIComponent(fileId)}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        separator: cfg.separator,
+        chunk_size: cfg.chunk_size,
+        chunk_overlap: cfg.chunk_overlap,
+      }),
+    });
+  },
+
+  /**
+   * 获取文件分块列表：优先 POST /preview-chunks/{id}（与 Web 管理端一致）；
+   * 若返回 404 再回退 GET /files/{id}/chunks（文档备选）。
+   */
+  getFileChunks: (
+    fileId: string,
+    params?: { page?: number; page_size?: number },
+    chunkConfig?: KnowledgeChunkProcessingConfig,
+  ) =>
+    fetchChunksViaPreview(fileId, params, chunkConfig).catch((err: unknown) => {
+      if (isNotFoundError(err)) {
+        return fetchChunksViaDocGet(fileId, params);
+      }
+      throw err;
+    }),
+
+  /** 单个分块详情（内容过长时可展开） */
+  getChunk: (chunkId: string) =>
+    request<KnowledgeChunkDetail>(`/chunks/${encodeURIComponent(chunkId)}`),
 };
 
 export function formatFileSize(bytes: number): string {

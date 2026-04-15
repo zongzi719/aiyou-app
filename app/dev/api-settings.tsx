@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PRODUCTION_API_BASE_URL } from '@/lib/devApiConfig';
 import { getApiBaseUrlSync, getDevUserIdSync, getGlobalMockSync, saveDevSettings } from '@/lib/devApiConfigWeb';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -40,7 +41,7 @@ export default function ApiSettings() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setBaseUrl(getApiBaseUrlSync().replace('http://47.242.248.240:2026', ''));
+    setBaseUrl(getApiBaseUrlSync());
     setUserId(getDevUserIdSync());
     setGlobalMock(getGlobalMockSync());
   }, []);
@@ -61,10 +62,19 @@ export default function ApiSettings() {
           <input
             value={baseUrl}
             onChange={e => setBaseUrl(e.target.value)}
-            placeholder="http://<host>:2026"
+            placeholder={PRODUCTION_API_BASE_URL}
             style={S.input}
           />
-          <p style={S.hint}>所有接口请求将以此地址为前缀发送，API前缀为 /api</p>
+          <p style={S.hint}>
+            默认直连线上网关，无需本机代理。所有接口以此地址为前缀，路径前缀为 /api。点击下方可一键填回线上地址。
+          </p>
+          <button
+            type="button"
+            onClick={() => setBaseUrl(PRODUCTION_API_BASE_URL)}
+            style={{ ...S.saveBtn, alignSelf: 'flex-start', marginTop: 4 }}
+          >
+            使用线上网关（{PRODUCTION_API_BASE_URL}）
+          </button>
         </div>
 
         <div style={S.field}>

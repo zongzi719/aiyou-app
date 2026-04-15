@@ -41,6 +41,10 @@ export interface UserMemory {
   category: string;
   content: string;
   confidence?: number;
+  /** 全量记忆接口中每条块的更新时间（ISO 8601） */
+  updatedAt?: string;
+  /** 非 facts 汇总块不可调用删除接口 */
+  deletable?: boolean;
   // 接口可能以不同字段名返回时间
   created_at?: string;
   updated_at?: string;
@@ -50,9 +54,22 @@ export interface UserMemory {
   source_thread_id?: string;
 }
 
-/** 从记忆对象中提取最佳时间字段（兼容多种命名） */
+/** GET /api/memory 中 user / history 下的单块结构 */
+interface MemorySummaryBlock {
+  summary?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+/** 从记忆对象中提取用于展示的时间（优先接口约定的 updatedAt） */
 export function resolveMemoryTime(m: UserMemory): string | undefined {
-  return m.created_at ?? m.updated_at ?? m.created_time ?? m.timestamp;
+  return (
+    m.updatedAt ??
+    m.created_at ??
+    m.updated_at ??
+    m.created_time ??
+    m.timestamp
+  );
 }
 
 export interface HistoryDocument {
@@ -74,9 +91,56 @@ export interface HistoryTodo {
 
 interface MemoryResponse {
   version?: string;
+  lastUpdated?: string;
   facts?: UserMemory[];
+  user?: Record<string, MemorySummaryBlock | undefined>;
+  history?: Record<string, MemorySummaryBlock | undefined>;
   // layered 结构兼容
   layers?: Record<string, { facts?: UserMemory[] }>;
+}
+
+function blockTime(block: MemorySummaryBlock): string | undefined {
+  return block.updatedAt ?? block.updated_at;
+}
+
+/** 将全量记忆 JSON 中的 user/history 块展平为列表项 */
+function memoriesFromSummarySections(
+  section: Record<string, MemorySummaryBlock | undefined> | undefined,
+  prefix: string,
+): UserMemory[] {
+  if (!section) return [];
+  const out: UserMemory[] = [];
+  for (const [key, block] of Object.entries(section)) {
+    if (!block) continue;
+    const summary = block.summary?.trim();
+    const t = blockTime(block);
+    if (!summary && !t) continue;
+    out.push({
+      id: `${prefix}:${key}`,
+      category: key,
+      content: summary ?? '（暂无摘要）',
+      updatedAt: t,
+      deletable: false,
+    });
+  }
+  return out;
+}
+
+function normalizeMemoriesPayload(data: MemoryResponse): UserMemory[] {
+  const fromFacts = (data.facts ?? []).map((f) => ({
+    ...f,
+    updatedAt: f.updatedAt ?? f.updated_at,
+    deletable: f.deletable ?? true,
+  }));
+  const fromUser = memoriesFromSummarySections(data.user, 'user');
+  const fromHistory = memoriesFromSummarySections(data.history, 'history');
+  const structured = [...fromUser, ...fromHistory];
+
+  if (fromFacts.length > 0 && structured.length > 0) {
+    return [...fromFacts, ...structured];
+  }
+  if (fromFacts.length > 0) return fromFacts;
+  return structured;
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -88,7 +152,7 @@ export const memoryApi = {
    */
   getMemories: async () => {
     const data = await request<MemoryResponse>('?layer=agent_private');
-    return data.facts ?? [];
+    return normalizeMemoriesPayload(data);
   },
 
   /**
@@ -122,6 +186,12 @@ export const TODO_CATEGORIES = ['全部', '会议', '安排', '决策', '其他'
 
 /** 将 API 返回的英文 category 翻译为中文显示名 */
 const CATEGORY_ZH_MAP: Record<string, string> = {
+  workcontext: '工作上下文',
+  personalcontext: '个人上下文',
+  topofmind: '当前关注',
+  recentmonths: '近月回顾',
+  earliercontext: '早期脉络',
+  longtermbackground: '长期背景',
   preference:  '偏好',
   context:     '背景',
   habit:       '习惯',
@@ -154,6 +224,12 @@ export function extractCategories(memories: UserMemory[]): string[] {
 
 export function getCategoryIcon(category: string): string {
   const map: Record<string, string> = {
+    workcontext: 'Briefcase',
+    personalcontext: 'User',
+    topofmind: 'Zap',
+    recentmonths: 'Calendar',
+    earliercontext: 'Archive',
+    longtermbackground: 'Clock',
     preference:  'Heart',
     context:     'Globe',
     habit:       'Repeat',
@@ -175,6 +251,12 @@ export function getCategoryIcon(category: string): string {
 
 export function getCategoryColor(category: string): string {
   const map: Record<string, string> = {
+    workcontext: '#0EA5E9',
+    personalcontext: '#8B5CF6',
+    topofmind: '#F97316',
+    recentmonths: '#10B981',
+    earliercontext: '#64748B',
+    longtermbackground: '#6366F1',
     preference:  '#F59E0B',
     context:     '#0EA5E9',
     habit:       '#10B981',
