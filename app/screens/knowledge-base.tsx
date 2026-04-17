@@ -1,3 +1,7 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { router, useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -12,21 +16,20 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router, useFocusEffect } from 'expo-router';
-import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
+
+import useThemeColors from '@/app/contexts/ThemeColors';
+import Header from '@/components/Header';
+import Icon, { IconName } from '@/components/Icon';
+import ThemedText from '@/components/ThemedText';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT } from '@/lib/globalBottomTabBar';
 import {
   peekKnowledgeData,
   putKnowledgeData,
   knowledgeDataStale,
   LIST_CACHE_POLL_INTERVAL_MS,
 } from '@/lib/listDataCache';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as Sharing from 'expo-sharing';
-import Header from '@/components/Header';
-import ThemedText from '@/components/ThemedText';
-import Icon, { IconName } from '@/components/Icon';
-import useThemeColors from '@/app/contexts/ThemeColors';
+import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
 import {
   knowledgeApi,
   KnowledgeFolder,
@@ -35,8 +38,6 @@ import {
   getMimeLabel,
   getMimeColor,
 } from '@/services/knowledgeApi';
-import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
-import { GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT } from '@/lib/globalBottomTabBar';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -52,8 +53,7 @@ const FileBadge = ({ mimeType }: FileBadgeProps) => {
   return (
     <View
       style={{ backgroundColor: color }}
-      className="w-12 h-12 rounded-xl items-center justify-center"
-    >
+      className="h-12 w-12 items-center justify-center rounded-xl">
       <ThemedText className="text-xs font-bold text-white">{label}</ThemedText>
     </View>
   );
@@ -69,7 +69,8 @@ interface FolderCardProps {
 const GRID_COLS = 3;
 const GRID_GAP = 12;
 const GRID_H_PADDING = 16; // px-global
-const FOLDER_ITEM_WIDTH = (SCREEN_WIDTH - GRID_H_PADDING * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+const FOLDER_ITEM_WIDTH =
+  (SCREEN_WIDTH - GRID_H_PADDING * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
 const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
   const cardH = FOLDER_ITEM_WIDTH * 0.78;
@@ -78,22 +79,53 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.75}
-      style={{ width: FOLDER_ITEM_WIDTH, marginBottom: GRID_GAP }}
-    >
+      style={{ width: FOLDER_ITEM_WIDTH, marginBottom: GRID_GAP }}>
       <View
-        className="rounded-2xl bg-secondary items-center justify-center mb-1.5 relative overflow-hidden"
-        style={{ height: cardH }}
-      >
+        className="relative mb-1.5 items-center justify-center overflow-hidden rounded-2xl bg-secondary"
+        style={{ height: cardH }}>
         {/* 叠层文档效果 */}
-        <View className="absolute" style={{ bottom: 8, left: 10, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.35 }} />
-        <View className="absolute" style={{ bottom: 10, left: 14, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.55 }} />
-        <View className="absolute" style={{ bottom: 12, left: 18, width: FOLDER_ITEM_WIDTH * 0.38, height: FOLDER_ITEM_WIDTH * 0.48, backgroundColor: '#fff', borderRadius: 6, opacity: 0.8 }} />
+        <View
+          className="absolute"
+          style={{
+            bottom: 8,
+            left: 10,
+            width: FOLDER_ITEM_WIDTH * 0.38,
+            height: FOLDER_ITEM_WIDTH * 0.48,
+            backgroundColor: '#fff',
+            borderRadius: 6,
+            opacity: 0.35,
+          }}
+        />
+        <View
+          className="absolute"
+          style={{
+            bottom: 10,
+            left: 14,
+            width: FOLDER_ITEM_WIDTH * 0.38,
+            height: FOLDER_ITEM_WIDTH * 0.48,
+            backgroundColor: '#fff',
+            borderRadius: 6,
+            opacity: 0.55,
+          }}
+        />
+        <View
+          className="absolute"
+          style={{
+            bottom: 12,
+            left: 18,
+            width: FOLDER_ITEM_WIDTH * 0.38,
+            height: FOLDER_ITEM_WIDTH * 0.48,
+            backgroundColor: '#fff',
+            borderRadius: 6,
+            opacity: 0.8,
+          }}
+        />
         {/* 文件数角标 */}
-        <View className="absolute top-2 right-2 bg-background/70 rounded-md px-1.5 py-0.5">
+        <View className="bg-background/70 absolute right-2 top-2 rounded-md px-1.5 py-0.5">
           <ThemedText className="text-[10px] text-subtext">{folder.count}</ThemedText>
         </View>
       </View>
-      <ThemedText className="text-xs text-center text-primary px-1" numberOfLines={1}>
+      <ThemedText className="px-1 text-center text-xs text-primary" numberOfLines={1}>
         {folder.name}
       </ThemedText>
     </TouchableOpacity>
@@ -114,23 +146,21 @@ const FileRow = ({ file, onPress, selectionMode, selected, onToggleSelect }: Fil
     <TouchableOpacity
       onPress={() => (selectionMode ? onToggleSelect() : onPress())}
       activeOpacity={0.7}
-      className="flex-row items-center py-3 border-b border-border"
-    >
+      className="flex-row items-center border-b border-border py-3">
       {selectionMode && (
         <View
-          className={`w-6 h-6 rounded border items-center justify-center mr-2 ${
-            selected ? 'bg-primary border-primary' : 'border-border'
-          }`}
-        >
+          className={`mr-2 h-6 w-6 items-center justify-center rounded border ${
+            selected ? 'border-primary bg-primary' : 'border-border'
+          }`}>
           {selected ? <Icon name="Check" size={14} color={colors.invert} /> : null}
         </View>
       )}
       <FileBadge mimeType={file.mime_type} />
-      <View className="flex-1 ml-3">
+      <View className="ml-3 flex-1">
         <ThemedText className="text-sm font-medium text-primary" numberOfLines={1}>
           {file.filename}
         </ThemedText>
-        <ThemedText className="text-xs text-subtext mt-0.5">
+        <ThemedText className="mt-0.5 text-xs text-subtext">
           {formatDate(file.created_at)}
         </ThemedText>
       </View>
@@ -166,10 +196,10 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
   return (
     <Modal visible={visible} animationType="fade" transparent presentationStyle="overFullScreen">
       <View className="flex-1 justify-center px-8" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-        <View className="bg-background rounded-2xl p-6">
-          <ThemedText className="text-lg font-bold mb-4">新建文件夹</ThemedText>
+        <View className="rounded-2xl bg-background p-6">
+          <ThemedText className="mb-4 text-lg font-bold">新建文件夹</ThemedText>
           <TextInput
-            className="bg-secondary rounded-xl px-4 py-3 text-primary text-base mb-4"
+            className="mb-4 rounded-xl bg-secondary px-4 py-3 text-base text-primary"
             placeholder="文件夹名称"
             placeholderTextColor={colors.placeholder}
             value={name}
@@ -180,15 +210,16 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
           />
           <View className="flex-row gap-x-3">
             <TouchableOpacity
-              onPress={() => { setName(''); onClose(); }}
-              className="flex-1 bg-secondary rounded-xl py-3 items-center"
-            >
+              onPress={() => {
+                setName('');
+                onClose();
+              }}
+              className="flex-1 items-center rounded-xl bg-secondary py-3">
               <ThemedText className="text-base font-semibold">取消</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}
-              className="flex-1 bg-primary rounded-xl py-3 items-center"
-            >
+              className="flex-1 items-center rounded-xl bg-primary py-3">
               <Text className="text-base font-semibold text-invert">创建</Text>
             </TouchableOpacity>
           </View>
@@ -225,45 +256,53 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
         activeOpacity={1}
         onPress={onClose}
         className="flex-1 justify-end"
-        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-      >
+        style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
         <TouchableOpacity activeOpacity={1} style={{ paddingBottom: insets.bottom + 8 }}>
-          <View className="mx-4 mb-2 bg-secondary rounded-2xl overflow-hidden">
+          <View className="mx-4 mb-2 overflow-hidden rounded-2xl bg-secondary">
             {actions.map((action, index) => (
               <TouchableOpacity
                 key={index}
-                onPress={() => { onClose(); setTimeout(action.onPress, 250); }}
+                onPress={() => {
+                  onClose();
+                  setTimeout(action.onPress, 250);
+                }}
                 activeOpacity={action.disabled ? 1 : 0.7}
                 className={`flex-row items-center px-4 py-4 ${
                   index < actions.length - 1 ? 'border-b border-border' : ''
-                } ${action.disabled ? 'opacity-40' : ''}`}
-              >
+                } ${action.disabled ? 'opacity-40' : ''}`}>
                 <View
-                  className="w-11 h-11 rounded-xl items-center justify-center mr-4"
-                  style={{ backgroundColor: action.iconBg }}
-                >
+                  className="mr-4 h-11 w-11 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: action.iconBg }}>
                   <Icon name={action.icon} size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <ThemedText className="text-base font-semibold text-primary">{action.title}</ThemedText>
-                  <ThemedText className="text-xs text-subtext mt-0.5">{action.subtitle}</ThemedText>
+                  <ThemedText className="text-base font-semibold text-primary">
+                    {action.title}
+                  </ThemedText>
+                  <ThemedText className="mt-0.5 text-xs text-subtext">{action.subtitle}</ThemedText>
                 </View>
               </TouchableOpacity>
             ))}
           </View>
 
-          <View className="mx-4 bg-secondary rounded-2xl overflow-hidden">
+          <View className="mx-4 overflow-hidden rounded-2xl bg-secondary">
             <TouchableOpacity
-              onPress={() => { onClose(); setTimeout(folderAction.onPress, 250); }}
+              onPress={() => {
+                onClose();
+                setTimeout(folderAction.onPress, 250);
+              }}
               activeOpacity={0.7}
-              className="flex-row items-center px-4 py-4"
-            >
-              <View className="w-11 h-11 rounded-xl items-center justify-center mr-4 bg-highlight/20">
+              className="flex-row items-center px-4 py-4">
+              <View className="bg-highlight/20 mr-4 h-11 w-11 items-center justify-center rounded-xl">
                 <Icon name="FolderPlus" size={22} color="#0EA5E9" />
               </View>
               <View className="flex-1">
-                <ThemedText className="text-base font-semibold text-primary">{folderAction.title}</ThemedText>
-                <ThemedText className="text-xs text-subtext mt-0.5">{folderAction.subtitle}</ThemedText>
+                <ThemedText className="text-base font-semibold text-primary">
+                  {folderAction.title}
+                </ThemedText>
+                <ThemedText className="mt-0.5 text-xs text-subtext">
+                  {folderAction.subtitle}
+                </ThemedText>
               </View>
             </TouchableOpacity>
           </View>
@@ -345,9 +384,7 @@ export default function KnowledgeBaseScreen() {
         const result = await knowledgeApi.getFileStatus(fileId);
         setFiles((prev) =>
           prev.map((f) =>
-            f.id === fileId
-              ? { ...f, status: result.status, progress: result.progress }
-              : f
+            f.id === fileId ? { ...f, status: result.status, progress: result.progress } : f
           )
         );
         if (result.status !== 'done' && result.status !== 'error') {
@@ -367,7 +404,7 @@ export default function KnowledgeBaseScreen() {
         uri,
         filename,
         mimeType,
-        selectedFolderId ?? undefined,
+        selectedFolderId ?? undefined
       );
       const newFile: KnowledgeFile = {
         id: file_id,
@@ -483,7 +520,7 @@ export default function KnowledgeBaseScreen() {
 
   const toggleFileSelected = (fileId: string) => {
     setSelectedIds((prev) =>
-      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId],
+      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
     );
   };
 
@@ -540,8 +577,16 @@ export default function KnowledgeBaseScreen() {
 
   const handleMockUpload = () => {
     const mocks = [
-      { filename: '产品需求文档_v2.pdf', mime_type: 'application/pdf', file_size: 2.4 * 1024 * 1024 },
-      { filename: '会议纪要_2026Q1.docx', mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', file_size: 580 * 1024 },
+      {
+        filename: '产品需求文档_v2.pdf',
+        mime_type: 'application/pdf',
+        file_size: 2.4 * 1024 * 1024,
+      },
+      {
+        filename: '会议纪要_2026Q1.docx',
+        mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        file_size: 580 * 1024,
+      },
       { filename: '战略规划报告.pdf', mime_type: 'application/pdf', file_size: 5.1 * 1024 * 1024 },
     ];
     const mock = mocks[Math.floor(Math.random() * mocks.length)];
@@ -559,15 +604,20 @@ export default function KnowledgeBaseScreen() {
     setFiles((prev) => [newFile, ...prev]);
     setTimeout(() => {
       setFiles((prev) =>
-        prev.map((f) =>
-          f.id === newFile.id ? { ...f, status: 'processing', progress: 0.3 } : f
-        )
+        prev.map((f) => (f.id === newFile.id ? { ...f, status: 'processing', progress: 0.3 } : f))
       );
     }, 1000);
     setTimeout(() => {
       setFiles((prev) =>
         prev.map((f) =>
-          f.id === newFile.id ? { ...f, status: 'done', progress: 1.0, chunk_count: Math.floor(Math.random() * 50) + 10 } : f
+          f.id === newFile.id
+            ? {
+                ...f,
+                status: 'done',
+                progress: 1.0,
+                chunk_count: Math.floor(Math.random() * 50) + 10,
+              }
+            : f
         )
       );
     }, 3000);
@@ -603,13 +653,17 @@ export default function KnowledgeBaseScreen() {
       onPress: () => {},
       disabled: true,
     },
-    ...(__DEV__ ? [{
-      icon: 'FlaskConical' as IconName,
-      iconBg: '#9C27B0',
-      title: '模拟上传（测试）',
-      subtitle: '开发模式：随机生成一条上传记录',
-      onPress: handleMockUpload,
-    }] : []),
+    ...(__DEV__
+      ? [
+          {
+            icon: 'FlaskConical' as IconName,
+            iconBg: '#9C27B0',
+            title: '模拟上传（测试）',
+            subtitle: '开发模式：随机生成一条上传记录',
+            onPress: handleMockUpload,
+          },
+        ]
+      : []),
   ];
 
   const leftHeaderComponent = (
@@ -623,8 +677,7 @@ export default function KnowledgeBaseScreen() {
         }
       }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      className="mr-2"
-    >
+      className="mr-2">
       <ThemedText className="text-base text-primary">
         {selectionMode ? '取消' : '批量选择'}
       </ThemedText>
@@ -635,20 +688,19 @@ export default function KnowledgeBaseScreen() {
     <TouchableOpacity
       onPress={() => setUploadSheetVisible(true)}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      className="flex-row items-center"
-    >
+      className="flex-row items-center">
       <Icon name="Plus" size={16} />
-      <ThemedText className="text-base font-medium ml-0.5">新建</ThemedText>
+      <ThemedText className="ml-0.5 text-base font-medium">新建</ThemedText>
     </TouchableOpacity>
   );
 
   const listHeader = (
     <View>
       {/* 搜索栏 */}
-      <View className="flex-row items-center bg-secondary rounded-full px-4 mb-4 h-11">
+      <View className="mb-4 h-11 flex-row items-center rounded-full bg-secondary px-4">
         <Icon name="Search" size={18} />
         <TextInput
-          className="flex-1 ml-2 text-sm text-primary"
+          className="ml-2 flex-1 text-sm text-primary"
           placeholder="搜索文件"
           placeholderTextColor={colors.placeholder}
           value={searchQuery}
@@ -664,14 +716,12 @@ export default function KnowledgeBaseScreen() {
 
       {/* 文件夹 3列 grid */}
       {folders.length > 0 && !searchQuery && (
-        <View className="flex-row flex-wrap mb-2" style={{ gap: GRID_GAP }}>
+        <View className="mb-2 flex-row flex-wrap" style={{ gap: GRID_GAP }}>
           {folders.map((folder) => (
             <FolderCard
               key={folder.id}
               folder={folder}
-              onPress={() =>
-                setSelectedFolderId((prev) => (prev === folder.id ? null : folder.id))
-              }
+              onPress={() => setSelectedFolderId((prev) => (prev === folder.id ? null : folder.id))}
               onLongPress={() => handleFolderLongPress(folder)}
             />
           ))}
@@ -679,10 +729,10 @@ export default function KnowledgeBaseScreen() {
       )}
 
       {/* 文件列表标题行 */}
-      <View className="flex-row items-center justify-between mb-2 mt-1">
+      <View className="mb-2 mt-1 flex-row items-center justify-between">
         <ThemedText className="text-base font-bold">
           {selectedFolderId
-            ? folders.find((f) => f.id === selectedFolderId)?.name ?? '文件列表'
+            ? (folders.find((f) => f.id === selectedFolderId)?.name ?? '文件列表')
             : '近30天'}
         </ThemedText>
         <TouchableOpacity onPress={() => setSelectedFolderId(null)}>
@@ -695,7 +745,7 @@ export default function KnowledgeBaseScreen() {
   );
 
   return (
-    <View className="flex-1 bg-background relative">
+    <View className="relative flex-1 bg-background">
       <Header
         title="知识库"
         showBackButton
@@ -739,8 +789,7 @@ export default function KnowledgeBaseScreen() {
                   created_at: item.created_at,
                   status: item.status,
                   chunk_count: String(item.chunk_count ?? 0),
-                  progress:
-                    item.progress != null ? String(item.progress) : '',
+                  progress: item.progress != null ? String(item.progress) : '',
                   folder_id: item.folder_id ?? '',
                 },
               })
@@ -750,7 +799,7 @@ export default function KnowledgeBaseScreen() {
         ListEmptyComponent={
           <View className="items-center py-16">
             <Icon name="FolderOpen" size={48} />
-            <ThemedText className="text-subtext mt-3">暂无文件</ThemedText>
+            <ThemedText className="mt-3 text-subtext">暂无文件</ThemedText>
           </View>
         }
       />
@@ -774,27 +823,24 @@ export default function KnowledgeBaseScreen() {
 
       {selectionMode && (
         <View
-          className="absolute left-0 right-0 bottom-0 flex-row border-t border-border bg-background px-4 pt-3 gap-3"
+          className="absolute bottom-0 left-0 right-0 flex-row gap-3 border-t border-border bg-background px-4 pt-3"
           style={{
             paddingBottom: Math.max(insets.bottom, 12) + GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT,
-          }}
-        >
+          }}>
           <TouchableOpacity
             disabled={batchBusy || selectedIds.length === 0}
-            className={`flex-1 rounded-xl py-3 items-center bg-secondary ${
+            className={`flex-1 items-center rounded-xl bg-secondary py-3 ${
               batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
             }`}
-            onPress={handleBatchDownload}
-          >
+            onPress={handleBatchDownload}>
             <ThemedText className="text-base font-semibold text-primary">批量下载</ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={batchBusy || selectedIds.length === 0}
-            className={`flex-1 rounded-xl py-3 items-center bg-secondary ${
+            className={`flex-1 items-center rounded-xl bg-secondary py-3 ${
               batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
             }`}
-            onPress={handleBatchDelete}
-          >
+            onPress={handleBatchDelete}>
             <ThemedText className="text-base font-semibold text-red-500">批量删除</ThemedText>
           </TouchableOpacity>
         </View>

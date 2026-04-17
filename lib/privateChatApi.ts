@@ -1,9 +1,13 @@
-import type { Message } from '@/components/Conversation';
-import { getApiBaseUrl } from '@/lib/devApiConfig';
-import { getAuthSession, getPrivateChatAuthHeaders } from '@/lib/authSession';
-import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+
+import type { SelectedFile } from '@/components/ChatInput';
+import { knowledgeApi } from '@/services/knowledgeApi';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Platform } from 'react-native';
+
+import type { Message } from '@/components/Conversation';
+import { getAuthSession, getPrivateChatAuthHeaders } from '@/lib/authSession';
+import { getApiBaseUrl } from '@/lib/devApiConfig';
 
 export interface PrivateStreamHandlers {
   onAssistantText: (fullText: string) => void;
@@ -39,7 +43,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function postJson(path: string, body: unknown): Promise<{ status: number; json: unknown; text: string }> {
+async function postJson(
+  path: string,
+  body: unknown
+): Promise<{ status: number; json: unknown; text: string }> {
   const base = await getApiBaseUrl();
   const headers = await getPrivateChatAuthHeaders();
   const url = joinUrl(base, path);
@@ -82,6 +89,51 @@ export type ThreadSummary = {
   updated_at?: string;
 };
 
+/** 将线程列表行里的多种时间字段统一为可 ISO 解析的字符串（供侧栏分组与排序） */
+export function coerceThreadUpdatedAt(
+  row: Record<string, unknown>,
+  values?: Record<string, unknown>
+): string | undefined {
+  const asMillis = (n: number): string | undefined => {
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    const ms = n < 1e12 ? Math.round(n * 1000) : Math.round(n);
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  };
+
+  const fromUnknown = (v: unknown): string | undefined => {
+    if (typeof v === 'number') return asMillis(v);
+    if (typeof v === 'string') {
+      const s = v.trim();
+      if (!s) return undefined;
+      if (/^\d{10,13}$/.test(s)) return asMillis(Number(s));
+      const t = Date.parse(s);
+      return Number.isNaN(t) ? undefined : new Date(t).toISOString();
+    }
+    return undefined;
+  };
+
+  const keys = [
+    'updated_at',
+    'updatedAt',
+    'last_updated_at',
+    'modified_at',
+    'lastModified',
+    'created_at',
+    'createdAt',
+  ] as const;
+
+  for (const key of keys) {
+    const a = fromUnknown(row[key]);
+    if (a) return a;
+    if (values) {
+      const b = fromUnknown(values[key]);
+      if (b) return b;
+    }
+  }
+  return undefined;
+}
+
 function unwrapThreadSearchRows(json: unknown): unknown[] | null {
   if (Array.isArray(json)) return json;
   const o = asRecord(json);
@@ -94,7 +146,10 @@ function unwrapThreadSearchRows(json: unknown): unknown[] | null {
 }
 
 /** POST /api/threads/search — 私人模式历史列表（按 user_id 过滤） */
-export async function searchPrivateThreads(opts?: { limit?: number; offset?: number }): Promise<ThreadSummary[]> {
+export async function searchPrivateThreads(opts?: {
+  limit?: number;
+  offset?: number;
+}): Promise<ThreadSummary[]> {
   const session = await getAuthSession();
   if (!session.userId) return [];
   const { status, json } = await postJson('/api/threads/search', {
@@ -119,10 +174,25 @@ export async function searchPrivateThreads(opts?: { limit?: number; offset?: num
       (typeof values?.title === 'string' && values.title.trim()) ||
       (typeof meta?.title === 'string' && meta.title.trim()) ||
       '新对话';
-    const updated_at = typeof o.updated_at === 'string' ? o.updated_at : undefined;
+    const updated_at = coerceThreadUpdatedAt(o, values);
     out.push({ thread_id: tid, title, updated_at });
   }
   return out;
+}
+
+/** 当前用户私人对话线程总数（分页累加，排除决策教练线程） */
+export async function countPrivateThreads(): Promise<number> {
+  const pageSize = 200;
+  let offset = 0;
+  let total = 0;
+  for (;;) {
+    const batch = await searchPrivateThreads({ limit: pageSize, offset });
+    total += batch.length;
+    if (batch.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 200_000) break;
+  }
+  return total;
 }
 
 export async function createPrivateThread(title: string): Promise<string> {
@@ -199,7 +269,7 @@ export interface UploadedFileInfo {
 /** 将文件上传到指定 thread 的 uploads 目录，返回上传结果列表 */
 export async function uploadFilesToThread(
   threadId: string,
-  files: Array<{ uri: string; name: string; mimeType: string }>,
+  files: { uri: string; name: string; mimeType: string }[]
 ): Promise<UploadedFileInfo[]> {
   const [base, headers] = await Promise.all([getApiBaseUrl(), getPrivateChatAuthHeaders()]);
   const url = `${base.replace(/\/$/, '')}/api/threads/${encodeURIComponent(threadId)}/uploads`;
@@ -256,13 +326,36 @@ export async function uploadFilesToThread(
     result.forEach((f) => {
       if (f.readPath === f.virtualPath) {
         console.warn(
-          `[uploadFilesToThread] ⚠️ 服务端未返回 markdown_virtual_path，文件将以原始路径发给 AI（可能无法读取）: ${f.filename} → ${f.readPath}`,
+          `[uploadFilesToThread] ⚠️ 服务端未返回 markdown_virtual_path，文件将以原始路径发给 AI（可能无法读取）: ${f.filename} → ${f.readPath}`
         );
       }
     });
   }
 
   return result;
+}
+
+/**
+ * 将聊天输入中的附件转为线程 uploads（含知识库：发送时再拉临时副本并 multipart，选中时仅展示挂载）。
+ */
+export async function uploadFilesToThreadFromSelection(
+  threadId: string,
+  files: SelectedFile[]
+): Promise<UploadedFileInfo[]> {
+  const payloads: { uri: string; name: string; mimeType: string }[] = [];
+  for (const f of files) {
+    if (f.knowledgeFileId) {
+      const uri = await knowledgeApi.downloadOriginalFile(f.knowledgeFileId, f.name);
+      payloads.push({ uri, name: f.name, mimeType: f.mimeType });
+    } else {
+      const uri = f.uri?.trim();
+      if (!uri) {
+        throw new Error('附件缺少本地路径');
+      }
+      payloads.push({ uri, name: f.name, mimeType: f.mimeType });
+    }
+  }
+  return uploadFilesToThread(threadId, payloads);
 }
 
 export function persistThreadTitleFireForget(threadId: string, title: string): void {
@@ -422,13 +515,9 @@ function mapRawMessagesToUi(raw: unknown[]): Message[] {
     }
 
     const content = normalizeAiContent(contentSrc);
-    const isUser =
-      type === 'human' || type === 'user' || role === 'human' || role === 'user';
+    const isUser = type === 'human' || type === 'user' || role === 'human' || role === 'user';
     const isAssistant =
-      type === 'ai' ||
-      type === 'assistant' ||
-      role === 'ai' ||
-      role === 'assistant';
+      type === 'ai' || type === 'assistant' || role === 'ai' || role === 'assistant';
     if (!isUser && !isAssistant) continue;
     if (!content.trim()) continue;
 
@@ -473,7 +562,9 @@ async function getPrivateThreadHistoryMessages(threadId: string): Promise<Messag
 
 /** GET /api/threads/{id}/state → 转成聊天消息（必要时回退 POST history） */
 export async function getPrivateThreadStateMessages(threadId: string): Promise<Message[]> {
-  const { status, json, text } = await getJson(`/api/threads/${encodeURIComponent(threadId)}/state`);
+  const { status, json, text } = await getJson(
+    `/api/threads/${encodeURIComponent(threadId)}/state`
+  );
   if (status < 200 || status >= 300) {
     throw new Error(text.slice(0, 300) || `HTTP ${status}`);
   }
@@ -489,11 +580,19 @@ function sliceAfterLastHuman(raw: unknown[]): unknown[] {
     if (!msg) continue;
     const kwargs = asRecord(msg.kwargs);
     const type = kwargs
-      ? (typeof kwargs.type === 'string' ? kwargs.type : '')
-      : (typeof msg.type === 'string' ? msg.type : '');
+      ? typeof kwargs.type === 'string'
+        ? kwargs.type
+        : ''
+      : typeof msg.type === 'string'
+        ? msg.type
+        : '';
     const role = kwargs
-      ? (typeof kwargs.role === 'string' ? kwargs.role : '')
-      : (typeof msg.role === 'string' ? msg.role : '');
+      ? typeof kwargs.role === 'string'
+        ? kwargs.role
+        : ''
+      : typeof msg.role === 'string'
+        ? msg.role
+        : '';
     if (type === 'human' || type === 'user' || role === 'human' || role === 'user') {
       return raw.slice(i + 1);
     }
@@ -511,7 +610,7 @@ function sliceAfterLastHuman(raw: unknown[]): unknown[] {
  */
 function extractLastAssistantFromMessageList(
   raw: unknown[],
-  includeToolContent = true,
+  includeToolContent = true
 ): string | undefined {
   // 只看当前轮次（最后一条 human 消息之后）—— 修复问题2
   const slice = sliceAfterLastHuman(raw);
@@ -566,11 +665,19 @@ function valuesPayloadHasAgentResponse(payload: unknown): boolean {
   if (!last) return false;
   const kwargs = asRecord(last.kwargs);
   const type = kwargs
-    ? (typeof kwargs.type === 'string' ? kwargs.type : '')
-    : (typeof last.type === 'string' ? last.type : '');
+    ? typeof kwargs.type === 'string'
+      ? kwargs.type
+      : ''
+    : typeof last.type === 'string'
+      ? last.type
+      : '';
   const role = kwargs
-    ? (typeof kwargs.role === 'string' ? kwargs.role : '')
-    : (typeof last.role === 'string' ? last.role : '');
+    ? typeof kwargs.role === 'string'
+      ? kwargs.role
+      : ''
+    : typeof last.role === 'string'
+      ? last.role
+      : '';
   const isHuman = type === 'human' || type === 'user' || role === 'human' || role === 'user';
   return !isHuman;
 }
@@ -582,7 +689,7 @@ function valuesPayloadHasAgentResponse(payload: unknown): boolean {
  */
 function extractLastAiFromValuesPayloadDeep(
   payload: unknown,
-  streamingMode = false,
+  streamingMode = false
 ): string | undefined {
   if (!payload || typeof payload !== 'object') return undefined;
   const includeToolContent = !streamingMode;
@@ -669,7 +776,11 @@ function postSseStreamWithXHR(
 /**
  * 私人模式：POST /api/threads/{id}/runs/stream，解析 metadata / updates / values / end。
  */
-function privateSubmodeFromEnv(): { thinkingEnabled: boolean; isPlanMode: boolean; subagentEnabled: boolean } {
+function privateSubmodeFromEnv(): {
+  thinkingEnabled: boolean;
+  isPlanMode: boolean;
+  subagentEnabled: boolean;
+} {
   const m = (process.env.EXPO_PUBLIC_PRIVATE_CHAT_SUBMODE || 'flash').toLowerCase();
   if (m === 'thinking') return { thinkingEnabled: true, isPlanMode: false, subagentEnabled: false };
   if (m === 'pro') return { thinkingEnabled: true, isPlanMode: true, subagentEnabled: false };
@@ -680,11 +791,10 @@ function privateSubmodeFromEnv(): { thinkingEnabled: boolean; isPlanMode: boolea
 /** 压缩并转 base64 data URL，避免 413 Payload Too Large */
 async function imageUriToDataUrl(uri: string): Promise<string> {
   // 先压缩：最大边 1024px + JPEG quality 0.65，base64 大约 100-200 KB
-  const compressed = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: 1024 } }],
-    { compress: 0.65, format: ImageManipulator.SaveFormat.JPEG }
-  );
+  const compressed = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1024 } }], {
+    compress: 0.65,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
   const base64 = await FileSystem.readAsStringAsync(compressed.uri, {
     encoding: 'base64',
   });
@@ -697,7 +807,7 @@ export async function streamPrivateChatRun(
   modelName: string,
   images: string[] | undefined,
   handlers: PrivateStreamHandlers,
-  uploadedFiles?: UploadedFileInfo[],
+  uploadedFiles?: UploadedFileInfo[]
 ): Promise<void> {
   const base = await getApiBaseUrl();
   const headers = await getPrivateChatAuthHeaders();
@@ -706,10 +816,15 @@ export async function streamPrivateChatRun(
     throw new Error('会话不完整');
   }
 
-  const { thinkingEnabled: thinking, isPlanMode: plan, subagentEnabled: sub } = privateSubmodeFromEnv();
+  const {
+    thinkingEnabled: thinking,
+    isPlanMode: plan,
+    subagentEnabled: sub,
+  } = privateSubmodeFromEnv();
 
-  const multitask =
-    (process.env.EXPO_PUBLIC_PRIVATE_CHAT_MULTITASK_STRATEGY || 'reject').toLowerCase();
+  const multitask = (
+    process.env.EXPO_PUBLIC_PRIVATE_CHAT_MULTITASK_STRATEGY || 'reject'
+  ).toLowerCase();
   const multitask_strategy =
     multitask === 'enqueue' || multitask === 'interrupt' || multitask === 'rollback'
       ? multitask
@@ -726,7 +841,8 @@ export async function streamPrivateChatRun(
     is_plan_mode: plan,
     subagent_enabled: sub,
     // 禁止 AI 在未被明确要求时自动调用文件保存工具；所有回复默认以文字格式直接展示
-    output_guidelines: '除非用户明确要求，否则禁止调用文件保存工具，所有回答直接以 Markdown 文字在对话中输出。',
+    output_guidelines:
+      '除非用户明确要求，否则禁止调用文件保存工具，所有回答直接以 Markdown 文字在对话中输出。',
     disable_auto_file_output: true,
   };
   if (resolvedModel) {
@@ -836,8 +952,8 @@ export async function streamPrivateChatRun(
         typeof o?.message === 'string' && o.message.trim()
           ? o.message.trim().slice(0, 400)
           : typeof o?.detail === 'string' && o.detail.trim()
-          ? o.detail.trim().slice(0, 400)
-          : JSON.stringify(parsed).slice(0, 400);
+            ? o.detail.trim().slice(0, 400)
+            : JSON.stringify(parsed).slice(0, 400);
       if (__DEV__) {
         console.warn('[SSE error event]', JSON.stringify(parsed));
       }
@@ -862,7 +978,9 @@ export async function streamPrivateChatRun(
       lastValuesPayload = parsed;
       const topTitle =
         extractNestedTitle(parsed) ||
-        (parsed && typeof parsed === 'object' && typeof (parsed as { title?: string }).title === 'string'
+        (parsed &&
+        typeof parsed === 'object' &&
+        typeof (parsed as { title?: string }).title === 'string'
           ? (parsed as { title: string }).title.trim()
           : undefined);
       if (topTitle) handlers.onTitleDetected?.(topTitle);
@@ -904,7 +1022,6 @@ export async function streamPrivateChatRun(
         chunkAccum = '';
         handlers.onAssistantText(nested);
       }
-      return;
     }
   };
 
@@ -932,7 +1049,14 @@ export async function streamPrivateChatRun(
   };
 
   if (Platform.OS !== 'web') {
-    const status = await postSseStreamWithXHR(url, reqHeaders, bodyStr, feed, flushTail, notifyStreamOk);
+    const status = await postSseStreamWithXHR(
+      url,
+      reqHeaders,
+      bodyStr,
+      feed,
+      flushTail,
+      notifyStreamOk
+    );
     if (status < 200 || status >= 300) {
       throw new Error(`流式请求失败 HTTP ${status}`);
     }
@@ -952,7 +1076,8 @@ export async function streamPrivateChatRun(
 
   const reader =
     res.body &&
-    typeof (res.body as { getReader?: () => ReadableStreamDefaultReader<Uint8Array> }).getReader === 'function'
+    typeof (res.body as { getReader?: () => ReadableStreamDefaultReader<Uint8Array> }).getReader ===
+      'function'
       ? (res.body as ReadableStream<Uint8Array>).getReader()
       : undefined;
 

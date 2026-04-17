@@ -1,5 +1,5 @@
-import { getApiBaseUrl } from '@/lib/devApiConfig';
 import { getAuthSession } from '@/lib/authSession';
+import { getApiBaseUrl } from '@/lib/devApiConfig';
 
 export interface UserProfile {
   user_id: string;
@@ -11,12 +11,32 @@ export interface UserProfile {
   role: string;
   tenant_id: string;
   workspace_id: string;
+  voice_id?: string;
 }
 
 export interface UpdateProfileBody {
   display_name?: string;
+  avatar_url?: string;
   bio?: string;
   tags?: string[];
+  voice_id?: string;
+}
+
+/** 「我的」与 AI CEO 顶部标签：与资料页一致的两枚胶囊文案默认值 */
+export const DEFAULT_PROFILE_DISPLAY_TAGS: [string, string] = [
+  '创始人 · 科技创业者',
+  'AI · 互联网 · SaaS',
+];
+
+export function resolveProfileDisplayTagPills(tags: string[] | undefined | null): string[] {
+  const fromApi = tags?.filter(Boolean) ?? [];
+  if (fromApi.length >= 2) return fromApi.slice(0, 2);
+  if (fromApi.length === 1) return [fromApi[0], DEFAULT_PROFILE_DISPLAY_TAGS[1]];
+  return [...DEFAULT_PROFILE_DISPLAY_TAGS];
+}
+
+export function formatAiLearningDataLine(docCount: number, conversationCount: number): string {
+  return `AI学习数据 - ${docCount}份资料 - ${conversationCount}次访谈对话`;
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -38,7 +58,7 @@ export async function fetchProfile(): Promise<UserProfile> {
   const [base, headers] = await Promise.all([getBaseUrl(), getAuthHeaders()]);
   const res = await fetch(`${base}/api/auth/profile`, { headers });
   if (!res.ok) throw new Error(`获取资料失败 (${res.status})`);
-  const json = await res.json() as { user: UserProfile };
+  const json = (await res.json()) as { user: UserProfile };
   return json.user;
 }
 
@@ -51,7 +71,7 @@ export async function updateProfile(body: UpdateProfileBody): Promise<UserProfil
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`保存失败 (${res.status})`);
-  const json = await res.json() as { user: UserProfile };
+  const json = (await res.json()) as { user: UserProfile };
   return json.user;
 }
 
@@ -73,7 +93,7 @@ export async function uploadAvatar(uri: string, mimeType = 'image/jpeg'): Promis
     body: formData,
   });
   if (!res.ok) throw new Error(`头像上传失败 (${res.status})`);
-  const json = await res.json() as { user: UserProfile };
+  const json = (await res.json()) as { user: UserProfile };
   return json.user;
 }
 

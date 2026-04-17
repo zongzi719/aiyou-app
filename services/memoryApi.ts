@@ -1,5 +1,5 @@
-import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
 import { getAuthSession } from '@/lib/authSession';
+import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
 
 const API_PREFIX = '/api/memory';
 
@@ -59,17 +59,14 @@ interface MemorySummaryBlock {
   summary?: string;
   updatedAt?: string;
   updated_at?: string;
+  created_at?: string;
+  created_time?: string;
+  timestamp?: string;
 }
 
 /** 从记忆对象中提取用于展示的时间（优先接口约定的 updatedAt） */
 export function resolveMemoryTime(m: UserMemory): string | undefined {
-  return (
-    m.updatedAt ??
-    m.created_at ??
-    m.updated_at ??
-    m.created_time ??
-    m.timestamp
-  );
+  return m.updatedAt ?? m.created_at ?? m.updated_at ?? m.created_time ?? m.timestamp;
 }
 
 export interface HistoryDocument {
@@ -99,14 +96,22 @@ interface MemoryResponse {
   layers?: Record<string, { facts?: UserMemory[] }>;
 }
 
+interface AddMemoryFactPayload {
+  content: string;
+  category?: string;
+  confidence?: number;
+}
+
 function blockTime(block: MemorySummaryBlock): string | undefined {
-  return block.updatedAt ?? block.updated_at;
+  return (
+    block.updatedAt ?? block.updated_at ?? block.created_at ?? block.created_time ?? block.timestamp
+  );
 }
 
 /** 将全量记忆 JSON 中的 user/history 块展平为列表项 */
 function memoriesFromSummarySections(
   section: Record<string, MemorySummaryBlock | undefined> | undefined,
-  prefix: string,
+  prefix: string
 ): UserMemory[] {
   if (!section) return [];
   const out: UserMemory[] = [];
@@ -158,8 +163,20 @@ export const memoryApi = {
   /**
    * DELETE /api/memory/facts/{fact_id}
    */
-  deleteMemory: (id: string) =>
-    request<{ deleted: boolean }>(`/facts/${id}`, { method: 'DELETE' }),
+  deleteMemory: (id: string) => request<{ deleted: boolean }>(`/facts/${id}`, { method: 'DELETE' }),
+
+  addMemoryFact: async (payload: AddMemoryFactPayload) => {
+    const data = await request<MemoryResponse>('/facts', {
+      method: 'POST',
+      body: JSON.stringify({
+        content: payload.content.trim(),
+        category: payload.category ?? 'context',
+        confidence: payload.confidence ?? 0.8,
+      }),
+    });
+    const list = normalizeMemoriesPayload(data);
+    return list[0] ?? null;
+  },
 
   getDocuments: (q?: string) => {
     const qs = q ? `?q=${encodeURIComponent(q)}` : '';
@@ -167,9 +184,7 @@ export const memoryApi = {
   },
 
   getTodos: (category?: string) => {
-    const qs = category && category !== '全部'
-      ? `?category=${encodeURIComponent(category)}`
-      : '';
+    const qs = category && category !== '全部' ? `?category=${encodeURIComponent(category)}` : '';
     return request<{ todos: HistoryTodo[] }>(`/todos${qs}`).then((r) => r.todos);
   },
 
@@ -192,21 +207,21 @@ const CATEGORY_ZH_MAP: Record<string, string> = {
   recentmonths: '近月回顾',
   earliercontext: '早期脉络',
   longtermbackground: '长期背景',
-  preference:  '偏好',
-  context:     '背景',
-  habit:       '习惯',
-  goal:        '目标',
-  style:       '风格',
-  cognition:   '认知',
-  belief:      '认知',
-  fact:        '事实',
-  behavior:    '行为',
-  skill:       '技能',
-  interest:    '兴趣',
-  experience:  '经历',
+  preference: '偏好',
+  context: '背景',
+  habit: '习惯',
+  goal: '目标',
+  style: '风格',
+  cognition: '认知',
+  belief: '认知',
+  fact: '事实',
+  behavior: '行为',
+  skill: '技能',
+  interest: '兴趣',
+  experience: '经历',
   personality: '个性',
-  value:       '价值观',
-  knowledge:   '知识',
+  value: '价值观',
+  knowledge: '知识',
 };
 
 export function translateCategory(category: string): string {
@@ -224,54 +239,80 @@ export function extractCategories(memories: UserMemory[]): string[] {
 
 export function getCategoryIcon(category: string): string {
   const map: Record<string, string> = {
+    // 五大核心记忆分类（中文）
+    认知: 'BrainCircuit',
+    语言习惯: 'MessagesSquare',
+    决策风格: 'Diamond',
+    当前目标: 'Target',
+    最近动态: 'History',
+    // 五大核心记忆分类（英文/兼容键）
+    cognition: 'BrainCircuit',
+    belief: 'BrainCircuit',
+    habit: 'MessagesSquare',
+    languagehabit: 'MessagesSquare',
+    style: 'Diamond',
+    decisionstyle: 'Diamond',
+    goal: 'Target',
+    currentgoal: 'Target',
+    recentactivity: 'History',
+    recentupdate: 'History',
+    recentmonths: 'History',
+    topofmind: 'History',
     workcontext: 'Briefcase',
     personalcontext: 'User',
-    topofmind: 'Zap',
-    recentmonths: 'Calendar',
+    // 其余历史兼容分类
     earliercontext: 'Archive',
     longtermbackground: 'Clock',
-    preference:  'Heart',
-    context:     'Globe',
-    habit:       'Repeat',
-    goal:        'Target',
-    style:       'Eye',
-    cognition:   'Brain',
-    belief:      'Brain',
-    fact:        'BookOpen',
-    behavior:    'Activity',
-    skill:       'Zap',
-    interest:    'Star',
-    experience:  'Clock',
+    preference: 'Heart',
+    context: 'Globe',
+    fact: 'BookOpen',
+    behavior: 'Activity',
+    skill: 'Zap',
+    interest: 'Star',
+    experience: 'Clock',
     personality: 'User',
-    value:       'Shield',
-    knowledge:   'Database',
+    value: 'Shield',
+    knowledge: 'Database',
   };
   return map[category.toLowerCase()] ?? 'Sparkles';
 }
 
 export function getCategoryColor(category: string): string {
   const map: Record<string, string> = {
+    // 五大核心记忆分类（中文）
+    认知: '#33A9FF',
+    语言习惯: '#8C7BFF',
+    决策风格: '#C354E8',
+    当前目标: '#F0B62A',
+    最近动态: '#A66BFF',
+    // 五大核心记忆分类（英文/兼容键）
+    cognition: '#33A9FF',
+    belief: '#33A9FF',
+    habit: '#8C7BFF',
+    languagehabit: '#8C7BFF',
+    style: '#C354E8',
+    decisionstyle: '#C354E8',
+    goal: '#F0B62A',
+    currentgoal: '#F0B62A',
+    recentactivity: '#A66BFF',
+    recentupdate: '#A66BFF',
+    recentmonths: '#A66BFF',
+    topofmind: '#A66BFF',
     workcontext: '#0EA5E9',
     personalcontext: '#8B5CF6',
-    topofmind: '#F97316',
-    recentmonths: '#10B981',
+    // 其余历史兼容分类
     earliercontext: '#64748B',
     longtermbackground: '#6366F1',
-    preference:  '#F59E0B',
-    context:     '#0EA5E9',
-    habit:       '#10B981',
-    goal:        '#F97316',
-    style:       '#8B5CF6',
-    cognition:   '#7C3AED',
-    belief:      '#7C3AED',
-    fact:        '#64748B',
-    behavior:    '#EC4899',
-    skill:       '#EAB308',
-    interest:    '#06B6D4',
-    experience:  '#6366F1',
+    preference: '#F59E0B',
+    context: '#0EA5E9',
+    fact: '#64748B',
+    behavior: '#EC4899',
+    skill: '#EAB308',
+    interest: '#06B6D4',
+    experience: '#6366F1',
     personality: '#14B8A6',
-    value:       '#E11D48',
-    knowledge:   '#3B82F6',
+    value: '#E11D48',
+    knowledge: '#3B82F6',
   };
   return map[category.toLowerCase()] ?? '#6B7280';
 }
@@ -288,9 +329,12 @@ export function getTodoCategoryIcon(category: string): string {
 
 export function getMimeLabel(mimeType: string): string {
   if (mimeType.includes('pdf')) return 'PDF';
-  if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc')) return 'Word';
-  if (mimeType.includes('excel') || mimeType.includes('xlsx') || mimeType.includes('xls')) return 'Excel';
-  if (mimeType.includes('powerpoint') || mimeType.includes('pptx') || mimeType.includes('ppt')) return 'PPT';
+  if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc'))
+    return 'Word';
+  if (mimeType.includes('excel') || mimeType.includes('xlsx') || mimeType.includes('xls'))
+    return 'Excel';
+  if (mimeType.includes('powerpoint') || mimeType.includes('pptx') || mimeType.includes('ppt'))
+    return 'PPT';
   if (mimeType.includes('text')) return 'TXT';
   if (mimeType.includes('image')) return '图片';
   return '文档';

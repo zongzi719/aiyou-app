@@ -279,6 +279,30 @@ export async function deleteInspirationNote(noteId: string): Promise<void> {
   await requestJson(`/api/notes/inspiration/${encodeURIComponent(noteId)}`, 'DELETE');
 }
 
+export type UpdateInspirationPayload = {
+  title?: string;
+  raw_content?: string;
+  ai_content?: string | null;
+  ai_insights?: string | null;
+  tags?: string[];
+  audio_url?: string | null;
+};
+
+/** PATCH /api/notes/inspiration/{id} */
+export async function updateInspirationNote(
+  noteId: string,
+  payload: UpdateInspirationPayload
+): Promise<void> {
+  const body: JsonObject = {};
+  if (payload.title !== undefined) body.title = payload.title.trim();
+  if (payload.raw_content !== undefined) body.raw_content = payload.raw_content;
+  if (payload.ai_content !== undefined) body.ai_content = payload.ai_content;
+  if (payload.ai_insights !== undefined) body.ai_insights = payload.ai_insights;
+  if (payload.tags !== undefined) body.tags = payload.tags;
+  if (payload.audio_url !== undefined) body.audio_url = payload.audio_url;
+  await requestJson(`/api/notes/inspiration/${encodeURIComponent(noteId)}`, 'PATCH', body);
+}
+
 export async function createSchedule(
   payload: CreateSchedulePayload
 ): Promise<{ id: string; created_at: string }> {
@@ -347,4 +371,30 @@ export async function updateScheduleTask(
 
 export async function deleteSchedule(scheduleId: string): Promise<void> {
   await requestJson(`/api/notes/schedules/${encodeURIComponent(scheduleId)}`, 'DELETE');
+}
+
+export type UpdateSchedulePayload = {
+  title?: string;
+  description?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  priority?: SchedulePriority;
+  tags?: string[];
+  tasks?: ScheduleTask[];
+};
+
+/** PATCH /api/notes/schedules/{id} */
+export async function updateSchedule(
+  scheduleId: string,
+  payload: UpdateSchedulePayload
+): Promise<void> {
+  const body: JsonObject = {};
+  if (payload.title !== undefined) body.title = payload.title.trim();
+  if (payload.description !== undefined) body.description = payload.description;
+  if (payload.start_time !== undefined) body.start_time = payload.start_time;
+  if (payload.end_time !== undefined) body.end_time = payload.end_time;
+  if (payload.priority !== undefined) body.priority = payload.priority;
+  if (payload.tags !== undefined) body.tags = payload.tags;
+  if (payload.tasks !== undefined) body.tasks = payload.tasks;
+  await requestJson(`/api/notes/schedules/${encodeURIComponent(scheduleId)}`, 'PATCH', body);
 }

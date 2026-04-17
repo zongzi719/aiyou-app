@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
+import React, { useState, useEffect } from 'react';
+import { View, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
+
+import useThemeColors from '@/app/contexts/ThemeColors';
+import { Button } from '@/components/Button';
 import Header from '@/components/Header';
+import Icon from '@/components/Icon';
 import ThemedScroller from '@/components/ThemeScroller';
+import ThemedText from '@/components/ThemedText';
 import Input from '@/components/forms/Input';
 import Section from '@/components/layout/Section';
-import { Button } from '@/components/Button';
-import Icon from '@/components/Icon';
-import ThemedText from '@/components/ThemedText';
-import useThemeColors from '@/app/contexts/ThemeColors';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { putProfileCache } from '@/lib/profileCache';
 import {
   fetchProfile,
   updateProfile,
@@ -17,8 +20,6 @@ import {
   bustAvatarCache,
   UserProfile,
 } from '@/services/profileApi';
-import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
-import { putProfileCache } from '@/lib/profileCache';
 
 export default function EditProfileScreen() {
   const listBottomPad = useGlobalFloatingTabBarInset();
@@ -91,8 +92,7 @@ export default function EditProfileScreen() {
   };
 
   const avatarUri =
-    localAvatar ??
-    (profile?.avatar_url ? bustAvatarCache(profile.avatar_url) : null);
+    localAvatar ?? (profile?.avatar_url ? bustAvatarCache(profile.avatar_url) : null);
 
   return (
     <>
@@ -118,36 +118,35 @@ export default function EditProfileScreen() {
         <ThemedScroller
           className="px-8"
           footerSpacer={false}
-          contentContainerStyle={{ paddingBottom: listBottomPad }}
-        >
+          contentContainerStyle={{ paddingBottom: listBottomPad }}>
           {/* 头像选择 */}
-          <View className="items-center flex-col mb-8 mt-8">
+          <View className="mb-8 mt-8 flex-col items-center">
             <TouchableOpacity
               onPress={handlePickAvatar}
               className="relative"
               activeOpacity={0.85}
-              disabled={avatarUploading}
-            >
+              disabled={avatarUploading}>
               {avatarUri ? (
                 <Image
                   source={{ uri: avatarUri }}
-                  className="w-28 h-28 rounded-full border border-border"
+                  className="h-28 w-28 rounded-full border border-border"
                 />
               ) : (
-                <View className="w-28 h-28 rounded-full bg-secondary items-center justify-center">
+                <View className="h-28 w-28 items-center justify-center rounded-full bg-secondary">
                   <Icon name="User" size={40} />
                 </View>
               )}
-              <View className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-primary items-center justify-center border-2 border-background">
-                {avatarUploading
-                  ? <ActivityIndicator size="small" color="white" />
-                  : <Icon name="Camera" size={15} color="white" />
-                }
+              <View className="absolute bottom-0 right-0 h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-primary">
+                {avatarUploading ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Icon name="Camera" size={15} color="white" />
+                )}
               </View>
             </TouchableOpacity>
 
             <Button
-              variant='ghost'
+              variant="ghost"
               title={avatarUri ? '更换头像' : '上传头像'}
               className="mt-3 bg-secondary"
               onPress={handlePickAvatar}
@@ -155,12 +154,17 @@ export default function EditProfileScreen() {
           </View>
 
           {/* 基本信息 */}
-          <View className='p-global bg-secondary rounded-2xl'>
-            <Section titleSize='xl' className='pt-0 pb-6' title="个人信息" subtitle="管理你的公开资料" />
+          <View className="rounded-2xl bg-secondary p-global">
+            <Section
+              titleSize="xl"
+              className="pb-6 pt-0"
+              title="个人信息"
+              subtitle="管理你的公开资料"
+            />
 
             <Input
               label="显示名"
-              variant='underlined'
+              variant="underlined"
               value={displayName}
               onChangeText={setDisplayName}
               autoCapitalize="words"
@@ -168,15 +172,23 @@ export default function EditProfileScreen() {
             />
             <Input
               label="用户名"
-              variant='underlined'
+              variant="underlined"
               value={profile?.username ?? ''}
               editable={false}
               containerClassName="opacity-50"
               placeholder="登录用户名（不可修改）"
             />
             <Input
+              label="声音ID"
+              variant="underlined"
+              value={profile?.voice_id ?? ''}
+              editable={false}
+              containerClassName="opacity-50"
+              placeholder="尚未创建声音模型"
+            />
+            <Input
               label="个人简介"
-              variant='underlined'
+              variant="underlined"
               value={bio}
               onChangeText={setBio}
               placeholder="一句话介绍自己"
@@ -184,7 +196,7 @@ export default function EditProfileScreen() {
             />
             <Input
               label="标签（逗号分隔）"
-              variant='underlined'
+              variant="underlined"
               value={tagsInput}
               onChangeText={setTagsInput}
               placeholder="如：AI、创业、产品"
@@ -195,14 +207,16 @@ export default function EditProfileScreen() {
           {/* 当前标签预览 */}
           {tagsInput.trim().length > 0 && (
             <View className="mt-4 flex-row flex-wrap gap-x-2 gap-y-2">
-              {tagsInput.split(/[，,、\s]+/).filter(Boolean).map((tag) => (
-                <View key={tag} className="bg-secondary rounded-full px-3 py-1">
-                  <ThemedText className="text-xs text-subtext">{tag}</ThemedText>
-                </View>
-              ))}
+              {tagsInput
+                .split(/[，,、\s]+/)
+                .filter(Boolean)
+                .map((tag) => (
+                  <View key={tag} className="rounded-full bg-secondary px-3 py-1">
+                    <ThemedText className="text-xs text-subtext">{tag}</ThemedText>
+                  </View>
+                ))}
             </View>
           )}
-
         </ThemedScroller>
       )}
     </>

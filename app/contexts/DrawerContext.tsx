@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useCallback } from 'react';
 import { DrawerActions } from '@react-navigation/native';
 import { useNavigation } from 'expo-router';
+import React, { createContext, useContext, useCallback } from 'react';
 
 interface DrawerContextType {
   openDrawer: () => void;
@@ -34,12 +34,12 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
 
 export function useDrawer() {
   const context = useContext(DrawerContext);
-  
+
   if (context === undefined) {
     throw new Error('useDrawer must be used within a DrawerProvider');
   }
-  
+
   return context;
 }
 
-export default DrawerProvider; 
+export default DrawerProvider;

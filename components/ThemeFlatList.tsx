@@ -13,11 +13,11 @@ function ThemedFlatListInner<T>(
 ) {
   return (
     <FlatList
-      bounces={true}
-      overScrollMode='never'
+      bounces
+      overScrollMode="never"
       ref={ref}
       showsVerticalScrollIndicator={false}
-      className={`bg-background flex-1 px-global ${className || ''}`}
+      className={`flex-1 bg-background px-global ${className || ''}`}
       {...props}
     />
   );

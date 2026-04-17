@@ -1,14 +1,12 @@
 import type { IconName } from '@/components/Icon';
 import type { UserMemory } from '@/services/memoryApi';
-import {
-  getCategoryIcon,
-  resolveMemoryTime,
-  translateCategory,
-} from '@/services/memoryApi';
+import { getCategoryIcon, resolveMemoryTime, translateCategory } from '@/services/memoryApi';
 
 export interface ChatHomeSuggestion {
   prompt: string;
   icon: IconName;
+  /** 首页「试试问我」等场景：问题所属类型标签 */
+  categoryLabel?: string;
 }
 
 /** 无记忆或接口失败时的中文常见问题（与记忆衍生问题合并为总池） */
@@ -27,13 +25,10 @@ export const DEFAULT_CHAT_HOME_SUGGESTIONS: ChatHomeSuggestion[] = [
   { prompt: '请用「总—分—总」结构帮我组织一次简短发言稿。', icon: 'User' },
 ];
 
-const MEMORY_TEMPLATES: Array<(categoryZh: string, short: string) => string> = [
-  (cat, short) =>
-    `关于「${cat}」的最新记忆「${short}」，请给我可执行的下一步建议。`,
-  (cat, short) =>
-    `请围绕记忆中这点「${short}」展开：我还能问哪些跟进问题？`,
-  (cat, short) =>
-    `把我记忆里「${cat}」相关的「${short}」整理成简短要点清单。`,
+const MEMORY_TEMPLATES: ((categoryZh: string, short: string) => string)[] = [
+  (cat, short) => `关于「${cat}」的最新记忆「${short}」，请给我可执行的下一步建议。`,
+  (cat, short) => `请围绕记忆中这点「${short}」展开：我还能问哪些跟进问题？`,
+  (cat, short) => `把我记忆里「${cat}」相关的「${short}」整理成简短要点清单。`,
 ];
 
 function excerptFromMemory(content: string, maxLen: number): string {
@@ -79,7 +74,7 @@ export function buildMemorySuggestedPrompts(memories: UserMemory[]): ChatHomeSug
 /** 记忆衍生问题在前，默认问题去重补全，保证池子足够轮换 */
 export function mergeChatHomeSuggestionPools(
   fromMemory: ChatHomeSuggestion[],
-  defaults: ChatHomeSuggestion[] = DEFAULT_CHAT_HOME_SUGGESTIONS,
+  defaults: ChatHomeSuggestion[] = DEFAULT_CHAT_HOME_SUGGESTIONS
 ): ChatHomeSuggestion[] {
   const seen = new Set<string>();
   const out: ChatHomeSuggestion[] = [];
@@ -101,7 +96,7 @@ export function mergeChatHomeSuggestionPools(
 export function sliceChatHomeSuggestionBatch(
   items: ChatHomeSuggestion[],
   batchIndex: number,
-  batchSize = 4,
+  batchSize = 4
 ): ChatHomeSuggestion[] {
   if (items.length === 0) return [];
   const n = items.length;

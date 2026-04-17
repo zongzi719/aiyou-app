@@ -39,7 +39,10 @@ function extractJsonObject(raw: string): string | null {
 
 function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
-  return v.filter((x): x is string => typeof x === 'string').map((s) => s.trim()).filter(Boolean);
+  return v
+    .filter((x): x is string => typeof x === 'string')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function heuristicClassify(text: string): AiRecordPayload {
@@ -136,9 +139,7 @@ export async function analyzeAiRecordInput(userText: string): Promise<AiRecordPa
 
 判断规则：明显问句且不是要记日程 → chat；要记在日历/提醒 → schedule；其余偏记录与整理 → note。`;
 
-  const messages: AIMessage[] = [
-    { role: 'user', content: `${system}\n\n用户输入：\n${text}` },
-  ];
+  const messages: AIMessage[] = [{ role: 'user', content: `${system}\n\n用户输入：\n${text}` }];
 
   try {
     const raw = await sendMessage(messages);

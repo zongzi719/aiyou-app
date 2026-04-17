@@ -1,125 +1,175 @@
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  type RecordingOptions,
+} from 'expo-audio';
 import { useState, useCallback } from 'react';
-import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
+
+import { transcribeChatAudio, transcribeNotesAudio, type NotesAsrResult } from '@/lib/asrApi';
+
+const recordingOptionsWithMetering: RecordingOptions = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+  // 尽量贴近腾讯声音复刻推荐：单声道 + 48k 采样率
+  sampleRate: 48000,
+  numberOfChannels: 1,
+};
 
 export function useRecording() {
-    const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
-    const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, (status) => {
-        console.log('Recording status:', status);
-    });
+  const recorder = useAudioRecorder(recordingOptionsWithMetering, (status) => {
+    console.log('Recording status:', status);
+  });
 
-    const startRecording = useCallback(async () => {
-        try {
-            const { granted } = await requestRecordingPermissionsAsync();
-            if (!granted) {
-                throw new Error('Microphone permission not granted');
-            }
+  /** recorder.isRecording 不会触发重渲染，必须用官方 hook 订阅状态（见 expo-audio useAudioRecorderState） */
+  const recorderState = useAudioRecorderState(recorder, 120);
 
-            await setAudioModeAsync({
-                allowsRecording: true,
-                playsInSilentMode: true,
-            });
+  const startRecording = useCallback(async () => {
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        throw new Error('Microphone permission not granted');
+      }
 
-            // Prepare the recorder first
-            await (recorder as any).prepareToRecordAsync();
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
 
-            // Start recording
-            recorder.record();
+      // Prepare the recorder first
+      await (recorder as any).prepareToRecordAsync();
 
-            // Wait a moment to ensure recording starts
-            await new Promise(resolve => setTimeout(resolve, 100));
+      // Start recording
+      recorder.record();
+      setIsPaused(false);
 
-            console.log('Recording started, isRecording:', recorder.isRecording);
-        } catch (error) {
-            console.error('Failed to start recording:', error);
-            throw error;
-        }
-    }, [recorder]);
+      // Wait a moment to ensure recording starts
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-    const stopRecording = useCallback(async (): Promise<string | null> => {
-        // Show transcribing state immediately
-        setIsTranscribing(true);
+      console.log('Recording started');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      throw error;
+    }
+  }, [recorder]);
 
-        try {
-            console.log('Stopping, isRecording:', recorder.isRecording);
+  const stopRecording = useCallback(async (): Promise<string | null> => {
+    try {
+      console.log('Stopping, isRecording:', recorder.isRecording);
 
-            if (!recorder.isRecording) {
-                console.log('Recording was not active, checking for uri anyway...');
-            }
+      if (!recorder.isRecording) {
+        console.log('Recording was not active, checking for uri anyway...');
+      }
 
-            await recorder.stop();
+      await recorder.stop();
+      setIsPaused(false);
 
-            // Wait for file to be written
-            await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for file to be written
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
-            const uri = recorder.uri;
-            console.log('Recording URI:', uri, 'Type:', typeof uri);
+      const uri = recorder.uri;
+      console.log('Recording URI:', uri, 'Type:', typeof uri);
 
-            await setAudioModeAsync({
-                allowsRecording: false,
-            });
+      await setAudioModeAsync({
+        allowsRecording: false,
+      });
 
-            // Check if uri is valid (not null, not "null" string, not empty)
-            if (!uri || uri === 'null' || uri === '') {
-                throw new Error('Recording failed - no audio file created. Make sure microphone is working.');
-            }
+      // Check if uri is valid (not null, not "null" string, not empty)
+      if (!uri || uri === 'null' || uri === '') {
+        throw new Error(
+          'Recording failed - no audio file created. Make sure microphone is working.'
+        );
+      }
 
-            return uri;
-        } catch (error) {
-            console.error('Failed to stop recording:', error);
-            setIsTranscribing(false);
-            throw error;
-        }
-    }, [recorder]);
+      return uri;
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      setIsTranscribing(false);
+      throw error;
+    }
+  }, [recorder]);
 
-    const transcribeAudio = useCallback(async (audioUri: string): Promise<string> => {
-        const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+  const pauseRecording = useCallback(async () => {
+    try {
+      const pause = (recorder as any).pause;
+      const pauseAsync = (recorder as any).pauseAsync;
+      if (typeof pauseAsync === 'function') {
+        await pauseAsync.call(recorder);
+        setIsPaused(true);
+        return;
+      }
+      if (typeof pause === 'function') {
+        await pause.call(recorder);
+        setIsPaused(true);
+      }
+    } catch (error) {
+      console.error('Failed to pause recording:', error);
+      throw error;
+    }
+  }, [recorder]);
 
-        // Return mock transcription for demo when no API key
-        if (!apiKey || apiKey === 'your-openai-key-here') {
-            setIsTranscribing(true);
-            // Simulate transcription delay
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            setIsTranscribing(false);
-            return "This is a demo transcription. Add your OpenAI API key to enable real speech-to-text.";
-        }
+  const resumeRecording = useCallback(async () => {
+    try {
+      const record = (recorder as any).record;
+      const resume = (recorder as any).resume;
+      const resumeAsync = (recorder as any).resumeAsync;
+      if (typeof resumeAsync === 'function') {
+        await resumeAsync.call(recorder);
+        setIsPaused(false);
+        return;
+      }
+      if (typeof resume === 'function') {
+        await resume.call(recorder);
+        setIsPaused(false);
+        return;
+      }
+      if (typeof record === 'function') {
+        await record.call(recorder);
+        setIsPaused(false);
+      }
+    } catch (error) {
+      console.error('Failed to resume recording:', error);
+      throw error;
+    }
+  }, [recorder]);
 
-        setIsTranscribing(true);
+  const transcribeAudio = useCallback(async (audioUri: string): Promise<string> => {
+    setIsTranscribing(true);
+    try {
+      return await transcribeChatAudio(audioUri);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, []);
 
-        try {
-            const formData = new FormData();
-            formData.append('file', {
-                uri: audioUri,
-                type: 'audio/m4a',
-                name: 'recording.m4a',
-            } as any);
-            formData.append('model', 'whisper-1');
+  const transcribeNotesAudioHook = useCallback(
+    async (audioUri: string): Promise<NotesAsrResult> => {
+      setIsTranscribing(true);
+      try {
+        return await transcribeNotesAudio(audioUri);
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    []
+  );
 
-            const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                },
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error?.message || 'Transcription failed');
-            }
-
-            const data = await response.json();
-            return data.text;
-        } finally {
-            setIsTranscribing(false);
-        }
-    }, []);
-
-    return {
-        isRecording: recorder.isRecording,
-        isTranscribing,
-        startRecording,
-        stopRecording,
-        transcribeAudio,
-    };
+  return {
+    isRecording: recorderState.isRecording,
+    isPaused,
+    isTranscribing,
+    /** dB 量级（与 expo-audio 一致），静音约 -160；需 isMeteringEnabled */
+    metering: recorderState.metering,
+    startRecording,
+    stopRecording,
+    pauseRecording,
+    resumeRecording,
+    transcribeAudio,
+    transcribeNotesAudio: transcribeNotesAudioHook,
+  };
 }

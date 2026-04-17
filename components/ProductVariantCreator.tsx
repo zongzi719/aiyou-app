@@ -1,280 +1,294 @@
 import React, { useState } from 'react';
-import { View, Pressable, Modal, FlatList, ScrollView, Keyboard, Alert, Text, TextInput, SafeAreaView } from 'react-native';
-import Icon, { IconName } from './Icon';
-import Input from './forms/Input';
-import ThemedText from './ThemedText';
-import useThemeColors from '@/app/contexts/ThemeColors';
+import {
+  View,
+  Pressable,
+  Modal,
+  FlatList,
+  ScrollView,
+  Keyboard,
+  Alert,
+  Text,
+  TextInput,
+  SafeAreaView,
+} from 'react-native';
+
 import { Button } from './Button';
+import Icon, { IconName } from './Icon';
+import ThemedText from './ThemedText';
+import Input from './forms/Input';
+
+import useThemeColors from '@/app/contexts/ThemeColors';
 
 interface ProductVariantCreatorProps {
-    hasStock?: boolean;
+  hasStock?: boolean;
 }
 
 interface Option {
-    name: string;
-    values: string[];
+  name: string;
+  values: string[];
 }
 
 interface Variant extends Record<string, string | null> {
-    price: string;
-    stock: string;
-    image: null;
+  price: string;
+  stock: string;
+  image: null;
 }
 
 const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock }) => {
-    const colors = useThemeColors();
-    const [options, setOptions] = useState<Option[]>([]);
-    const [variants, setVariants] = useState<Variant[]>([]);
-    const [modalVisible, setModalVisible] = useState(false);
-    const [currentOption, setCurrentOption] = useState<Option>({ name: '', values: [''] });
-    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const colors = useThemeColors();
+  const [options, setOptions] = useState<Option[]>([]);
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [currentOption, setCurrentOption] = useState<Option>({ name: '', values: [''] });
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-    const addOption = () => {
-        if (options.length < 3) {
-            setModalVisible(true);
-            setCurrentOption({ name: '', values: [''] });
-            setEditingIndex(null);
-        }
-    };
+  const addOption = () => {
+    if (options.length < 3) {
+      setModalVisible(true);
+      setCurrentOption({ name: '', values: [''] });
+      setEditingIndex(null);
+    }
+  };
 
-    const editOption = (index: number) => {
-        setCurrentOption(options[index]);
-        setEditingIndex(index);
-        setModalVisible(true);
-    };
+  const editOption = (index: number) => {
+    setCurrentOption(options[index]);
+    setEditingIndex(index);
+    setModalVisible(true);
+  };
 
-    const handleSaveOption = () => {
-        const trimmedValues = currentOption.values.filter(v => v.trim());
+  const handleSaveOption = () => {
+    const trimmedValues = currentOption.values.filter((v) => v.trim());
 
-        if (!currentOption.name.trim()) {
-            Alert.alert("Missing Option Name", "Please enter an option name before saving.");
-            return;
-        }
+    if (!currentOption.name.trim()) {
+      Alert.alert('Missing Option Name', 'Please enter an option name before saving.');
+      return;
+    }
 
-        if (trimmedValues.length === 0) {
-            Alert.alert("Missing Values", "Please enter at least one value before saving.");
-            return;
-        }
+    if (trimmedValues.length === 0) {
+      Alert.alert('Missing Values', 'Please enter at least one value before saving.');
+      return;
+    }
 
-        let updatedOptions = [...options];
-        if (editingIndex !== null) {
-            updatedOptions[editingIndex] = { ...currentOption, values: trimmedValues };
-        } else {
-            updatedOptions.push({ ...currentOption, values: trimmedValues });
-        }
+    const updatedOptions = [...options];
+    if (editingIndex !== null) {
+      updatedOptions[editingIndex] = { ...currentOption, values: trimmedValues };
+    } else {
+      updatedOptions.push({ ...currentOption, values: trimmedValues });
+    }
 
-        setOptions(updatedOptions);
-        setModalVisible(false);
-        generateVariants(updatedOptions);
-    };
+    setOptions(updatedOptions);
+    setModalVisible(false);
+    generateVariants(updatedOptions);
+  };
 
+  const addValue = () => {
+    // Adds a new empty value to the current option values
+    setCurrentOption((prevOption) => ({
+      ...prevOption,
+      values: [...prevOption.values, ''],
+    }));
+  };
+  const deleteOption = () => {
+    if (editingIndex === null) return;
+    const updatedOptions = [...options];
+    updatedOptions.splice(editingIndex, 1); // Removes the option at the index being edited
+    setOptions(updatedOptions);
+    setModalVisible(false);
+    generateVariants(updatedOptions); // Update variants after deleting an option
+  };
 
-    const addValue = () => {
-        // Adds a new empty value to the current option values
-        setCurrentOption(prevOption => ({
-            ...prevOption,
-            values: [...prevOption.values, '']
-        }));
-    };
-    const deleteOption = () => {
-        if (editingIndex === null) return;
-        let updatedOptions = [...options];
-        updatedOptions.splice(editingIndex, 1); // Removes the option at the index being edited
-        setOptions(updatedOptions);
-        setModalVisible(false);
-        generateVariants(updatedOptions); // Update variants after deleting an option
-    };
+  const removeValue = (index: number) => {
+    const updatedValues = [...currentOption.values];
+    updatedValues.splice(index, 1);
+    setCurrentOption({ ...currentOption, values: updatedValues.length ? updatedValues : [''] });
+  };
 
-    const removeValue = (index: number) => {
-        let updatedValues = [...currentOption.values];
-        updatedValues.splice(index, 1);
-        setCurrentOption({ ...currentOption, values: updatedValues.length ? updatedValues : [''] });
-    };
+  const generateVariants = (updatedOptions: Option[]) => {
+    const combinations = updatedOptions.reduce((acc: Record<string, string>[], option) => {
+      if (acc.length === 0) return option.values.map((v) => ({ [option.name]: v }));
+      return acc.flatMap((prev) =>
+        option.values.map((value) => ({ ...prev, [option.name]: value }))
+      );
+    }, []);
+    setVariants(combinations.map((variant) => ({ ...variant, price: '', stock: '', image: null })));
+  };
 
-    const generateVariants = (updatedOptions: Option[]) => {
-        let combinations = updatedOptions.reduce((acc: Record<string, string>[], option) => {
-            if (acc.length === 0) return option.values.map(v => ({ [option.name]: v }));
-            return acc.flatMap(prev => option.values.map(value => ({ ...prev, [option.name]: value })));
-        }, []);
-        setVariants(combinations.map(variant => ({ ...variant, price: '', stock: '', image: null })));
-    };
-
-
-
-    return (
-        <>
-
-            <View className={`mb-2  border-neutral-400 rounded-xl mt-2 overflow-hidden ${options.length > 0 ? 'border' : ''}`}>
-                {options.map((option, index) => (
-                    <Pressable onPress={() => editOption(index)} key={index} className="p-4 border-b border-neutral-300 -mb-px">
-                        <View className="flex-row justify-between items-center">
-                            <ThemedText className="font-semibold">{option.name}</ThemedText>
-                            <View className="rounded-lg">
-                                <Icon name="Edit" size={20} />
-                            </View>
-                        </View>
-                        <View className="flex-row flex-wrap gap-1 mt-1">
-                            {option.values.map((value, i) => (
-                                <View key={i} className="px-3 py-1 bg-secondary rounded-lg text-sm">
-                                    <ThemedText key={i} className="text-sm">{value}</ThemedText>
-                                </View>
-                            ))}
-                        </View>
-                    </Pressable>
-                ))}
-
+  return (
+    <>
+      <View
+        className={`mb-2  mt-2 overflow-hidden rounded-xl border-neutral-400 ${options.length > 0 ? 'border' : ''}`}>
+        {options.map((option, index) => (
+          <Pressable
+            onPress={() => editOption(index)}
+            key={index}
+            className="-mb-px border-b border-neutral-300 p-4">
+            <View className="flex-row items-center justify-between">
+              <ThemedText className="font-semibold">{option.name}</ThemedText>
+              <View className="rounded-lg">
+                <Icon name="Edit" size={20} />
+              </View>
             </View>
-            {options.length < 3 ? (
+            <View className="mt-1 flex-row flex-wrap gap-1">
+              {option.values.map((value, i) => (
+                <View key={i} className="rounded-lg bg-secondary px-3 py-1 text-sm">
+                  <ThemedText key={i} className="text-sm">
+                    {value}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      {options.length < 3 ? (
+        <Pressable
+          onPress={addOption} // Calls addValue to add a new empty input
+          className=" relative z-50 flex-row items-center justify-center rounded-lg border border-neutral-400 px-4 py-3">
+          <Icon name="Plus" size={20} />
+          <Text className="ml-2 text-primary">Add option </Text>
+        </Pressable>
+      ) : (
+        <View className=" relative z-50 flex-row items-center justify-center rounded-lg bg-neutral-100 px-4 py-3">
+          <Text className="text-neutral-400 text-primary">You've reached 3 options limit </Text>
+        </View>
+      )}
+
+      {variants.length > 0 && (
+        <View className="mt-4">
+          <Text className="mb-2 mt-0 text-xl font-medium text-primary">Variants</Text>
+          {variants.map((variant, index) => (
+            <View key={index} className="mb-2 rounded-lg border border-neutral-400 p-2">
+              <View className="flex-row items-center justify-start">
+                <Text className="ml-2">{Object.values(variant).slice(0, -3).join(' / ')}</Text>
+                <View className="ml-auto flex-row">
+                  <View className="w-[80px]">
+                    <Input
+                      label="Price"
+                      //className="h-[55px]"
+                      containerClassName="mb-0"
+                      //placeholder="Price"
+                      keyboardType="numeric"
+                      value={variant.price}
+                      onChangeText={(text) => {
+                        const updatedVariants = [...variants];
+                        updatedVariants[index].price = text;
+                        setVariants(updatedVariants);
+                      }}
+                    />
+                  </View>
+                  {hasStock && (
+                    <Input
+                      label="Stock"
+                      containerClassName="mb-0 w-20 ml-2"
+                      className="h-[55px]"
+                      //placeholder="Stock"
+                      keyboardType="numeric"
+                      //value={variant.stock}
+                      onFocus={() => {
+                        const updatedVariants = [...variants];
+                        updatedVariants[index].stock = variant.stock;
+                        setVariants(updatedVariants);
+                      }}
+                    />
+                  )}
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <Modal visible={modalVisible} transparent animationType="slide">
+        <SafeAreaView className="flex-1 bg-background">
+          <View className="w-full flex-1 bg-background">
+            <View className="w-full flex-row justify-between px-4">
+              <Pressable
+                onPress={() => setModalVisible(false)}
+                className="h-12 w-12 items-start justify-center rounded-full">
+                <Icon name="X" size={25} />
+              </Pressable>
+
+              <View className="flex-row">
                 <Pressable
-                    onPress={addOption} // Calls addValue to add a new empty input
-                    className=" py-3 px-4 rounded-lg border border-neutral-400 items-center flex-row justify-center relative z-50"
-                >
-                    <Icon name="Plus" size={20} />
-                    <Text className="text-primary ml-2">Add option </Text>
+                  onPress={() => {
+                    Alert.alert('Delete Option', 'Are you sure you want to delete this option?', [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Delete', style: 'destructive', onPress: () => deleteOption() },
+                    ]);
+                  }}
+                  className="h-12 w-12  items-center justify-center rounded-full">
+                  <Icon name="Trash" size={18} />
                 </Pressable>
-            )
-                :
-                <View className=" py-3 px-4 rounded-lg bg-neutral-100 items-center flex-row justify-center relative z-50">
-                    <Text className="text-primary text-neutral-400">You've reached 3 options limit </Text>
-                </View>
-            }
+                <Button
+                  onPress={handleSaveOption}
+                  title="Save"
+                  size="medium"
+                  className="ml-2 items-center  justify-center bg-primary px-6"
+                />
+              </View>
+            </View>
+            <View className="mt-8 flex-1">
+              <View className="w-full  px-4">
+                <ThemedText className=" text-xl font-medium">Option name</ThemedText>
+                <ThemedText className="mb-4 w-full text-sm">Sizes, colors, duration</ThemedText>
+                <Input
+                  label="Name"
+                  value={currentOption.name}
+                  onChangeText={(text) => setCurrentOption({ ...currentOption, name: text })}
+                />
+                <ThemedText className="mt-8 text-xl font-medium">Values</ThemedText>
+                <ThemedText className="w-full text-sm text-subtext">
+                  Black, large, hours, etc
+                </ThemedText>
+                <FlatList
+                  className="relative mt-4 rounded-lg border border-neutral-500"
+                  data={currentOption.values}
+                  keyExtractor={(item, index) => index.toString()}
+                  renderItem={({ item, index }) => (
+                    <View className="flex-row items-center border-b border-neutral-500">
+                      <TextInput
+                        className="flex-1 px-4 py-3 text-primary placeholder:text-primary"
+                        placeholder="Enter value"
+                        placeholderTextColor={colors.placeholder}
+                        value={item}
+                        onChangeText={(text) => {
+                          const updatedValues = currentOption.values.map((val, i) =>
+                            i === index ? text : val
+                          );
 
-            {variants.length > 0 && (
-                <View className="mt-4">
-                    <Text className="text-primary text-xl font-medium mt-0 mb-2">Variants</Text>
-                    {variants.map((variant, index) => (
-                        <View key={index} className="border border-neutral-400 p-2 rounded-lg mb-2">
+                          // If the user is typing in the last input, add a new empty one
+                          if (index === updatedValues.length - 1 && text !== '') {
+                            updatedValues.push('');
+                          }
 
-                            <View className="flex-row justify-start items-center">
-                                <Text className='ml-2'>{Object.values(variant).slice(0, -3).join(' / ')}</Text>
-                                <View className='flex-row ml-auto'>
-                                    <View className='w-[80px]'>
-                                        <Input
-                                            label="Price"
-                                            //className="h-[55px]"
-                                            containerClassName='mb-0'
-                                            //placeholder="Price"
-                                            keyboardType="numeric"
-                                            value={variant.price}
-
-                                            onChangeText={(text) => {
-                                                let updatedVariants = [...variants];
-                                                updatedVariants[index].price = text;
-                                                setVariants(updatedVariants);
-                                            }}
-                                        />
-                                    </View>
-                                    {hasStock &&
-                                       
-                                            <Input
-                                                label="Stock"
-                                                containerClassName="mb-0 w-20 ml-2"
-                                                className="h-[55px]"
-                                                //placeholder="Stock"
-                                                keyboardType="numeric"
-                                                //value={variant.stock}
-                                                onFocus={() => {
-                                                    let updatedVariants = [...variants];
-                                                    updatedVariants[index].stock = variant.stock;
-                                                    setVariants(updatedVariants);
-                                                }}
-                                            />
-
-                                    }
-                                </View>
-                            </View>
-                        </View>
-                    ))}
-                </View>
-            )}
-
-            <Modal visible={modalVisible} transparent animationType="slide">
-                <SafeAreaView className='flex-1 bg-background'>
-                    <View className='flex-1 w-full bg-background'>
-                        <View className='flex-row w-full justify-between px-4'>
-
-
-                        <Pressable onPress={() => setModalVisible(false)} className='w-12 h-12 rounded-full items-start justify-center'>
-                            <Icon name="X" size={25} />
-                        </Pressable>
-
-                        <View className='flex-row'>
-                            <Pressable
-                                onPress={() => {
-                                    Alert.alert(
-                                        "Delete Option",
-                                        "Are you sure you want to delete this option?",
-                                        [
-                                            { text: "Cancel", style: "cancel" },
-                                            { text: "Delete", style: "destructive", onPress: () => deleteOption() },
-                                        ]
-                                    );
-                                }}
-                                className='w-12 h-12  rounded-full items-center justify-center'>
-                            
-                                <Icon name="Trash" size={18} />
-                            </Pressable>
-                            <Button onPress={handleSaveOption} title="Save" size="medium" className='bg-primary px-6  items-center ml-2 justify-center'></Button>
-                        </View>
+                          setCurrentOption({
+                            ...currentOption,
+                            values: updatedValues,
+                          });
+                        }}
+                        onSubmitEditing={Keyboard.dismiss}
+                      />
+                      <Pressable onPress={() => removeValue(index)} className="px-3">
+                        <Icon name="Trash" size={20} />
+                      </Pressable>
                     </View>
-                    <View className="flex-1 mt-8">
-                        <View className="px-4  w-full">
-                            <ThemedText className=' text-xl font-medium'>Option name</ThemedText>
-                            <ThemedText className='text-sm w-full mb-4'>Sizes, colors, duration</ThemedText>
-                            <Input label="Name" value={currentOption.name} onChangeText={(text) => setCurrentOption({ ...currentOption, name: text })} />
-                            <ThemedText className='text-xl font-medium mt-8'>Values</ThemedText>
-                            <ThemedText className='text-subtext text-sm w-full'>Black, large, hours, etc</ThemedText>
-                            <FlatList
-                                className='mt-4 border border-neutral-500 rounded-lg relative'
-                                data={currentOption.values}
-                                keyExtractor={(item, index) => index.toString()}
-                                renderItem={({ item, index }) => (
-                                    <View className="flex-row items-center border-b border-neutral-500">
-                                        <TextInput
-                                            className="flex-1 py-3 px-4 text-primary placeholder:text-primary"
-                                            placeholder="Enter value"
-                                            placeholderTextColor={colors.placeholder}
-                                            value={item}
-                                            onChangeText={(text) => {
-                                                const updatedValues = currentOption.values.map((val, i) => (i === index ? text : val));
-
-                                                // If the user is typing in the last input, add a new empty one
-                                                if (index === updatedValues.length - 1 && text !== "") {
-                                                    updatedValues.push("");
-                                                }
-
-                                                setCurrentOption({
-                                                    ...currentOption,
-                                                    values: updatedValues
-                                                });
-                                            }}
-                                            onSubmitEditing={Keyboard.dismiss}
-                                        />
-                                        <Pressable onPress={() => removeValue(index)} className="px-3">
-                                            <Icon name="Trash" size={20} />
-                                        </Pressable>
-                                    </View>
-                                )}
-                                ListFooterComponent={
-                                    <Pressable
-                                        onPress={addValue}
-                                        className="py-3 px-4 rounded-lg items-center flex-row justify-center"
-                                    >
-                                        <Icon name="Plus" size={20} />
-                                        <ThemedText className="ml-2">Add value</ThemedText>
-                                    </Pressable>
-                                }
-                            />
-
-                        </View>
-                    </View>
-
-                </View>
-                </SafeAreaView>
-            </Modal>
-
-        </>
-    );
+                  )}
+                  ListFooterComponent={
+                    <Pressable
+                      onPress={addValue}
+                      className="flex-row items-center justify-center rounded-lg px-4 py-3">
+                      <Icon name="Plus" size={20} />
+                      <ThemedText className="ml-2">Add value</ThemedText>
+                    </Pressable>
+                  }
+                />
+              </View>
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+    </>
+  );
 };
 
 export default ProductVariantCreator;

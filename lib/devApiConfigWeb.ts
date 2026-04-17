@@ -49,9 +49,14 @@ export async function apiRelayWebRaw(opts: {
 }): Promise<{ status: number; text: string; time: number }> {
   if (getGlobalMockSync()) {
     addApiLog({
-      timestamp: Date.now(), method: opts.method || 'GET', path: opts.path,
-      requestBody: opts.body, status: 200, duration: 0,
-      responseBody: '{"mock":true,"message":"全局 Mock 已开启"}', success: true,
+      timestamp: Date.now(),
+      method: opts.method || 'GET',
+      path: opts.path,
+      requestBody: opts.body,
+      status: 200,
+      duration: 0,
+      responseBody: '{"mock":true,"message":"全局 Mock 已开启"}',
+      success: true,
     });
     return { status: 200, text: '{"mock":true}', time: 0 };
   }
@@ -75,18 +80,29 @@ export async function apiRelayWebRaw(opts: {
     const text = await res.text();
     const duration = Date.now() - start;
     addApiLog({
-      timestamp: Date.now(), method, path: opts.path, requestBody: opts.body,
-      status: res.status, duration,
+      timestamp: Date.now(),
+      method,
+      path: opts.path,
+      requestBody: opts.body,
+      status: res.status,
+      duration,
       responseBody: text.length > 2000 ? `${text.slice(0, 2000)}…` : text,
-      success: res.ok, error: res.ok ? undefined : `HTTP ${res.status}`,
+      success: res.ok,
+      error: res.ok ? undefined : `HTTP ${res.status}`,
     });
     return { status: res.status, text, time: duration };
   } catch (err: unknown) {
     const duration = Date.now() - start;
     const message = err instanceof Error ? err.message : String(err);
     addApiLog({
-      timestamp: Date.now(), method, path: opts.path, requestBody: opts.body,
-      status: 0, duration, success: false, error: message,
+      timestamp: Date.now(),
+      method,
+      path: opts.path,
+      requestBody: opts.body,
+      status: 0,
+      duration,
+      success: false,
+      error: message,
     });
     throw err;
   }

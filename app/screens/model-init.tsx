@@ -26,6 +26,7 @@ import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
 import { useRecording } from '@/hooks/useRecording';
 import { putProfileCache } from '@/lib/profileCache';
+import { cloneAliyunVoiceFromLocalRecording } from '@/lib/registerAliyunClonedVoice';
 import { queryImageJob, submitImageJob } from '@/lib/tencentMaasImageApi';
 import {
   clearVoiceCloneTrainingTextCache,
@@ -36,7 +37,10 @@ import {
   VoiceCloneDetectError,
   waitForVoiceCloneResult,
 } from '@/lib/tencentMaasVoiceApi';
+import { getVoiceCloneProvider } from '@/lib/voiceCloneProvider';
 import { bustAvatarCache, fetchProfile, updateProfile, uploadAvatar } from '@/services/profileApi';
+
+const voiceCloneProvider = getVoiceCloneProvider();
 
 const ACCENT = '#D4A017';
 const ACCENT_SOFT = '#F5DCA8';
@@ -352,6 +356,8 @@ export default function ModelInitScreen() {
   const [voicePromptText, setVoicePromptText] = useState(VOICE_SCRIPT);
   const [voicePromptTextId, setVoicePromptTextId] = useState<string | null>(null);
   const [voiceQualityFailCount, setVoiceQualityFailCount] = useState(0);
+  /** 阿里云 OSS 路径用；与资料接口 user_id 一致 */
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [portraitUri, setPortraitUri] = useState<string | null>(null);
   const [avatarProgress, setAvatarProgress] = useState(0);
   const [avatarStatusText, setAvatarStatusText] = useState<string>('加载中');
@@ -382,6 +388,13 @@ export default function ModelInitScreen() {
     setPhase('image');
   }, []);
 
+  const refreshVoicePrompt = useCallback(async () => {
+    clearVoiceCloneTrainingTextCache();
+    const { textId, text } = await fetchVoiceCloneTrainingText({ taskType: 5, textLanguage: 1 });
+    setVoicePromptTextId(textId);
+    setVoicePromptText(text.trim() || VOICE_SCRIPT);
+  }, []);
+
   useEffect(() => {
     if (!isRecording || isPaused) {
       if (tickRef.current) {
@@ -402,7 +415,10 @@ export default function ModelInitScreen() {
     if (!isRecording || isPaused || recordSeconds < MAX_VOICE_RECORD_SECONDS) return;
     pauseRecording()
       .then(() => {
-        Alert.alert('提示', `当前录音最多 ${MAX_VOICE_RECORD_SECONDS} 秒，已自动暂停，请点击右侧确认。`);
+        Alert.alert(
+          '提示',
+          `当前录音最多 ${MAX_VOICE_RECORD_SECONDS} 秒，已自动暂停，请点击右侧确认。`
+        );
       })
       .catch(() => {
         Alert.alert('提示', '录音时长已达上限，请点击右侧确认。');
@@ -419,6 +435,12 @@ export default function ModelInitScreen() {
   useEffect(() => {
     if (phase !== 'voice') return;
     if (recoveringVoiceTask) return;
+    if (voiceCloneProvider !== 'tencent') {
+      setVoicePromptText(VOICE_SCRIPT);
+      setVoicePromptTextId(null);
+      setVoiceStatusText('');
+      return;
+    }
     let cancelled = false;
     setVoiceStatusText('正在加载朗读文本');
     refreshVoicePrompt()
@@ -438,7 +460,7 @@ export default function ModelInitScreen() {
     return () => {
       cancelled = true;
     };
-  }, [phase, refreshVoicePrompt]);
+  }, [phase, refreshVoicePrompt, recoveringVoiceTask]);
 
   useEffect(() => {
     let cancelled = false;
@@ -447,11 +469,13 @@ export default function ModelInitScreen() {
         const profile = await fetchProfile();
         if (cancelled) return;
         putProfileCache(profile);
+        setProfileUserId(profile.user_id?.trim() || null);
         const existingVoiceId = profile.voice_id?.trim();
         setHasExistingVoiceId(Boolean(existingVoiceId));
       } catch {
         if (cancelled) return;
         setHasExistingVoiceId(false);
+        setProfileUserId(null);
       } finally {
         if (!cancelled) {
           setVoiceGateChecked(true);
@@ -464,6 +488,7 @@ export default function ModelInitScreen() {
   }, []);
 
   useEffect(() => {
+    if (voiceCloneProvider !== 'tencent') return;
     if (phase !== 'voice') return;
     if (!voiceGateChecked) return;
     if (hasExistingVoiceId) return;
@@ -497,7 +522,11 @@ export default function ModelInitScreen() {
           onProgress: (status, statusText) => {
             const statusLabel = getVoiceCloneStatusLabel(status, statusText);
             setVoiceStatusText(`恢复中：${statusLabel}`);
-            console.info('[voice-clone] recover polling', { taskId: cachedTaskId, status, statusLabel });
+            console.info('[voice-clone] recover polling', {
+              taskId: cachedTaskId,
+              status,
+              statusLabel,
+            });
           },
         });
         if (cancelled) return;
@@ -535,17 +564,10 @@ export default function ModelInitScreen() {
     setPhase('voice');
   };
 
-  const refreshVoicePrompt = useCallback(async () => {
-    clearVoiceCloneTrainingTextCache();
-    const { textId, text } = await fetchVoiceCloneTrainingText({ taskType: 5, textLanguage: 1 });
-    setVoicePromptTextId(textId);
-    setVoicePromptText(text.trim() || VOICE_SCRIPT);
-  }, []);
-
   const toggleRecord = async () => {
     try {
       if (!isRecording) {
-        if (!voicePromptTextId) {
+        if (voiceCloneProvider === 'tencent' && !voicePromptTextId) {
           setVoiceStatusText('正在刷新朗读文本');
           try {
             await refreshVoicePrompt();
@@ -582,6 +604,21 @@ export default function ModelInitScreen() {
         throw new Error('请先完成录音再继续。');
       }
 
+      if (voiceCloneProvider === 'aliyun') {
+        const uid = profileUserId?.trim() || (await fetchProfile()).user_id?.trim() || '';
+        if (!uid) {
+          throw new Error('无法获取用户身份，请先登录后再完成声音采集。');
+        }
+        setProfileUserId(uid);
+        const { voiceId } = await cloneAliyunVoiceFromLocalRecording({
+          localUri: recordedUri,
+          userId: uid,
+          onStatus: setVoiceStatusText,
+        });
+        await persistVoiceIdAndContinue(voiceId);
+        return;
+      }
+
       setVoiceStatusText('正在创建声音复刻任务');
       const { taskId } = await createVoiceCloneTaskFromRecording({
         audioUri: recordedUri,
@@ -611,7 +648,7 @@ export default function ModelInitScreen() {
       if (createdTaskId) {
         console.warn('[voice-clone] query failed', { taskId: createdTaskId, message: msg });
       }
-      if (msg.includes('当前朗读文本已失效')) {
+      if (voiceCloneProvider === 'tencent' && msg.includes('当前朗读文本已失效')) {
         setVoiceStatusText('正在刷新朗读文本');
         try {
           await refreshVoicePrompt();
@@ -623,7 +660,7 @@ export default function ModelInitScreen() {
         Alert.alert('提示', '朗读文本已过期，已为你刷新。请按新文本重新录音后再提交。');
         return;
       }
-      if (e instanceof VoiceCloneDetectError) {
+      if (voiceCloneProvider === 'tencent' && e instanceof VoiceCloneDetectError) {
         const isQualityFailed = msg.includes('音频质量');
         if (isQualityFailed) {
           const nextCount = voiceQualityFailCount + 1;
@@ -718,7 +755,9 @@ export default function ModelInitScreen() {
       // 1) 先把真人照片上传到现有后端，拿到可公网访问的 URL（作为 TokenHub images 输入）
       const uploadedPortraitProfile = await uploadAvatarWithRetry(portraitUri, {
         onAttemptStart: (attempt, total) => {
-          setAvatarStatusText(attempt > 1 ? `正在上传照片（重试 ${attempt}/${total}）` : '正在上传照片');
+          setAvatarStatusText(
+            attempt > 1 ? `正在上传照片（重试 ${attempt}/${total}）` : '正在上传照片'
+          );
         },
       });
       putProfileCache(uploadedPortraitProfile);
@@ -786,7 +825,9 @@ export default function ModelInitScreen() {
 
       const finalProfile = await uploadAvatarWithRetry(downloaded.uri, {
         onAttemptStart: (attempt, total) => {
-          setAvatarStatusText(attempt > 1 ? `正在保存头像（重试 ${attempt}/${total}）` : '正在保存头像');
+          setAvatarStatusText(
+            attempt > 1 ? `正在保存头像（重试 ${attempt}/${total}）` : '正在保存头像'
+          );
         },
       });
       putProfileCache(finalProfile);
@@ -1005,7 +1046,7 @@ export default function ModelInitScreen() {
                     完成朗读后点击右侧确认进入下一步（最多 10 秒）
                   </ThemedText>
                   {voiceStatusText ? (
-                    <ThemedText className="mt-2 text-center text-xs text-white/55">
+                    <ThemedText className="text-white/55 mt-2 text-center text-xs">
                       {voiceStatusText}
                     </ThemedText>
                   ) : null}

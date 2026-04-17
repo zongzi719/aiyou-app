@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { clearProfileCache } from '@/lib/profileCache';
+
 import { clearAllListDataCaches } from '@/lib/listDataCache';
+import { clearProfileCache } from '@/lib/profileCache';
 
 const AUTH_TOKEN_KEY = 'luna_auth_token';
 const AUTH_USER_ID_KEY = 'luna_auth_user_id';
@@ -37,7 +38,7 @@ export async function persistAuthSession(payload: AuthSessionPayload): Promise<v
 }
 
 export async function clearAuthSession(): Promise<void> {
-  clearProfileCache();
+  await clearProfileCache();
   clearAllListDataCaches();
   await Promise.all([
     AsyncStorage.removeItem(AUTH_TOKEN_KEY),

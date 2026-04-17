@@ -1,13 +1,14 @@
+import { Link, router } from 'expo-router';
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Image, Pressable, TextInput } from 'react-native';
-import { Link, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import useThemeColors from '@/app/contexts/ThemeColors';
+import { CardScroller } from '@/components/CardScroller';
+import { Chip } from '@/components/Chip';
 import Icon, { IconName } from '@/components/Icon';
 import ThemedScroller from '@/components/ThemeScroller';
 import ThemedText from '@/components/ThemedText';
-import useThemeColors from '@/app/contexts/ThemeColors';
-import { Chip } from '@/components/Chip';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CardScroller } from '@/components/CardScroller';
 
 type SearchCategory = 'top-picks' | 'featured' | 'trending' | 'productivity' | 'education';
 
@@ -25,7 +26,7 @@ const SearchScreen = () => {
       creator: 'OpenAI',
       description: 'Most advanced reasoning with extended context window',
       image: require('@/assets/img/logo-1.png'),
-      category: 'top-picks'
+      category: 'top-picks',
     },
     {
       id: 2,
@@ -33,7 +34,7 @@ const SearchScreen = () => {
       creator: 'Anthropic',
       description: 'High-performance vision and reasoning capabilities',
       image: require('@/assets/img/logo-2.png'),
-      category: 'featured'
+      category: 'featured',
     },
     {
       id: 3,
@@ -41,7 +42,7 @@ const SearchScreen = () => {
       creator: 'Google',
       description: 'Multimodal AI for creative and technical tasks',
       image: require('@/assets/img/logo-3.png'),
-      category: 'trending'
+      category: 'trending',
     },
     {
       id: 4,
@@ -49,7 +50,7 @@ const SearchScreen = () => {
       creator: 'Midjourney Inc',
       description: 'Text-to-image generation with artistic quality',
       image: require('@/assets/img/logo-4.png'),
-      category: 'top-picks'
+      category: 'top-picks',
     },
     {
       id: 5,
@@ -57,7 +58,7 @@ const SearchScreen = () => {
       creator: 'Microsoft',
       description: 'AI pair programmer for code completion',
       image: require('@/assets/img/logo-5.png'),
-      category: 'productivity'
+      category: 'productivity',
     },
     {
       id: 6,
@@ -65,7 +66,7 @@ const SearchScreen = () => {
       creator: 'Perplexity AI',
       description: 'Real-time knowledge search with citations',
       image: require('@/assets/img/logo-2.png'),
-      category: 'education'
+      category: 'education',
     },
     {
       id: 7,
@@ -73,7 +74,7 @@ const SearchScreen = () => {
       creator: 'OpenAI',
       description: 'Photorealistic image generation from text',
       image: require('@/assets/img/logo-1.png'),
-      category: 'trending'
+      category: 'trending',
     },
     {
       id: 8,
@@ -81,7 +82,7 @@ const SearchScreen = () => {
       creator: 'OpenAI',
       description: 'Speech recognition with multilingual support',
       image: require('@/assets/img/logo-3.png'),
-      category: 'productivity'
+      category: 'productivity',
     },
     {
       id: 9,
@@ -89,7 +90,7 @@ const SearchScreen = () => {
       creator: 'Duolingo',
       description: 'AI-powered language learning assistant',
       image: require('@/assets/img/logo-4.png'),
-      category: 'education'
+      category: 'education',
     },
   ];
 
@@ -101,33 +102,46 @@ const SearchScreen = () => {
 
   const filterData = (data: any[]) => {
     if (!searchQuery) return data;
-    return data.filter(item =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.creator.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase())
+    return data.filter(
+      (item) =>
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.creator.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase())
     );
   };
 
   const getFilteredResults = () => {
     const filteredModels = filterData(aiModels);
-    return filteredModels.filter(model => category === 'top-picks' || model.category === category);
+    return filteredModels.filter(
+      (model) => category === 'top-picks' || model.category === category
+    );
   };
 
   const results = getFilteredResults();
 
   return (
     <>
-      <View style={{ paddingTop: insets.top }} className='p-global bg-background'>
+      <View style={{ paddingTop: insets.top }} className="bg-background p-global">
         <View
-          style={{ elevation: 10, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6.84, shadowOffset: { width: 0, height: 4 } }}
-          className='bg-light-primary bg-secondary rounded-full relative'
-        >
-          <Icon name="ArrowLeft" onPress={() => router.back()} className="absolute top-1.5 left-1.5 z-50" size={20} />
+          style={{
+            elevation: 10,
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 6.84,
+            shadowOffset: { width: 0, height: 4 },
+          }}
+          className="bg-light-primary relative rounded-full bg-secondary">
+          <Icon
+            name="ArrowLeft"
+            onPress={() => router.back()}
+            className="absolute left-1.5 top-1.5 z-50"
+            size={20}
+          />
 
           <TextInput
             ref={inputRef}
-            className='py-3 pl-10 pr-3 rounded-lg text-primary'
-            placeholder='Search AI models...'
+            className="rounded-lg py-3 pl-10 pr-3 text-primary"
+            placeholder="Search AI models..."
             placeholderTextColor={colors.placeholder}
             onChangeText={setSearchQuery}
             value={searchQuery}
@@ -141,14 +155,13 @@ const SearchScreen = () => {
                 setSearchQuery('');
                 inputRef.current?.focus();
               }}
-              className="absolute top-3 right-3 z-50 opacity-50"
-            >
-              <Icon name='X' size={20} />
+              className="absolute right-3 top-3 z-50 opacity-50">
+              <Icon name="X" size={20} />
             </Pressable>
           )}
         </View>
 
-        <CardScroller className='mt-4' space={5} >
+        <CardScroller className="mt-4" space={5}>
           <Chip
             label="Top Picks"
             isSelected={category === 'top-picks'}
@@ -177,29 +190,31 @@ const SearchScreen = () => {
         </CardScroller>
       </View>
 
-      <ThemedScroller className='flex-1 px-0' keyboardShouldPersistTaps='handled'>
-        <View className='mb-4'>
+      <ThemedScroller className="flex-1 px-0" keyboardShouldPersistTaps="handled">
+        <View className="mb-4">
           {results.length > 0 ? (
             results.map((item) => (
-              <Link key={item.id} href={`/screens/provider`} asChild>
-                <Pressable className="flex-row items-center justify-start py-2  mb-2">
-                  <View className='w-14 h-14 rounded-2xl items-center justify-center bg-secondary mr-5'>
-                    <Image source={item.image} className='w-8 h-8' />
+              <Link key={item.id} href="/screens/provider" asChild>
+                <Pressable className="mb-2 flex-row items-center justify-start  py-2">
+                  <View className="mr-5 h-14 w-14 items-center justify-center rounded-2xl bg-secondary">
+                    <Image source={item.image} className="h-8 w-8" />
                   </View>
-                  <View className='flex-1'>
-                    <ThemedText className='text-base font-bold'>{item.name}</ThemedText>
-                    <ThemedText className='text-sm mb-1 line-clamp-1 w-full whitespace-nowrap overflow-hidden'>{item.description}</ThemedText>
-                    <ThemedText className='text-sm text-subtext'>by {item.creator}</ThemedText>
+                  <View className="flex-1">
+                    <ThemedText className="text-base font-bold">{item.name}</ThemedText>
+                    <ThemedText className="mb-1 line-clamp-1 w-full overflow-hidden whitespace-nowrap text-sm">
+                      {item.description}
+                    </ThemedText>
+                    <ThemedText className="text-sm text-subtext">by {item.creator}</ThemedText>
                   </View>
                 </Pressable>
               </Link>
             ))
           ) : (
-            <View className='items-center justify-center p-10'>
-              <ThemedText className='text-lg font-bold mb-2 text-center'>
+            <View className="items-center justify-center p-10">
+              <ThemedText className="mb-2 text-center text-lg font-bold">
                 No results found
               </ThemedText>
-              <ThemedText className='text-center text-subtext'>
+              <ThemedText className="text-center text-subtext">
                 Try different keywords or categories
               </ThemedText>
             </View>

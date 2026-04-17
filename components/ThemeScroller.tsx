@@ -1,5 +1,12 @@
 import React from 'react';
-import { ScrollView, ScrollViewProps, View, Animated, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
+import {
+  ScrollView,
+  ScrollViewProps,
+  View,
+  Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
+} from 'react-native';
 
 interface ThemeScrollerProps extends ScrollViewProps {
   children: React.ReactNode;
@@ -24,18 +31,17 @@ export default function ThemedScroller({
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
-      style={{ width: "100%" }}
+      style={{ width: '100%' }}
       bounces={false}
-      overScrollMode='never'
-      className={`bg-background flex-1 px-global ${className || ''}`}
+      overScrollMode="never"
+      className={`flex-1 bg-background px-global ${className || ''}`}
       onScroll={onScroll}
       scrollEventThrottle={scrollEventThrottle}
       contentContainerStyle={[
-        headerSpace && { paddingTop: 70 }, // Add space for fixed header 
-        contentContainerStyle
+        headerSpace && { paddingTop: 70 }, // Add space for fixed header
+        contentContainerStyle,
       ]}
-      {...props}
-    >
+      {...props}>
       {children}
       {footerSpacer ? <View className="h-20 w-full" /> : null}
     </ScrollView>

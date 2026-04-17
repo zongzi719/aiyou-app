@@ -1,6 +1,6 @@
-import type { UserMemory, HistoryDocument, HistoryTodo } from '@/services/memoryApi';
-import type { KnowledgeFolder, KnowledgeFile } from '@/services/knowledgeApi';
 import type { ThreadSummary } from '@/lib/privateChatApi';
+import type { KnowledgeFolder, KnowledgeFile } from '@/services/knowledgeApi';
+import type { UserMemory, HistoryDocument, HistoryTodo } from '@/services/memoryApi';
 
 /** 超过该时间未更新则视为过期，下次进入或定时 tick 会重新请求 */
 export const LIST_CACHE_STALE_MS = 120_000;

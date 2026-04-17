@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Alert, Pressable } from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/app/contexts/ThemeContext';
@@ -14,18 +14,19 @@ import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 import { clearAuthSession } from '@/lib/authSession';
 import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
-import { fetchProfile, uploadAvatar, bustAvatarCache, UserProfile } from '@/services/profileApi';
+import {
+  fetchProfile,
+  uploadAvatar,
+  bustAvatarCache,
+  UserProfile,
+  resolveProfileDisplayTagPills,
+  formatAiLearningDataLine,
+} from '@/services/profileApi';
+import { knowledgeApi, type KnowledgeFile } from '@/services/knowledgeApi';
+import { countPrivateThreads } from '@/lib/privateChatApi';
 
 /** 设计稿 mock：待办进度（后续可对接真实统计） */
 const PENDING_PROGRESS = { percent: 63, done: 3, total: 8 };
-
-/** 今日重点：示意「由日程经 AI 提炼」的摘要项（后续由服务端/AI 生成） */
-const INITIAL_KEY_MATTERS: { id: string; title: string; done: boolean }[] = [
-  { id: '1', title: '投资人会议准备', done: false },
-  { id: '2', title: '设计产品原型', done: false },
-  { id: '3', title: '更新市场调研', done: true },
-  { id: '4', title: '团队产品讨论', done: true },
-];
 
 type TaskPriority = 'core' | 'important' | 'minor';
 
@@ -74,8 +75,6 @@ const TODAY_TASKS: TodayTaskItem[] = [
   },
 ];
 
-const DEFAULT_TAG_PILLS = ['创始人 · 科技创业者', 'AI · 互联网 · SaaS'];
-
 function SectionTitle({ title }: { title: string }) {
   return (
     <View className="mb-3 mt-1 flex-row items-center">
@@ -118,7 +117,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(() => peekProfileCache());
   const [loading, setLoading] = useState(() => peekProfileCache() === null);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const [keyMatters, setKeyMatters] = useState(INITIAL_KEY_MATTERS);
+  const [learningStats, setLearningStats] = useState<{ docs: number; convs: number } | null>(null);
 
   const headerGradient = useMemo(
     () =>
@@ -155,18 +154,30 @@ export default function ProfileScreen() {
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
+
+      void (async () => {
+        try {
+          const [fileRes, convs] = await Promise.all([
+            knowledgeApi.getFiles().catch(() => ({ files: [] as KnowledgeFile[], total: 0 })),
+            countPrivateThreads().catch(() => 0),
+          ]);
+          const docs =
+            typeof fileRes.total === 'number' && fileRes.total > 0
+              ? fileRes.total
+              : fileRes.files.length;
+          if (!cancelled) setLearningStats({ docs, convs });
+        } catch {
+          if (!cancelled) setLearningStats({ docs: 0, convs: 0 });
+        }
+      })();
+
       return () => {
         cancelled = true;
       };
     }, [])
   );
 
-  const tagPills = useMemo(() => {
-    const fromApi = profile?.tags?.filter(Boolean) ?? [];
-    if (fromApi.length >= 2) return fromApi.slice(0, 2);
-    if (fromApi.length === 1) return [fromApi[0], DEFAULT_TAG_PILLS[1]];
-    return DEFAULT_TAG_PILLS;
-  }, [profile?.tags]);
+  const tagPills = useMemo(() => resolveProfileDisplayTagPills(profile?.tags), [profile?.tags]);
 
   const handleAvatarPress = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -206,10 +217,6 @@ export default function ProfileScreen() {
         },
       },
     ]);
-  };
-
-  const toggleKeyMatter = (id: string) => {
-    setKeyMatters((prev) => prev.map((m) => (m.id === id ? { ...m, done: !m.done } : m)));
   };
 
   const displayName = profile?.display_name || profile?.username || '用户';
@@ -286,7 +293,9 @@ export default function ProfileScreen() {
                     ))}
                   </View>
                   <ThemedText className="mt-2 text-xs leading-5 text-subtext">
-                    AI学习数据 · 35份资料 · 2.5小时访谈
+                    {learningStats
+                      ? formatAiLearningDataLine(learningStats.docs, learningStats.convs)
+                      : '加载中…'}
                   </ThemedText>
                 </>
               )}
@@ -321,29 +330,6 @@ export default function ProfileScreen() {
               {PENDING_PROGRESS.done}/{PENDING_PROGRESS.total}
             </ThemedText>
           </View>
-
-          <SectionTitle title="今日重点事项" />
-          <ThemedText className="-mt-2 mb-3 text-xs text-subtext">
-            由今日日程智能提炼，便于快速把握重点
-          </ThemedText>
-
-          {keyMatters.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => toggleKeyMatter(item.id)}
-              className={`mb-2 flex-row items-center rounded-2xl px-3 py-3.5 ${cardBg} ${item.done ? 'opacity-55' : ''}`}>
-              <ThemedText
-                className={`flex-1 pr-3 text-base ${item.done ? 'text-subtext' : 'text-primary'}`}>
-                {item.title}
-              </ThemedText>
-              <View
-                className={`h-7 w-7 items-center justify-center rounded-full border ${
-                  item.done ? 'border-subtext bg-transparent' : 'border-white/50'
-                }`}>
-                {item.done ? <Icon name="Check" size={16} color="#8E8E93" /> : null}
-              </View>
-            </Pressable>
-          ))}
 
           <View className="mt-4">
             <SectionTitle title="今日任务" />
@@ -381,8 +367,11 @@ export default function ProfileScreen() {
             </View>
           ))}
 
-          <TouchableOpacity onPress={handleLogout} className="mb-2 mt-6 items-center py-3">
-            <ThemedText className="text-sm text-red-400">退出登录</ThemedText>
+          <TouchableOpacity
+            onPress={handleLogout}
+            activeOpacity={0.85}
+            className="mb-2 mt-6 w-full items-center justify-center rounded-xl bg-red-600 py-3.5">
+            <ThemedText className="text-sm font-semibold text-white">退出登录</ThemedText>
           </TouchableOpacity>
         </View>
       </ThemedScroller>

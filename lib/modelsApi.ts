@@ -1,5 +1,5 @@
-import { getApiBaseUrl } from '@/lib/devApiConfig';
 import { getPrivateChatAuthHeaders } from '@/lib/authSession';
+import { getApiBaseUrl } from '@/lib/devApiConfig';
 
 export interface ModelInfo {
   id: string;
@@ -13,13 +13,20 @@ function normalizeModels(json: unknown): ModelInfo[] {
     if (item && typeof item === 'object') {
       const o = item as Record<string, unknown>;
       const id =
-        typeof o.id === 'string' ? o.id :
-        typeof o.model_name === 'string' ? o.model_name :
-        typeof o.name === 'string' ? o.name : null;
+        typeof o.id === 'string'
+          ? o.id
+          : typeof o.model_name === 'string'
+            ? o.model_name
+            : typeof o.name === 'string'
+              ? o.name
+              : null;
       if (!id) return null;
       const display_name =
-        typeof o.display_name === 'string' ? o.display_name :
-        typeof o.name === 'string' ? o.name : undefined;
+        typeof o.display_name === 'string'
+          ? o.display_name
+          : typeof o.name === 'string'
+            ? o.name
+            : undefined;
       return { id, display_name };
     }
     return null;
@@ -28,12 +35,10 @@ function normalizeModels(json: unknown): ModelInfo[] {
   const arr: unknown[] = Array.isArray(json)
     ? json
     : json && typeof json === 'object'
-      ? (
-          (json as Record<string, unknown>).data ??
+      ? (((json as Record<string, unknown>).data ??
           (json as Record<string, unknown>).models ??
           (json as Record<string, unknown>).items ??
-          []
-        ) as unknown[]
+          []) as unknown[])
       : [];
 
   return (arr as unknown[]).map(toModel).filter((m): m is ModelInfo => m !== null);
@@ -68,14 +73,19 @@ export async function fetchModelDetail(modelName: string): Promise<ModelInfo | n
       headers: { ...headers, Accept: 'application/json' },
     });
     if (!res.ok) return null;
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     const id =
-      typeof json.id === 'string' ? json.id :
-      typeof json.model_name === 'string' ? json.model_name :
-      modelName;
+      typeof json.id === 'string'
+        ? json.id
+        : typeof json.model_name === 'string'
+          ? json.model_name
+          : modelName;
     const display_name =
-      typeof json.display_name === 'string' ? json.display_name :
-      typeof json.name === 'string' ? json.name : undefined;
+      typeof json.display_name === 'string'
+        ? json.display_name
+        : typeof json.name === 'string'
+          ? json.name
+          : undefined;
     return { id, display_name };
   } catch {
     return null;

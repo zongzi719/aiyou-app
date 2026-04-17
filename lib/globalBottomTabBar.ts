@@ -15,16 +15,15 @@ const AUTH_SCREEN_PREFIXES = [
 
 export function shouldShowGlobalBottomTabBar(pathname: string | null | undefined): boolean {
   if (pathname == null || pathname === '') return false;
+  if (pathname === '/screens/model-init' || pathname.startsWith('/screens/model-init/')) {
+    return false;
+  }
   if (pathname === '/dev' || pathname.startsWith('/dev/')) return false;
   if (AUTH_SCREEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return false;
   }
   if (pathname === '/') return true;
-  if (
-    pathname === '/suggestions' ||
-    pathname === '/lottie' ||
-    pathname === '/mic-animation'
-  ) {
+  if (pathname === '/suggestions' || pathname === '/lottie' || pathname === '/mic-animation') {
     return true;
   }
   if (pathname.startsWith('/screens/')) return true;

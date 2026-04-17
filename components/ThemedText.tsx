@@ -1,6 +1,7 @@
 // components/ThemedText.tsx
 import React from 'react';
 import { Text, TextProps } from 'react-native';
+import { twMerge } from 'tailwind-merge';
 
 interface ThemedTextProps extends TextProps {
   children: React.ReactNode;
@@ -8,10 +9,7 @@ interface ThemedTextProps extends TextProps {
 
 export default function ThemedText({ children, className, ...props }: ThemedTextProps) {
   return (
-    <Text
-      className={`text-primary ${className || ''}`}
-      {...props}
-    >
+    <Text className={twMerge('text-primary', className)} {...props}>
       {children}
     </Text>
   );

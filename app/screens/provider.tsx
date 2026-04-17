@@ -1,40 +1,43 @@
 import React, { useState, useRef, useEffect } from 'react';
-import Header from '@/components/Header';
 import { View, Image } from 'react-native';
-import ThemedText from '@/components/ThemedText';
-import ThemedScroller from '@/components/ThemeScroller';
-import ThemeFooter from '@/components/ThemeFooter';
-import { Button } from '@/components/Button';
-import ShowRating from '@/components/ShowRating';
-const ProviderScreen = () => {
 
+import { Button } from '@/components/Button';
+import Header from '@/components/Header';
+import ShowRating from '@/components/ShowRating';
+import ThemeFooter from '@/components/ThemeFooter';
+import ThemedScroller from '@/components/ThemeScroller';
+import ThemedText from '@/components/ThemedText';
+const ProviderScreen = () => {
   return (
     <>
       <Header showBackButton />
       <ThemedScroller>
-        <View className='flex-1 items-center justify-center bg-background p-6'>
-          <View className='w-24 h-24 rounded-2xl items-center justify-center bg-secondary mb-4'>
-            <Image source={require('@/assets/img/logo-3.png')} className='w-14 h-14' />
+        <View className="flex-1 items-center justify-center bg-background p-6">
+          <View className="mb-4 h-24 w-24 items-center justify-center rounded-2xl bg-secondary">
+            <Image source={require('@/assets/img/logo-3.png')} className="h-14 w-14" />
           </View>
-          <ThemedText className='text-2xl font-bold'>Gemini Pro</ThemedText>
-          <ThemedText className='text-sm text-subtext'>by Google</ThemedText>
-          <ThemedText className='text-base my-4 text-center'>Multimodal AI for creative and technical tasks. Lorem ipsum dolor sit amet consectetur adipisicing elit. Quisquam, quos.</ThemedText>
+          <ThemedText className="text-2xl font-bold">Gemini Pro</ThemedText>
+          <ThemedText className="text-sm text-subtext">by Google</ThemedText>
+          <ThemedText className="my-4 text-center text-base">
+            Multimodal AI for creative and technical tasks. Lorem ipsum dolor sit amet consectetur
+            adipisicing elit. Quisquam, quos.
+          </ThemedText>
         </View>
-        <View className="w-full flex-row justify-between py-7 border-y border-border">
-          <View className='flex-1 items-center justify-normal'>
-            <ShowRating rating={4.5} size='lg' />
-            <ThemedText className='text-sm mt-1 text-subtext'>1k+ Reviews</ThemedText>
+        <View className="w-full flex-row justify-between border-y border-border py-7">
+          <View className="flex-1 items-center justify-normal">
+            <ShowRating rating={4.5} size="lg" />
+            <ThemedText className="mt-1 text-sm text-subtext">1k+ Reviews</ThemedText>
           </View>
-          <View className='flex-1 items-center justify-normal'>
-            <ThemedText className='text-lg font-bold'>#1</ThemedText>
-            <ThemedText className='text-sm mt-1 text-subtext'>in Lifestyle</ThemedText>
+          <View className="flex-1 items-center justify-normal">
+            <ThemedText className="text-lg font-bold">#1</ThemedText>
+            <ThemedText className="mt-1 text-sm text-subtext">in Lifestyle</ThemedText>
           </View>
-          <View className='flex-1 items-center justify-normal'>
-            <ThemedText className='text-lg font-bold'>5M+</ThemedText>
-            <ThemedText className='text-sm mt-1 text-subtext'>Conversations</ThemedText>
+          <View className="flex-1 items-center justify-normal">
+            <ThemedText className="text-lg font-bold">5M+</ThemedText>
+            <ThemedText className="mt-1 text-sm text-subtext">Conversations</ThemedText>
           </View>
         </View>
-        <ThemedText className='text-lg font-bold my-4'>Ratings</ThemedText>
+        <ThemedText className="my-4 text-lg font-bold">Ratings</ThemedText>
         <RatingProgress rating={5} progress={75} />
         <RatingProgress rating={4} progress={25} />
         <RatingProgress rating={3} progress={10} />
@@ -42,7 +45,7 @@ const ProviderScreen = () => {
         <RatingProgress rating={1} progress={10} />
       </ThemedScroller>
       <ThemeFooter>
-        <Button title='Chat' variant='primary' rounded='full' />
+        <Button title="Chat" variant="primary" rounded="full" />
       </ThemeFooter>
     </>
   );
@@ -50,10 +53,10 @@ const ProviderScreen = () => {
 
 const RatingProgress = (props: any) => {
   return (
-    <View className='flex-row items-center justify-center w-full my-2'>
-      <ShowRating rating={props.rating} size='md' />
-      <View className="flex-1 h-1 bg-secondary rounded-full ml-4">
-        <View className="h-1 bg-primary rounded-full" style={{ width: `${props.progress}%` }} />
+    <View className="my-2 w-full flex-row items-center justify-center">
+      <ShowRating rating={props.rating} size="md" />
+      <View className="ml-4 h-1 flex-1 rounded-full bg-secondary">
+        <View className="h-1 rounded-full bg-primary" style={{ width: `${props.progress}%` }} />
       </View>
     </View>
   );

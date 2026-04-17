@@ -1,6 +1,7 @@
+import { Link, router } from 'expo-router';
 import React from 'react';
 import { Image, Pressable, View, Text, ViewStyle, ImageSourcePropType } from 'react-native';
-import { Link, router } from 'expo-router';
+
 import ThemedText from './ThemedText';
 
 type AvatarProps = {
@@ -11,7 +12,7 @@ type AvatarProps = {
   bgColor?: string; // Optional background color
   onPress?: () => void; // Optional onPress for Pressable or Link
   link?: string; // Optional URL for Link
-  className?: string
+  className?: string;
   style?: ViewStyle;
 };
 
@@ -47,14 +48,16 @@ const Avatar: React.FC<AvatarProps> = ({
       .split(' ')
       .map((part) => part[0].toUpperCase())
       .join('');
-    return <ThemedText className=" font-medium text-center">{initials}</ThemedText>;
+    return <ThemedText className=" text-center font-medium">{initials}</ThemedText>;
   };
 
   // Convert the src prop to an appropriate Image source prop
   const getImageSource = (): ImageSourcePropType => {
     if (!src) {
       // Return a transparent 1x1 pixel as fallback instead of null
-      return { uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
+      return {
+        uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      };
     }
 
     // If src is a string (URL), return it as a uri object
@@ -68,14 +71,10 @@ const Avatar: React.FC<AvatarProps> = ({
 
   const avatarContent = (
     <View
-      className={`rounded-full flex-shrink-0 ${bgColor} ${sizeMap[size]} ${borderStyle} items-center justify-center ${className}`}
-      style={style}
-     >
+      className={`flex-shrink-0 rounded-full ${bgColor} ${sizeMap[size]} ${borderStyle} items-center justify-center ${className}`}
+      style={style}>
       {src ? (
-        <Image
-          source={getImageSource()}
-          className="rounded-full w-full h-full object-cover"
-        />
+        <Image source={getImageSource()} className="h-full w-full rounded-full object-cover" />
       ) : (
         renderInitials()
       )}
@@ -86,11 +85,7 @@ const Avatar: React.FC<AvatarProps> = ({
     return <Pressable onPress={() => router.push(link)}>{avatarContent}</Pressable>;
   }
 
-  return onPress ? (
-    <Pressable onPress={onPress}>{avatarContent}</Pressable>
-  ) : (
-    avatarContent
-  );
+  return onPress ? <Pressable onPress={onPress}>{avatarContent}</Pressable> : avatarContent;
 };
 
 export default Avatar;

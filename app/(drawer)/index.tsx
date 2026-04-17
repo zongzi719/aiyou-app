@@ -9,12 +9,10 @@ import {
   Platform,
   ScrollView,
   ImageBackground,
-  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColors } from '@/app/contexts/ThemeColors';
-import { useTheme } from '@/app/contexts/ThemeContext';
 import { ChatInput, SelectedFile } from '@/components/ChatInput';
 import { Conversation, Message, type MessageFile } from '@/components/Conversation';
 import DecisionCoachPickerModal, {
@@ -31,25 +29,25 @@ import {
   ensureDecisionCoachThreads,
   runDecisionTurn,
 } from '@/lib/decisionChatApi';
+import {
+  addKnowledgeStarredAssistantId,
+  loadKnowledgeStarredAssistantIds,
+} from '@/lib/knowledgeStarPersistence';
 import { prependPrivateThreadCache } from '@/lib/listDataCache';
 import {
-  buildMemorySuggestedPrompts,
-  DEFAULT_CHAT_HOME_SUGGESTIONS,
-  mergeChatHomeSuggestionPools,
-  sliceChatHomeSuggestionBatch,
-  type ChatHomeSuggestion,
-} from '@/lib/memorySuggestedPrompts';
+  buildSimpleHomeSuggestionBatch,
+  CHAT_HOME_SIMPLE_ROUNDS,
+} from '@/lib/chatHomeSimplePrompts';
 import {
   createPrivateThread,
   streamPrivateChatRun,
   persistThreadTitleFireForget,
   getPrivateThreadStateMessages,
-  uploadFilesToThread,
+  uploadFilesToThreadFromSelection,
   type UploadedFileInfo,
 } from '@/lib/privateChatApi';
 import { streamMessage, isConfigured, AIMessage } from '@/services/ai';
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
-import { memoryApi } from '@/services/memoryApi';
 import { consumePendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 import DecisionConversation, { type DecisionTurn } from '@/components/DecisionConversation';
 
@@ -95,19 +93,18 @@ const HomeScreen = () => {
   const insets = useSafeAreaInsets();
   const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
   const colors = useThemeColors();
-  const { toggleTheme } = useTheme();
   const scrollViewRef = useRef<ScrollView>(null);
   const privateThreadIdRef = useRef<string | null>(null);
+  /** 清屏或新开对话时递增，用于忽略仍在进行的私人模式流式回调 */
+  const privateUiEpochRef = useRef(0);
   const handleSendMessageRef = useRef<
     (text: string, images?: string[], files?: SelectedFile[]) => Promise<void>
   >(() => Promise.resolve());
   const [messages, setMessages] = useState<Message[]>([]);
+  const [knowledgeStarredIds, setKnowledgeStarredIds] = useState<Set<string>>(() => new Set());
   const [isTyping, setIsTyping] = useState(false);
   const selectedModelRef = useRef<string>('');
   const [homeMode, setHomeMode] = useState<'private' | 'decision'>('private');
-  const [suggestionPool, setSuggestionPool] = useState<ChatHomeSuggestion[]>(
-    DEFAULT_CHAT_HOME_SUGGESTIONS
-  );
   const [suggestionBatchIndex, setSuggestionBatchIndex] = useState(0);
   const [decisionStarted, setDecisionStarted] = useState(false);
   const [coachPickerOpen, setCoachPickerOpen] = useState(false);
@@ -126,10 +123,38 @@ const HomeScreen = () => {
     }
   }, [navigation]);
 
+  const handleClearScreen = useCallback(() => {
+    if (homeMode === 'private') {
+      privateUiEpochRef.current += 1;
+      privateThreadIdRef.current = null;
+      setMessages([]);
+      setIsTyping(false);
+      return;
+    }
+    setDecisionTurns([]);
+    setDecisionStarted(false);
+    setDecisionIsRunning(false);
+  }, [homeMode]);
+
   useEffect(() => {
     getSelectedModelName().then((name) => {
       selectedModelRef.current = name;
     });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadKnowledgeStarredAssistantIds().then((ids) => {
+      if (!cancelled) setKnowledgeStarredIds(ids);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleKnowledgeAssistantStarred = useCallback((assistantMessageId: string) => {
+    setKnowledgeStarredIds((prev) => new Set(prev).add(assistantMessageId));
+    void addKnowledgeStarredAssistantId(assistantMessageId);
   }, []);
   const params = useLocalSearchParams<{
     openThreadId?: string | string[];
@@ -148,11 +173,29 @@ const HomeScreen = () => {
     }, [])
   );
 
+  type PrivateSendOptions = {
+    /** 已有末尾用户消息，仅追加助手回复并请求模型 */
+    regenerate?: boolean;
+    /** 直连模型时构建上下文的「当前用户之前」消息列表 */
+    historyForLocalAi?: Message[];
+  };
+
   const handleSendMessagePrivate = async (
     text: string,
     images?: string[],
-    files?: SelectedFile[]
+    files?: SelectedFile[],
+    opts?: PrivateSendOptions
   ) => {
+    const requestEpoch = privateUiEpochRef.current;
+    const safeSetMessages = (updater: React.SetStateAction<Message[]>) => {
+      if (privateUiEpochRef.current !== requestEpoch) return;
+      setMessages(updater);
+    };
+    const safeSetTyping = (v: boolean) => {
+      if (privateUiEpochRef.current !== requestEpoch) return;
+      setIsTyping(v);
+    };
+
     const hasFiles = files && files.length > 0;
     const messageFiles: MessageFile[] | undefined = hasFiles
       ? files!.map((f) => ({ name: f.name, mimeType: f.mimeType }))
@@ -165,12 +208,14 @@ const HomeScreen = () => {
       files: messageFiles,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+    if (!opts?.regenerate) {
+      safeSetMessages((prev) => [...prev, userMessage]);
+    }
 
     const usePrivateGateway = await hasPrivateChatBackendSession();
 
     if (usePrivateGateway) {
-      setIsTyping(true);
+      safeSetTyping(true);
       const assistantId = (Date.now() + 1).toString();
       const assistantMessage: Message = {
         id: assistantId,
@@ -181,8 +226,8 @@ const HomeScreen = () => {
       };
 
       try {
-        setIsTyping(false);
-        setMessages((prev) => [...prev, assistantMessage]);
+        safeSetTyping(false);
+        safeSetMessages((prev) => [...prev, assistantMessage]);
 
         let threadId = privateThreadIdRef.current;
         if (!threadId) {
@@ -199,19 +244,22 @@ const HomeScreen = () => {
         let uploadedFileInfos: UploadedFileInfo[] | undefined;
         if (hasFiles) {
           try {
-            const uploaded: UploadedFileInfo[] = await uploadFilesToThread(threadId, files!);
+            const uploaded: UploadedFileInfo[] = await uploadFilesToThreadFromSelection(
+              threadId,
+              files!
+            );
             if (uploaded.length === 0) {
               throw new Error('文件上传成功但未返回路径，请重试');
             }
             uploadedFileInfos = uploaded;
           } catch (uploadErr) {
             const errMsg = uploadErr instanceof Error ? uploadErr.message : '文件上传失败';
-            setMessages((prev) =>
+            safeSetMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId ? { ...m, content: errMsg, isStreaming: false } : m
               )
             );
-            setIsTyping(false);
+            safeSetTyping(false);
             return;
           }
         }
@@ -228,18 +276,19 @@ const HomeScreen = () => {
           images,
           {
             onAssistantText: (full) => {
-              setMessages((prev) =>
+              safeSetMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId ? { ...m, content: full, thinkingStep: undefined } : m
                 )
               );
             },
             onThinkingStep: (step) => {
-              setMessages((prev) =>
+              safeSetMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, thinkingStep: step } : m))
               );
             },
             onTitleDetected: (title) => {
+              if (privateUiEpochRef.current !== requestEpoch) return;
               if (privateThreadIdRef.current) {
                 persistThreadTitleFireForget(privateThreadIdRef.current, title);
               }
@@ -252,7 +301,7 @@ const HomeScreen = () => {
         );
 
         if (sseErrorMsg) {
-          setMessages((prev) =>
+          safeSetMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
                 ? { ...m, content: sseErrorMsg as string, isStreaming: false }
@@ -260,17 +309,17 @@ const HomeScreen = () => {
             )
           );
         } else {
-          setMessages((prev) =>
+          safeSetMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, isStreaming: false, thinkingStep: undefined } : m
             )
           );
         }
       } catch (error) {
-        setIsTyping(false);
+        safeSetTyping(false);
         const raw = error instanceof Error ? error.message : '请求失败，请稍后重试';
         const msg = friendlyError(raw);
-        setMessages((prev) => {
+        safeSetMessages((prev) => {
           const filtered = prev.filter((m) => m.id !== assistantId);
           return [
             ...filtered,
@@ -288,10 +337,10 @@ const HomeScreen = () => {
 
     // Check if AI is configured
     if (!isConfigured()) {
-      // Show mock response if no API key
-      setIsTyping(true);
+      safeSetTyping(true);
       setTimeout(() => {
-        setIsTyping(false);
+        if (privateUiEpochRef.current !== requestEpoch) return;
+        safeSetTyping(false);
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           type: 'assistant',
@@ -299,13 +348,13 @@ const HomeScreen = () => {
             'To get real AI responses, add your API key to the .env file. Luna supports OpenAI (ChatGPT), Google Gemini, and Anthropic Claude.\n\nCopy .env.example to .env and add your key to get started!',
           timestamp: new Date(),
         };
-        setMessages((prev) => [...prev, assistantMessage]);
+        safeSetMessages((prev) => [...prev, assistantMessage]);
       }, 1000);
       return;
     }
 
     // Show typing indicator
-    setIsTyping(true);
+    safeSetTyping(true);
 
     // Create assistant message for streaming
     const assistantId = (Date.now() + 1).toString();
@@ -317,9 +366,9 @@ const HomeScreen = () => {
       isStreaming: true,
     };
 
-    // Build conversation history for context
+    const historyBase = opts?.historyForLocalAi ?? messages;
     const aiMessages: AIMessage[] = [
-      ...messages.map((m) => ({
+      ...historyBase.map((m) => ({
         role: m.type as 'user' | 'assistant',
         content: m.content,
       })),
@@ -327,35 +376,57 @@ const HomeScreen = () => {
     ];
 
     try {
-      setIsTyping(false);
-      setMessages((prev) => [...prev, assistantMessage]);
+      safeSetTyping(false);
+      safeSetMessages((prev) => [...prev, assistantMessage]);
 
       // Stream the response
       await streamMessage(aiMessages, (chunk) => {
-        setMessages((prev) =>
+        safeSetMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + chunk } : m))
         );
       });
 
       // Mark streaming as complete
-      setMessages((prev) =>
+      safeSetMessages((prev) =>
         prev.map((m) => (m.id === assistantId ? { ...m, isStreaming: false } : m))
       );
     } catch (error) {
-      setIsTyping(false);
+      safeSetTyping(false);
       const errorMessage: Message = {
         id: (Date.now() + 2).toString(),
         type: 'assistant',
         content: `Error: ${error instanceof Error ? error.message : 'Something went wrong'}`,
         timestamp: new Date(),
       };
-      setMessages((prev) => {
+      safeSetMessages((prev) => {
         // Remove the empty streaming message if it exists
         const filtered = prev.filter((m) => m.id !== assistantId || m.content !== '');
         return [...filtered, errorMessage];
       });
     }
   };
+
+  const handleSendMessagePrivateRef = useRef(handleSendMessagePrivate);
+  handleSendMessagePrivateRef.current = handleSendMessagePrivate;
+
+  const handleRegenerateAssistant = useCallback((assistantMessageId: string) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === assistantMessageId);
+      if (idx <= 0) return prev;
+      const u = prev[idx - 1];
+      if (u.type !== 'user') return prev;
+      const historyForLocalAi = prev.slice(0, idx - 1);
+      Promise.resolve()
+        .then(() =>
+          handleSendMessagePrivateRef.current(u.content, u.images, undefined, {
+            regenerate: true,
+            historyForLocalAi,
+          })
+        )
+        .catch(() => {});
+      return prev.slice(0, idx);
+    });
+  }, []);
 
   const handleSendMessageDecision = async (
     text: string,
@@ -499,6 +570,7 @@ const HomeScreen = () => {
         return;
       }
       if (newChatParam === '1') {
+        privateUiEpochRef.current += 1;
         privateThreadIdRef.current = null;
         setMessages([]);
         setDecisionTurns([]);
@@ -519,33 +591,14 @@ const HomeScreen = () => {
   const hasDecisionMessages = decisionTurns.length > 0;
 
   useEffect(() => {
-    if (hasMessages) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const memories = await memoryApi.getMemories();
-        if (cancelled) return;
-        const merged = mergeChatHomeSuggestionPools(buildMemorySuggestedPrompts(memories));
-        setSuggestionPool(merged);
-      } catch {
-        if (!cancelled) setSuggestionPool([...DEFAULT_CHAT_HOME_SUGGESTIONS]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!hasMessages) setSuggestionBatchIndex(0);
   }, [hasMessages]);
 
-  useEffect(() => {
-    setSuggestionBatchIndex(0);
-  }, [suggestionPool]);
-
   const visibleSuggestions = useMemo(
-    () => sliceChatHomeSuggestionBatch(suggestionPool, suggestionBatchIndex, 4),
-    [suggestionPool, suggestionBatchIndex]
+    () => buildSimpleHomeSuggestionBatch(suggestionBatchIndex),
+    [suggestionBatchIndex]
   );
-  const shouldShowChatInput =
-    homeMode === 'private' || decisionStarted || hasDecisionMessages;
+  const shouldShowChatInput = homeMode === 'private' || decisionStarted || hasDecisionMessages;
 
   return (
     <ImageBackground
@@ -598,32 +651,25 @@ const HomeScreen = () => {
                   </Pressable>
                 </View>
 
-                {homeMode === 'decision' ? (
-                  <Pressable
-                    onPress={() => setCoachPickerOpen(true)}
-                    className="h-10 w-10 items-end justify-center"
-                    accessibilityRole="button"
-                    accessibilityLabel="编辑教练">
-                    <Icon name="Pencil" size={22} color="rgba(255,255,255,0.92)" />
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    onPress={toggleTheme}
-                    className="h-10 w-10 items-end justify-center"
-                    accessibilityRole="button"
-                    accessibilityLabel="切换白天黑夜模式">
-                    <Image
-                      source={require('@/assets/images/theme-mode-icon.png')}
-                      className="h-6 w-6"
-                      resizeMode="contain"
-                    />
-                  </Pressable>
-                )}
+                <Pressable
+                  onPress={handleClearScreen}
+                  className="h-10 w-10 items-end justify-center"
+                  accessibilityRole="button"
+                  accessibilityLabel="清屏">
+                  <Icon name="Paintbrush" size={22} color="rgba(255,255,255,0.92)" />
+                </Pressable>
               </View>
 
               {homeMode === 'private' ? (
                 hasMessages ? (
-                  <Conversation messages={messages} isTyping={isTyping} />
+                  <Conversation
+                    messages={messages}
+                    isTyping={isTyping}
+                    combineTurnsInFrame
+                    onRegenerateAssistant={handleRegenerateAssistant}
+                    knowledgeStarredAssistantIds={knowledgeStarredIds}
+                    onKnowledgeAssistantStarred={handleKnowledgeAssistantStarred}
+                  />
                 ) : (
                   <ScrollView
                     ref={scrollViewRef}
@@ -644,21 +690,24 @@ const HomeScreen = () => {
                       </ThemedText>
 
                       <View className="mt-12">
-                        <ThemedText className="text-white/85 mb-2 text-[16px] leading-[22px]">
+                        <ThemedText className="mb-2 text-[16px] leading-[22px] text-white">
                           试试问我：
                         </ThemedText>
                         <View className="gap-y-1.5">
                           {visibleSuggestions.map((s, idx) => (
                             <TipCard
-                              key={`${suggestionBatchIndex}-${idx}-${s.prompt.slice(0, 24)}`}
+                              key={`${suggestionBatchIndex}-${idx}-${s.prompt}`}
                               title={s.prompt}
+                              categoryLabel={s.categoryLabel}
                               icon={s.icon}
                               onPress={() => void handleSendMessage(s.prompt)}
                             />
                           ))}
                         </View>
                         <Pressable
-                          onPress={() => setSuggestionBatchIndex((i) => i + 1)}
+                          onPress={() =>
+                            setSuggestionBatchIndex((i) => (i + 1) % CHAT_HOME_SIMPLE_ROUNDS)
+                          }
                           className="mt-2 flex-row items-center gap-1 self-start"
                           accessibilityRole="button"
                           accessibilityLabel="换一批常见问题">
@@ -686,6 +735,7 @@ const HomeScreen = () => {
                     setCoachEnabledMap((prev) => ({ ...prev, [coachId]: enabled }))
                   }
                   isRunning={decisionIsRunning}
+                  onOpenCoachPicker={() => setCoachPickerOpen(true)}
                 />
               ) : (
                 <DecisionWelcome
@@ -697,7 +747,9 @@ const HomeScreen = () => {
                   reserveInputSpace={false}
                 />
               )}
-              {shouldShowChatInput ? <ChatInput onSendMessage={handleSendMessage} variant="home" /> : null}
+              {shouldShowChatInput ? (
+                <ChatInput onSendMessage={handleSendMessage} variant="home" />
+              ) : null}
             </View>
           </KeyboardAvoidingView>
         </LinearGradient>
@@ -726,10 +778,12 @@ const HomeScreen = () => {
 
 const TipCard = ({
   title,
-  icon,
+  categoryLabel,
+  icon: _icon,
   onPress,
 }: {
   title: string;
+  categoryLabel?: string;
   icon: IconName;
   onPress: () => void;
 }) => {
@@ -738,6 +792,9 @@ const TipCard = ({
       onPress={onPress}
       className="self-start rounded-full border border-white/60 bg-transparent px-3.5 py-1">
       <ThemedText className="text-[12px] text-white/90" numberOfLines={1}>
+        {categoryLabel ? (
+          <ThemedText className="text-[11px] text-white/55">{categoryLabel} · </ThemedText>
+        ) : null}
         {title}
       </ThemedText>
     </Pressable>

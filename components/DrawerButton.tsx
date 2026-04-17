@@ -1,9 +1,10 @@
+import { DrawerActions, useNavigation, NavigationProp } from '@react-navigation/native';
+import { useThemeColors } from 'app/contexts/ThemeColors';
 import React from 'react';
 import { Pressable, View, ViewStyle } from 'react-native';
-import Icon from './Icon';
+
 import Avatar from './Avatar';
-import { useThemeColors } from 'app/contexts/ThemeColors';
-import { DrawerActions, useNavigation, NavigationProp } from '@react-navigation/native';
+import Icon from './Icon';
 
 interface DrawerButtonProps {
   size?: 'sm' | 'md' | 'lg';
@@ -40,13 +41,9 @@ export default function DrawerButton({
       <Pressable
         onPress={handlePress}
         style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-        className='rounded-full bg-background border border-border p-3'
-      >
+        className="rounded-full border border-border bg-background p-3">
         {isAvatar ? (
-          <Avatar
-            src="https://mighty.tools/mockmind-api/content/human/5.jpg"
-            size="xs"
-          />
+          <Avatar src="https://mighty.tools/mockmind-api/content/human/5.jpg" size="xs" />
         ) : (
           <Icon name="Menu" size={sizeMap[size]} color={colors.text} />
         )}

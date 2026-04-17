@@ -1,13 +1,13 @@
+import { usePathname } from 'expo-router';
 import React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { usePathname } from 'expo-router';
 
 export default function SafeWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const bypassRoutes = [
     // '/screens/onboarding-start',
-     '/modal',
+    '/modal',
     // '/fullscreen',
     // //'/(drawer)/(tabs)/index',
   ];
@@ -15,10 +15,7 @@ export default function SafeWrapper({ children }: { children: React.ReactNode })
   const shouldBypass = bypassRoutes.includes(pathname);
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-background"
-      edges={shouldBypass ? [] : undefined}
-    >
+    <SafeAreaView className="flex-1 bg-background" edges={shouldBypass ? [] : undefined}>
       {children}
     </SafeAreaView>
   );

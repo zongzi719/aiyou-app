@@ -1,93 +1,60 @@
 import { router } from 'expo-router';
-import LottieView from 'lottie-react-native';
-import React, { useState, useRef } from 'react';
-import { View, Text, FlatList, Dimensions, Pressable, SafeAreaView } from 'react-native';
+import React, { useState } from 'react';
+import { ImageBackground, Pressable, SafeAreaView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import ThemeToggle from '@/components/ThemeToggle';
 import ThemedText from '@/components/ThemedText';
 
-const { width } = Dimensions.get('window');
-const windowWidth = Dimensions.get('window').width;
-
-const slides = [
-  {
-    id: '1',
-    title: 'AI You',
-    image: require('@/assets/lottie/sphere.json'),
-    description: 'Your personal assistant',
-  },
-  {
-    id: '2',
-    title: 'Voice assistant',
-    image: require('@/assets/lottie/waves.json'),
-    description: 'Your personal assistant',
-  },
-  {
-    id: '3',
-    title: 'Customizable & Fast',
-    image: require('@/assets/lottie/waves.json'),
-    description: 'Easily modify themes and layouts.',
-  },
-];
-
 export default function OnboardingScreen() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const flatListRef = useRef(null);
+  const [agreed, setAgreed] = useState(true);
   const insets = useSafeAreaInsets();
-  const handleScroll = (event: { nativeEvent: { contentOffset: { x: number } } }) => {
-    const index = Math.round(event.nativeEvent.contentOffset.x / width);
-    setCurrentIndex(index);
-  };
 
   return (
-    <SafeAreaView className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
-      <View className="relative flex-1 bg-background">
-        <View className="w-full items-end justify-end pr-6 pt-6">
-          <ThemeToggle />
-        </View>
-        <FlatList
-          ref={flatListRef}
-          data={slides}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onScroll={handleScroll}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          snapToInterval={windowWidth}
-          renderItem={({ item }) => (
-            <View style={{ width: windowWidth }} className="items-center justify-center p-6">
-              <LottieView
-                source={item.image}
-                autoPlay
-                loop
-                style={{ width: windowWidth, height: 300 }}
-              />
-              <ThemedText className="mt-4 font-outfit-bold text-2xl">{item.title}</ThemedText>
-              <Text className="mt-2 text-center text-subtext">{item.description}</Text>
+    <SafeAreaView className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
+      <View className="flex-1 bg-black">
+        <ImageBackground
+          source={{
+            uri: 'file:///Users/ZHOU/.cursor/projects/Users-ZHOU-Desktop-project-luna-main/assets/image-4bddf3a2-33fa-4565-9b38-8e6f8b02b5a4.png',
+          }}
+          resizeMode="cover"
+          className="flex-1">
+          <View className="bg-black/15 flex-1 px-8">
+            <View className="items-center" style={{ marginTop: 96 }}>
+              <ThemedText className="font-outfit text-3xl tracking-widest text-white">
+                AI YOU
+              </ThemedText>
+              <ThemedText className="mt-3 text-base text-white">
+                “你的思维，从此多一个你”
+              </ThemedText>
             </View>
-          )}
-          ListFooterComponent={() => <View className="h-28 w-full" />}
-          keyExtractor={(item) => item.id}
-        />
 
-        <View className="mb-20 w-full flex-row justify-center">
-          {slides.map((_, index) => (
-            <View
-              key={index}
-              className={`mx-1 h-2 rounded-full ${index === currentIndex ? 'w-2 bg-highlight' : 'w-2 bg-secondary'}`}
-            />
-          ))}
-        </View>
+            <View className="flex-1" />
 
-        <View className="mb-global w-full flex-col space-y-2 px-6">
-          <Pressable
-            onPress={() => router.push('/screens/login')}
-            className="w-full flex-row items-center justify-center rounded-full bg-text py-4">
-            <ThemedText className="text-sm !text-invert">账号登录</ThemedText>
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={() => {
+                if (!agreed) return;
+                router.push('/screens/login');
+              }}
+              className={`items-center rounded-full py-4 ${agreed ? 'bg-white' : 'bg-white/70'}`}>
+              <ThemedText style={{ color: '#111111' }} className="text-xl font-medium">
+                账号登录
+              </ThemedText>
+            </Pressable>
+
+            <Pressable
+              className="mb-4 mt-5 flex-row items-center justify-center"
+              onPress={() => setAgreed((v) => !v)}>
+              <View
+                className={`mr-2 h-3.5 w-3.5 rounded-full border ${
+                  agreed ? 'border-white bg-white' : 'border-white/80 bg-transparent'
+                }`}
+              />
+              <ThemedText className="text-[13px] text-white/90">
+                我已阅读并同意《用户协议》和《隐私政策》
+              </ThemedText>
+            </Pressable>
+          </View>
+        </ImageBackground>
       </View>
     </SafeAreaView>
   );

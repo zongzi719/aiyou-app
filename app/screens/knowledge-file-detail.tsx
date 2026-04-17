@@ -1,3 +1,5 @@
+import { router, useLocalSearchParams } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
@@ -9,23 +11,23 @@ import {
   Image,
   RefreshControl,
 } from 'react-native';
-import * as Sharing from 'expo-sharing';
-import { router, useLocalSearchParams } from 'expo-router';
-import Header from '@/components/Header';
-import ThemedText from '@/components/ThemedText';
-import Icon from '@/components/Icon';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
+import Header from '@/components/Header';
+import Icon from '@/components/Icon';
+import ThemedText from '@/components/ThemedText';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 import {
   knowledgeApi,
   KnowledgeChunk,
   KnowledgeFile,
+  displayKnowledgeFilename,
   formatFileSize,
   formatDate,
   getMimeLabel,
   getMimeColor,
   normalizeKnowledgeFileStatus,
 } from '@/services/knowledgeApi';
-import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
 
 const MD_IMG = /!\[[^\]]*\]\((data:image\/[a-z0-9+.-]+;base64,[^)]+)\)/gi;
 
@@ -41,9 +43,9 @@ function ChunkContent({ content }: { content: string }) {
       const t = text.slice(last, m.index);
       if (t) {
         parts.push(
-          <ThemedText key={`t-${k++}`} className="text-sm text-primary leading-6">
+          <ThemedText key={`t-${k++}`} className="text-sm leading-6 text-primary">
             {t}
-          </ThemedText>,
+          </ThemedText>
         );
       }
     }
@@ -51,10 +53,10 @@ function ChunkContent({ content }: { content: string }) {
       <Image
         key={`i-${k++}`}
         source={{ uri: m[1] }}
-        className="w-full my-2 rounded-lg bg-secondary"
+        className="my-2 w-full rounded-lg bg-secondary"
         style={{ minHeight: 120, maxHeight: 320 }}
         resizeMode="contain"
-      />,
+      />
     );
     last = m.index + m[0].length;
   }
@@ -62,9 +64,9 @@ function ChunkContent({ content }: { content: string }) {
     const t = text.slice(last);
     if (t) {
       parts.push(
-        <ThemedText key={`t-${k++}`} className="text-sm text-primary leading-6">
+        <ThemedText key={`t-${k++}`} className="text-sm leading-6 text-primary">
           {t}
-        </ThemedText>,
+        </ThemedText>
       );
     }
   }
@@ -83,7 +85,7 @@ function parseParams(p: Record<string, string | string[] | undefined>): Knowledg
   const fid = g('folder_id');
   return {
     id: fileId,
-    filename: g('filename') || '未命名',
+    filename: displayKnowledgeFilename(g('filename') || '未命名'),
     mime_type: g('mime_type') || 'application/octet-stream',
     file_size: Number(g('file_size')) || 0,
     folder_id: fid ? fid : null,
@@ -127,7 +129,7 @@ export default function KnowledgeFileDetailScreen() {
         const s = await knowledgeApi.getFileStatus(file.id);
         if (cancelled) return;
         setFile((prev) =>
-          prev && prev.id === file.id ? { ...prev, status: s.status, progress: s.progress } : prev,
+          prev && prev.id === file.id ? { ...prev, status: s.status, progress: s.progress } : prev
         );
       } catch {
         /* 保留路由参数中的状态 */
@@ -185,7 +187,7 @@ export default function KnowledgeFileDetailScreen() {
         setChunksRefreshing(false);
       }
     },
-    [file?.id, file?.status],
+    [file?.id, file?.status]
   );
 
   useEffect(() => {
@@ -274,7 +276,7 @@ export default function KnowledgeFileDetailScreen() {
 
   if (!file) {
     return (
-      <View className="flex-1 bg-background items-center justify-center">
+      <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator color={colors.icon} />
       </View>
     );
@@ -293,25 +295,24 @@ export default function KnowledgeFileDetailScreen() {
           : '处理失败';
 
   const headerBlock = (
-    <View className="px-4 pt-2 pb-4">
+    <View className="px-4 pb-4 pt-2">
       <View className="flex-row items-start">
         <View
           style={{ backgroundColor: color }}
-          className="w-12 h-12 rounded-xl items-center justify-center mr-3"
-        >
+          className="mr-3 h-12 w-12 items-center justify-center rounded-xl">
           <ThemedText className="text-xs font-bold text-white">{label}</ThemedText>
         </View>
-        <View className="flex-1 min-w-0">
+        <View className="min-w-0 flex-1">
           <ThemedText className="text-base font-semibold text-primary" numberOfLines={2}>
             {file.filename}
           </ThemedText>
-          <ThemedText className="text-xs text-subtext mt-1">
+          <ThemedText className="mt-1 text-xs text-subtext">
             {label} · {formatFileSize(file.file_size)} · {formatDate(file.created_at)}
           </ThemedText>
         </View>
       </View>
 
-      <View className="flex-row items-center justify-between mt-4 py-3 border-t border-border">
+      <View className="mt-4 flex-row items-center justify-between border-t border-border py-3">
         <View className="flex-row items-center gap-2">
           <ThemedText className="text-sm text-subtext">状态</ThemedText>
           {file.status === 'done' ? (
@@ -324,19 +325,23 @@ export default function KnowledgeFileDetailScreen() {
           <ThemedText className="text-sm text-primary">{statusLabel}</ThemedText>
         </View>
         <ThemedText className="text-sm text-subtext">
-          {file.chunk_count > 0 ? `${file.chunk_count} 个分块` : chunksTotal > 0 ? `${chunksTotal} 个分块` : ''}
+          {file.chunk_count > 0
+            ? `${file.chunk_count} 个分块`
+            : chunksTotal > 0
+              ? `${chunksTotal} 个分块`
+              : ''}
         </ThemedText>
       </View>
 
       {file.status === 'processing' && (
         <View className="mt-2">
-          <View className="flex-row justify-between mb-1">
+          <View className="mb-1 flex-row justify-between">
             <ThemedText className="text-xs text-subtext">解析与向量化…</ThemedText>
             <ThemedText className="text-xs text-subtext">
               {Math.round((file.progress ?? 0) * 100)}%
             </ThemedText>
           </View>
-          <View className="h-1 bg-border rounded-full overflow-hidden">
+          <View className="h-1 overflow-hidden rounded-full bg-border">
             <View
               className="h-1 rounded-full bg-primary"
               style={{ width: `${Math.round((file.progress ?? 0) * 100)}%` }}
@@ -346,34 +351,31 @@ export default function KnowledgeFileDetailScreen() {
       )}
 
       {file.status === 'error' && (
-        <View className="mt-3 flex-row items-center flex-wrap gap-2">
+        <View className="mt-3 flex-row flex-wrap items-center gap-2">
           <Icon name="AlertCircle" size={16} color="#E53935" />
           <ThemedText className="text-xs" style={{ color: '#E53935' }}>
             处理失败，可尝试重新处理
           </ThemedText>
           <TouchableOpacity
             onPress={() => void handleReindex()}
-            className="bg-secondary rounded-lg px-3 py-1.5"
-          >
+            className="rounded-lg bg-secondary px-3 py-1.5">
             <ThemedText className="text-xs text-primary">重新处理</ThemedText>
           </TouchableOpacity>
         </View>
       )}
 
       {file.status === 'done' && (
-        <ThemedText className="text-sm font-semibold text-primary mt-4 mb-2">
+        <ThemedText className="mb-2 mt-4 text-sm font-semibold text-primary">
           共 {chunksTotal || file.chunk_count} 个分块
         </ThemedText>
       )}
 
       {file.status !== 'done' && file.status !== 'error' && (
-        <ThemedText className="text-xs text-subtext mt-3">
-          处理完成后可查看 RAG 分块内容
-        </ThemedText>
+        <ThemedText className="mt-3 text-xs text-subtext">处理完成后可查看 RAG 分块内容</ThemedText>
       )}
 
       {chunksError && file.status === 'done' && (
-        <ThemedText className="text-sm text-red-500 mt-2">{chunksError}</ThemedText>
+        <ThemedText className="mt-2 text-sm text-red-500">{chunksError}</ThemedText>
       )}
     </View>
   );
@@ -382,9 +384,9 @@ export default function KnowledgeFileDetailScreen() {
     const displayIndex = item.index + 1;
     const charCount = [...(item.content ?? '')].length;
     return (
-      <View className="mx-4 mb-3 p-3 rounded-2xl border border-border bg-secondary/50">
-        <View className="flex-row items-center justify-between mb-2">
-          <View className="bg-background px-2 py-0.5 rounded-md border border-border">
+      <View className="bg-secondary/50 mx-4 mb-3 rounded-2xl border border-border p-3">
+        <View className="mb-2 flex-row items-center justify-between">
+          <View className="rounded-md border border-border bg-background px-2 py-0.5">
             <ThemedText className="text-xs text-subtext">#{displayIndex}</ThemedText>
           </View>
           <ThemedText className="text-xs text-subtext">
@@ -408,8 +410,7 @@ export default function KnowledgeFileDetailScreen() {
             onPress={openMenu}
             disabled={downloading}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            className={downloading ? 'opacity-40' : ''}
-          >
+            className={downloading ? 'opacity-40' : ''}>
             {downloading ? (
               <ActivityIndicator size="small" color={colors.icon} />
             ) : (
@@ -427,7 +428,11 @@ export default function KnowledgeFileDetailScreen() {
           ListHeaderComponent={headerBlock}
           contentContainerStyle={{ paddingBottom: listBottomPad }}
           refreshControl={
-            <RefreshControl refreshing={chunksRefreshing} onRefresh={onRefreshChunks} tintColor={colors.icon} />
+            <RefreshControl
+              refreshing={chunksRefreshing}
+              onRefresh={onRefreshChunks}
+              tintColor={colors.icon}
+            />
           }
           onEndReached={loadMoreChunks}
           onEndReachedThreshold={0.3}
@@ -438,12 +443,12 @@ export default function KnowledgeFileDetailScreen() {
           }
           ListEmptyComponent={
             loadingChunks ? (
-              <View className="py-12 items-center">
+              <View className="items-center py-12">
                 <ActivityIndicator color={colors.icon} />
               </View>
             ) : (
-              <View className="py-8 px-4">
-                <ThemedText className="text-sm text-subtext text-center">暂无分块数据</ThemedText>
+              <View className="px-4 py-8">
+                <ThemedText className="text-center text-sm text-subtext">暂无分块数据</ThemedText>
               </View>
             )
           }
@@ -452,8 +457,7 @@ export default function KnowledgeFileDetailScreen() {
         <ScrollView
           className="flex-1"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: listBottomPad }}
-        >
+          contentContainerStyle={{ paddingBottom: listBottomPad }}>
           {headerBlock}
         </ScrollView>
       )}

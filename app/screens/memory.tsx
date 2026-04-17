@@ -1,5 +1,5 @@
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import React, { useState, useCallback, useEffect } from 'react';
+import { useFocusEffect, useLocalSearchParams, router } from 'expo-router';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -9,13 +9,17 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import useThemeColors from '@/app/contexts/ThemeColors';
+import Avatar from '@/components/Avatar';
 import { Chip } from '@/components/Chip';
-import Header from '@/components/Header';
 import Icon, { IconName } from '@/components/Icon';
+import MemoryTuneModal from '@/components/MemoryTuneModal';
 import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
+import { countPrivateThreads } from '@/lib/privateChatApi';
 import {
   peekMemoryMemories,
   putMemoryMemories,
@@ -35,7 +39,6 @@ import {
   type Schedule,
   updateScheduleTask,
 } from '@/lib/notesApi';
-import { safeRouterBackOrHome } from '@/lib/safeRouterBack';
 import {
   memoryApi,
   UserMemory,
@@ -50,14 +53,257 @@ import {
   confidenceLabel,
   resolveMemoryTime,
 } from '@/services/memoryApi';
+import {
+  fetchProfile,
+  bustAvatarCache,
+  resolveProfileDisplayTagPills,
+  formatAiLearningDataLine,
+} from '@/services/profileApi';
+import { knowledgeApi, type KnowledgeFile } from '@/services/knowledgeApi';
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
 type TabKey = '灵感笔记' | '用户记忆' | '历史文档';
 const TABS: TabKey[] = ['灵感笔记', '用户记忆', '历史文档'];
 type NotesTabKey = '灵感笔记' | '日程安排';
+type TopPageKey = 'aiCeo' | 'memory';
 
 const NOTES_TABS: NotesTabKey[] = ['灵感笔记', '日程安排'];
+
+const AI_CEO_PROFILE = {
+  level: 3,
+  nextLevelMins: 30,
+  match: 65,
+  mbti: 'ENTJ',
+  strengths: ['产品经验', '数据导向', '战略型思维'],
+  dimensions: [
+    { label: '认知模型', value: 70 },
+    { label: '语言风格', value: 76 },
+    { label: '决策逻辑', value: 69 },
+    { label: '战略方法', value: 85 },
+  ],
+  insight:
+    '以提高组织执行力。我会优先考虑核心岗位的能力匹配和关键流程的效率。我比较关注跨部门协作与信息共享，以保证战略目标能够顺利落实。',
+};
+
+interface TopSwitchProps {
+  activePage: TopPageKey;
+  onChange: (page: TopPageKey) => void;
+  topInset: number;
+  onTunePress: () => void;
+  onInitModelPress?: () => void;
+}
+
+const TopSwitch = ({
+  activePage,
+  onChange,
+  topInset,
+  onTunePress,
+  onInitModelPress,
+}: TopSwitchProps) => {
+  const labels: { key: TopPageKey; label: string }[] = [
+    { key: 'aiCeo', label: 'AI CEO' },
+    { key: 'memory', label: '记忆库' },
+  ];
+
+  return (
+    <View
+      className="mb-4 flex-row items-center justify-between px-global"
+      style={{ paddingTop: topInset + 8 }}>
+      <View className="flex-row items-center gap-4">
+        {labels.map((item) => {
+          const isActive = item.key === activePage;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              onPress={() => onChange(item.key)}
+              activeOpacity={0.8}
+              className="pb-1">
+              <ThemedText
+                className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-subtext'}`}>
+                {item.label}
+              </ThemedText>
+              {isActive ? <View className="mt-1 h-0.5 rounded-full bg-primary" /> : null}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <View className="flex-row items-center gap-2">
+        {activePage === 'memory' && onInitModelPress ? (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            className="rounded-full border border-[#B98C44]/60 bg-[#081A33] px-3 py-1.5"
+            onPress={onInitModelPress}>
+            <ThemedText className="text-xs font-semibold text-[#F5DCA8]">初始化模型</ThemedText>
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity
+          activeOpacity={0.85}
+          className="rounded-full bg-secondary px-3 py-1.5"
+          onPress={onTunePress}>
+          <ThemedText className="text-xs font-semibold text-primary">记忆微调</ThemedText>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
+
+const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
+  const [profile, setProfile] = useState(() => peekProfileCache());
+  const [learningStats, setLearningStats] = useState<{ docs: number; convs: number } | null>(null);
+  const score = AI_CEO_PROFILE.dimensions;
+
+  const tagPills = useMemo(() => resolveProfileDisplayTagPills(profile?.tags), [profile?.tags]);
+  const displayName = profile?.display_name || profile?.username || '用户';
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const cached = peekProfileCache();
+      if (cached) setProfile(cached);
+      fetchProfile()
+        .then((p) => {
+          if (!cancelled) {
+            putProfileCache(p);
+            setProfile(p);
+          }
+        })
+        .catch(() => {});
+
+      void (async () => {
+        try {
+          const [fileRes, convs] = await Promise.all([
+            knowledgeApi.getFiles().catch(() => ({ files: [] as KnowledgeFile[], total: 0 })),
+            countPrivateThreads().catch(() => 0),
+          ]);
+          const docs =
+            typeof fileRes.total === 'number' && fileRes.total > 0
+              ? fileRes.total
+              : fileRes.files.length;
+          if (!cancelled) setLearningStats({ docs, convs });
+        } catch {
+          if (!cancelled) setLearningStats({ docs: 0, convs: 0 });
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
+
+  return (
+    <ScrollView
+      className="flex-1"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: contentBottomPad }}>
+      <View className="mx-global mb-4 rounded-3xl border border-[#B98C44] bg-[#081A33] p-4">
+        <View className="flex-row items-start gap-4">
+          <Avatar
+            src={
+              profile?.avatar_url
+                ? bustAvatarCache(profile.avatar_url)
+                : require('@/assets/img/thomino.jpg')
+            }
+            size="xl"
+          />
+          <View className="flex-1 pt-0.5">
+            <ThemedText className="text-2xl font-bold tracking-wide text-white">
+              {displayName}
+            </ThemedText>
+            <View className="mt-2 flex-row flex-wrap gap-2">
+              {tagPills.map((tag) => (
+                <View
+                  key={tag}
+                  className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5">
+                  <ThemedText className="text-xs text-white/75">{tag}</ThemedText>
+                </View>
+              ))}
+            </View>
+            <ThemedText className="mt-2 text-xs leading-5 text-white/60">
+              {learningStats
+                ? formatAiLearningDataLine(learningStats.docs, learningStats.convs)
+                : '加载中…'}
+            </ThemedText>
+          </View>
+        </View>
+
+        <View className="mt-4 rounded-2xl border border-[#B98C44] bg-black/30 p-3">
+          <View className="mb-2 flex-row items-center justify-between">
+            <ThemedText className="text-sm font-semibold text-[#F5DCA8]">对齐率</ThemedText>
+            <ThemedText className="text-2xl font-bold text-[#F5DCA8]">
+              Lv.{AI_CEO_PROFILE.level}
+            </ThemedText>
+          </View>
+          <View className="mb-2 h-2 overflow-hidden rounded-full bg-white/20">
+            <View className="h-full rounded-full bg-[#B98C44]" style={{ width: '65%' }} />
+          </View>
+          <View className="mb-2 flex-row items-center justify-between">
+            <ThemedText className="text-xs text-[#D4D9E5]">
+              预计再互动{AI_CEO_PROFILE.nextLevelMins}分钟可升至下一等级
+            </ThemedText>
+          </View>
+          <View className="flex-row items-center justify-between border-t border-[#B98C44]/40 pt-2">
+            <ThemedText className="text-sm text-[#D4D9E5]">模型匹配度</ThemedText>
+            <ThemedText className="text-xl font-bold text-[#F5DCA8]">
+              {AI_CEO_PROFILE.match}%
+            </ThemedText>
+          </View>
+          <View className="mt-1 flex-row items-center justify-between">
+            <ThemedText className="text-sm text-[#D4D9E5]">MBTI</ThemedText>
+            <ThemedText className="text-xl font-bold text-[#F5DCA8]">
+              {AI_CEO_PROFILE.mbti}
+            </ThemedText>
+          </View>
+          <View className="mt-3 flex-row border-t border-[#B98C44]/40 pt-3">
+            {AI_CEO_PROFILE.strengths.map((item) => (
+              <View key={item} className="flex-1 items-center">
+                <ThemedText className="text-[11px] text-[#8A97AF]">核心关注</ThemedText>
+                <ThemedText className="mt-1 text-sm font-semibold text-white">{item}</ThemedText>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <View className="mx-global mb-4 rounded-3xl bg-secondary p-4">
+        <View className="mb-3 flex-row gap-5">
+          <ThemedText className="border-b border-primary pb-1 text-base font-semibold text-primary">
+            认知模型
+          </ThemedText>
+          <ThemedText className="text-base text-subtext">语言风格</ThemedText>
+          <ThemedText className="text-base text-subtext">战略方法</ThemedText>
+          <ThemedText className="text-base text-subtext">决策逻辑</ThemedText>
+        </View>
+        <ThemedText className="mb-4 text-sm text-[#D7B469]">模型完善度</ThemedText>
+
+        <View className="bg-background/60 rounded-2xl p-4">
+          {score.map((item) => (
+            <View key={item.label} className="mb-3">
+              <View className="mb-1 flex-row items-center justify-between">
+                <ThemedText className="text-sm text-primary">{item.label}</ThemedText>
+                <ThemedText className="text-sm font-semibold text-[#D7B469]">
+                  {item.value}%
+                </ThemedText>
+              </View>
+              <View className="h-2 overflow-hidden rounded-full bg-secondary">
+                <View
+                  className="h-full rounded-full bg-[#7E7AF7]"
+                  style={{ width: `${item.value}%` }}
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <ThemedText className="mt-4 text-base leading-7 text-primary">
+          {AI_CEO_PROFILE.insight}
+        </ThemedText>
+      </View>
+    </ScrollView>
+  );
+};
 
 // ─── Tab Bar ─────────────────────────────────────────────────────────────────
 
@@ -205,7 +451,11 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (force = false) => {
-    if (!force && !memoryMemoriesStale()) return;
+    if (!force && !memoryMemoriesStale()) {
+      const cached = peekMemoryMemories();
+      if (cached) setMemories(cached);
+      return;
+    }
     try {
       const list = await memoryApi.getMemories();
       putMemoryMemories(list);
@@ -749,29 +999,45 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
 
 export default function MemoryScreen() {
   const params = useLocalSearchParams<{ tab?: string; notesTab?: string }>();
+  const insets = useSafeAreaInsets();
   const listBottomPad = useGlobalFloatingTabBarInset();
   const [activeTab, setActiveTab] = useState<TabKey>('灵感笔记');
+  const [activePage, setActivePage] = useState<TopPageKey>('memory');
+  const [showMemoryTune, setShowMemoryTune] = useState(false);
   const notesInitialTab: NotesTabKey = params.notesTab === 'schedule' ? '日程安排' : '灵感笔记';
 
   useEffect(() => {
     if (params.tab === 'memory') setActiveTab('用户记忆');
     if (params.tab === 'inspiration') setActiveTab('灵感笔记');
     if (params.tab === 'documents') setActiveTab('历史文档');
+    if (params.tab === 'ceo') setActivePage('aiCeo');
   }, [params.tab]);
 
   return (
     <View className="flex-1 bg-background">
-      <Header title="记忆库" showBackButton onBackPress={safeRouterBackOrHome} />
+      <TopSwitch
+        activePage={activePage}
+        onChange={setActivePage}
+        topInset={insets.top}
+        onTunePress={() => setShowMemoryTune(true)}
+        onInitModelPress={() => router.push('/screens/model-init')}
+      />
 
-      <TabBar active={activeTab} onChange={setActiveTab} />
+      {activePage === 'memory' ? <TabBar active={activeTab} onChange={setActiveTab} /> : null}
 
       <View className="flex-1">
-        {activeTab === '灵感笔记' && (
+        {activePage === 'aiCeo' ? <AiCeoTab contentBottomPad={listBottomPad} /> : null}
+        {activePage === 'memory' && activeTab === '灵感笔记' ? (
           <InspirationListTab contentBottomPad={listBottomPad} initialNotesTab={notesInitialTab} />
-        )}
-        {activeTab === '用户记忆' && <MemoriesTab contentBottomPad={listBottomPad} />}
-        {activeTab === '历史文档' && <DocumentsTab contentBottomPad={listBottomPad} />}
+        ) : null}
+        {activePage === 'memory' && activeTab === '用户记忆' ? (
+          <MemoriesTab contentBottomPad={listBottomPad} />
+        ) : null}
+        {activePage === 'memory' && activeTab === '历史文档' ? (
+          <DocumentsTab contentBottomPad={listBottomPad} />
+        ) : null}
       </View>
+      <MemoryTuneModal visible={showMemoryTune} onRequestClose={() => setShowMemoryTune(false)} />
     </View>
   );
 }

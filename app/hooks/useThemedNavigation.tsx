@@ -1,9 +1,10 @@
+import * as NavigationBar from 'expo-navigation-bar';
+import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 import { Platform, StatusBar as RNStatusBar } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import * as NavigationBar from 'expo-navigation-bar';
-import { useTheme } from '@/app/contexts/ThemeContext';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
+import { useTheme } from '@/app/contexts/ThemeContext';
 
 /**
  * A hook that handles theme-dependent styling for navigation and status bars
@@ -12,7 +13,7 @@ import useThemeColors from '@/app/contexts/ThemeColors';
 export default function useThemedNavigation() {
   const { isDark } = useTheme();
   const colors = useThemeColors();
-  
+
   // Set up status/navigation bar styling based on theme
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -26,31 +27,27 @@ export default function useThemedNavigation() {
 
       // // Prevent translucency which can cause dimming
       // RNStatusBar.setTranslucent(true);
-    } 
+    }
   }, [isDark, colors.bg]);
 
   // StatusBar component with appropriate theme styling
   const ThemedStatusBar = () => (
-    <StatusBar
-      style={isDark ? 'light' : 'dark'}
-      backgroundColor="transparent"
-      translucent={true}
-    />
+    <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor="transparent" translucent />
   );
 
   // Navigation container/stack screen options for themed backgrounds
   const screenOptions = {
     headerShown: false,
     backgroundColor: colors.bg,
-    contentStyle: { 
-      backgroundColor: colors.bg 
-    }
+    contentStyle: {
+      backgroundColor: colors.bg,
+    },
   };
 
   return {
     ThemedStatusBar,
     screenOptions,
     colors,
-    isDark
+    isDark,
   };
-} 
+}

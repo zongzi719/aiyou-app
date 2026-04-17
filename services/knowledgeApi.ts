@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
-import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
 import { getAuthSession } from '@/lib/authSession';
+import { getApiBaseUrl, getDevUserId } from '@/lib/devApiConfig';
 
 const API_PREFIX = '/api/knowledge';
 
@@ -32,6 +32,25 @@ function httpError(status: number, detail?: string): Error {
 function sanitizeKnowledgeDownloadFilename(name: string): string {
   const base = name.replace(/[/\\?%*:|"<>]/g, '_').trim() || 'file';
   return base.length > 120 ? base.slice(0, 120) : base;
+}
+
+/**
+ * 列表/详情展示用：文件名在 multipart 或存储链路中可能被 UTF-8 百分号编码，需解码后再展示。
+ */
+export function displayKnowledgeFilename(filename: string): string {
+  if (!filename || !/%[0-9A-Fa-f]{2}/.test(filename)) return filename;
+  let cur = filename;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(cur);
+      if (next === cur || !next || next.includes('\uFFFD')) break;
+      cur = next;
+      if (!/%[0-9A-Fa-f]{2}/.test(cur)) break;
+    } catch {
+      break;
+    }
+  }
+  return cur;
 }
 
 /** 将后端可能出现的别名统一为文档约定四种状态，避免未知值在 UI 上被当成「处理失败」 */
@@ -102,7 +121,11 @@ function pickChunkArray(o: Record<string, unknown>): unknown[] {
   return [];
 }
 
-function normalizeKnowledgeChunk(raw: unknown, fileId: string, fallbackIndex: number): KnowledgeChunk {
+function normalizeKnowledgeChunk(
+  raw: unknown,
+  fileId: string,
+  fallbackIndex: number
+): KnowledgeChunk {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const id =
     typeof o.id === 'string' && o.id
@@ -165,7 +188,8 @@ function normalizeFileChunksPayload(json: unknown, fileId: string): FileChunksRe
   }
 
   const file_id = typeof src.file_id === 'string' ? src.file_id : fileId;
-  const filename = typeof src.filename === 'string' ? src.filename : '';
+  const filenameRaw = typeof src.filename === 'string' ? src.filename : '';
+  const filename = displayKnowledgeFilename(filenameRaw);
   const totalRaw =
     typeof src.total === 'number'
       ? src.total
@@ -195,11 +219,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 function isNotFoundError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return (
-    msg === 'Not Found' ||
-    /\b404\b/.test(msg) ||
-    msg.toLowerCase().includes('not found')
-  );
+  return msg === 'Not Found' || /\b404\b/.test(msg) || msg.toLowerCase().includes('not found');
 }
 
 /** 与 Web 管理端 `preview-chunks` 请求体一致（重新索引、拉取分块共用默认值） */
@@ -215,7 +235,9 @@ export const DEFAULT_KNOWLEDGE_CHUNK_CONFIG: Required<KnowledgeChunkProcessingCo
   chunk_overlap: 50,
 };
 
-function mergeChunkConfig(overrides?: KnowledgeChunkProcessingConfig): Required<KnowledgeChunkProcessingConfig> {
+function mergeChunkConfig(
+  overrides?: KnowledgeChunkProcessingConfig
+): Required<KnowledgeChunkProcessingConfig> {
   return { ...DEFAULT_KNOWLEDGE_CHUNK_CONFIG, ...overrides };
 }
 
@@ -230,7 +252,7 @@ function chunkQueryString(params?: { page?: number; page_size?: number }): strin
 async function fetchChunksViaPreview(
   fileId: string,
   params?: { page?: number; page_size?: number },
-  chunkConfig?: KnowledgeChunkProcessingConfig,
+  chunkConfig?: KnowledgeChunkProcessingConfig
 ): Promise<FileChunksResponse> {
   const cfg = mergeChunkConfig(chunkConfig);
   const path = `/preview-chunks/${encodeURIComponent(fileId)}${chunkQueryString(params)}`;
@@ -247,7 +269,7 @@ async function fetchChunksViaPreview(
 
 async function fetchChunksViaDocGet(
   fileId: string,
-  params?: { page?: number; page_size?: number },
+  params?: { page?: number; page_size?: number }
 ): Promise<FileChunksResponse> {
   const path = `/files/${encodeURIComponent(fileId)}/chunks${chunkQueryString(params)}`;
   const json = await request<unknown>(path);
@@ -312,9 +334,44 @@ export interface FileListParams {
   page_size?: number;
 }
 
+/** 兼容不同后端包装：`files` / `items` / `data.files` 等 */
+function extractKnowledgeFilesArray(payload: unknown): unknown[] {
+  if (!payload || typeof payload !== 'object') return [];
+  const r = payload as Record<string, unknown>;
+  if (Array.isArray(r.files)) return r.files;
+  if (Array.isArray(r.items)) return r.items;
+  if (Array.isArray(r.list)) return r.list;
+  if (Array.isArray(r.data)) return r.data;
+  if (Array.isArray(r.records)) return r.records;
+  if (Array.isArray(r.rows)) return r.rows;
+  if (Array.isArray(r.result)) return r.result;
+  const data = r.data;
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    if (Array.isArray(d.files)) return d.files;
+    if (Array.isArray(d.items)) return d.items;
+    if (Array.isArray(d.list)) return d.list;
+    if (Array.isArray(d.records)) return d.records;
+    if (Array.isArray(d.rows)) return d.rows;
+    if (Array.isArray(d.result)) return d.result;
+  }
+  return [];
+}
+
+function extractKnowledgeListTotal(payload: unknown, listLen: number): number {
+  if (!payload || typeof payload !== 'object') return listLen;
+  const r = payload as Record<string, unknown>;
+  if (typeof r.total === 'number' && Number.isFinite(r.total)) return r.total;
+  const data = r.data;
+  if (data && typeof data === 'object') {
+    const t = (data as Record<string, unknown>).total;
+    if (typeof t === 'number' && Number.isFinite(t)) return t;
+  }
+  return listLen;
+}
+
 export const knowledgeApi = {
-  getFolders: () =>
-    request<{ folders: KnowledgeFolder[] }>('/folders').then((r) => r.folders),
+  getFolders: () => request<{ folders: KnowledgeFolder[] }>('/folders').then((r) => r.folders),
 
   createFolder: (name: string) =>
     request<{ id: string; name: string }>('/folders', {
@@ -339,13 +396,53 @@ export const knowledgeApi = {
     if (params?.page) qs.set('page', String(params.page));
     if (params?.page_size) qs.set('page_size', String(params.page_size));
     const query = qs.toString();
-    return request<FileListResponse>(`/files${query ? `?${query}` : ''}`).then((r) => ({
-      ...r,
-      files: (Array.isArray(r.files) ? r.files : []).map((f) => ({
-        ...f,
-        status: normalizeKnowledgeFileStatus(f.status),
-      })),
-    }));
+    return request<unknown>(`/files${query ? `?${query}` : ''}`).then((raw) => {
+      const listRaw = extractKnowledgeFilesArray(raw);
+      const total = extractKnowledgeListTotal(raw, listRaw.length);
+      const files: KnowledgeFile[] = listRaw
+        .map((item) => {
+          const row = item as Record<string, unknown>;
+          const idRaw =
+            (typeof row.id === 'string' && row.id) ||
+            (typeof row.file_id === 'string' && row.file_id) ||
+            (typeof row.knowledge_file_id === 'string' && row.knowledge_file_id) ||
+            (typeof row.uuid === 'string' && row.uuid) ||
+            (typeof row._id === 'string' && row._id) ||
+            (typeof row.id === 'number' && String(row.id)) ||
+            (typeof row.file_id === 'number' && String(row.file_id)) ||
+            '';
+          const f = item as KnowledgeFile;
+          const id = (idRaw || (typeof f.id === 'string' ? f.id : '')).trim();
+          const filenameRaw =
+            typeof f.filename === 'string'
+              ? f.filename
+              : typeof row.filename === 'string'
+                ? row.filename
+                : typeof row.name === 'string'
+                  ? row.name
+                  : typeof row.file_name === 'string'
+                    ? row.file_name
+                    : '';
+          const mimeRaw =
+            typeof f.mime_type === 'string'
+              ? f.mime_type
+              : typeof row.mime_type === 'string'
+                ? row.mime_type
+                : typeof row.mimeType === 'string'
+                  ? row.mimeType
+                  : 'application/octet-stream';
+          return {
+            ...f,
+            id,
+            filename: displayKnowledgeFilename(filenameRaw),
+            mime_type: mimeRaw,
+            status: normalizeKnowledgeFileStatus(f.status ?? row.status),
+          };
+        })
+        .filter((f) => Boolean(f.id));
+      const out: FileListResponse = { files, total };
+      return out;
+    });
   },
 
   /**
@@ -357,9 +454,13 @@ export const knowledgeApi = {
     filename: string,
     mimeType: string,
     folderId?: string,
-    chunkProcessing?: KnowledgeChunkProcessingConfig,
+    chunkProcessing?: KnowledgeChunkProcessingConfig
   ) => {
-    const [base, session, devUserId] = await Promise.all([getBaseUrl(), getAuthSession(), getDevUserId()]);
+    const [base, session, devUserId] = await Promise.all([
+      getBaseUrl(),
+      getAuthSession(),
+      getDevUserId(),
+    ]);
 
     const cfg = mergeChunkConfig(chunkProcessing);
     const formData = new FormData();
@@ -388,7 +489,11 @@ export const knowledgeApi = {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       let detail: string | undefined;
-      try { detail = (JSON.parse(text) as { detail?: string }).detail; } catch { detail = text.slice(0, 200) || undefined; }
+      try {
+        detail = (JSON.parse(text) as { detail?: string }).detail;
+      } catch {
+        detail = text.slice(0, 200) || undefined;
+      }
       console.error(`[uploadFile] HTTP ${res.status}:`, text.slice(0, 500));
       throw httpError(res.status, detail);
     }
@@ -450,7 +555,7 @@ export const knowledgeApi = {
   getFileChunks: (
     fileId: string,
     params?: { page?: number; page_size?: number },
-    chunkConfig?: KnowledgeChunkProcessingConfig,
+    chunkConfig?: KnowledgeChunkProcessingConfig
   ) =>
     fetchChunksViaPreview(fileId, params, chunkConfig).catch((err: unknown) => {
       if (isNotFoundError(err)) {
@@ -461,7 +566,10 @@ export const knowledgeApi = {
 
   /** 单个分块详情（内容过长时可展开） */
   getChunk: (chunkId: string) =>
-    request<KnowledgeChunkDetail>(`/chunks/${encodeURIComponent(chunkId)}`),
+    request<KnowledgeChunkDetail>(`/chunks/${encodeURIComponent(chunkId)}`).then((r) => ({
+      ...r,
+      filename: displayKnowledgeFilename(typeof r.filename === 'string' ? r.filename : ''),
+    })),
 };
 
 export function formatFileSize(bytes: number): string {
@@ -482,9 +590,12 @@ export function formatDate(iso: string): string {
 
 export function getMimeLabel(mimeType: string): string {
   if (mimeType.includes('pdf')) return 'PDF';
-  if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc')) return 'Word';
-  if (mimeType.includes('excel') || mimeType.includes('xlsx') || mimeType.includes('xls')) return 'Excel';
-  if (mimeType.includes('powerpoint') || mimeType.includes('pptx') || mimeType.includes('ppt')) return 'PPT';
+  if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc'))
+    return 'Word';
+  if (mimeType.includes('excel') || mimeType.includes('xlsx') || mimeType.includes('xls'))
+    return 'Excel';
+  if (mimeType.includes('powerpoint') || mimeType.includes('pptx') || mimeType.includes('ppt'))
+    return 'PPT';
   if (mimeType.includes('text')) return 'TXT';
   if (mimeType.includes('image')) return '图片';
   if (mimeType.includes('audio')) return '音频';

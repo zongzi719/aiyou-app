@@ -1,6 +1,7 @@
-import { ScrollView, View, ViewStyle } from "react-native";
-import ThemedText from "./ThemedText";
-import { Link } from "expo-router";
+import { Link } from 'expo-router';
+import { ScrollView, View, ViewStyle } from 'react-native';
+
+import ThemedText from './ThemedText';
 
 // Define prop types
 interface CardScrollerProps {
@@ -25,32 +26,34 @@ export const CardScroller = ({
   className,
   style,
   space = 10,
-  }: CardScrollerProps) => {
+}: CardScrollerProps) => {
   return (
-    <View className={`w-full flex flex-col  ${title ? 'pt-global' : 'pt-0'} ${className}`} style={style}>
-      <View className={`w-full flex flex-row justify-between items-center ${title ? 'mb-2' : 'mb-0'}`}>
-        {title && <ThemedText className='text-base font-bold'>{title}</ThemedText>}
+    <View
+      className={`flex w-full flex-col  ${title ? 'pt-global' : 'pt-0'} ${className}`}
+      style={style}>
+      <View
+        className={`flex w-full flex-row items-center justify-between ${title ? 'mb-2' : 'mb-0'}`}>
+        {title && <ThemedText className="text-base font-bold">{title}</ThemedText>}
         {allUrl && (
-          <View className='flex flex-col'>
-            <Link href={allUrl} className='text-primary'>
+          <View className="flex flex-col">
+            <Link href={allUrl} className="text-primary">
               See all
             </Link>
-            <View className='h-px w-full bg-primary mt-[1px]' />
+            <View className="mt-[1px] h-px w-full bg-primary" />
           </View>
         )}
       </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        snapToAlignment='center'
+        snapToAlignment="center"
         decelerationRate={enableSnapping ? 0.85 : 'normal'}
         snapToInterval={enableSnapping ? snapInterval : undefined}
-        className={`-mx-global px-global`}
+        className="-mx-global px-global"
         contentContainerStyle={{ columnGap: space }}
-        style={style}
-      >
+        style={style}>
         {children}
-        <View className="w-4 h-px" />
+        <View className="h-px w-4" />
       </ScrollView>
     </View>
   );

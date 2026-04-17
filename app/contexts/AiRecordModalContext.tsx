@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+
 import AiRecordModal from '@/components/AiRecordModal';
 
 type AiRecordModalContextValue = {
@@ -14,10 +15,7 @@ export function AiRecordModalProvider({ children }: { children: React.ReactNode 
   const openAiRecord = useCallback(() => setVisible(true), []);
   const closeAiRecord = useCallback(() => setVisible(false), []);
 
-  const value = useMemo(
-    () => ({ openAiRecord, closeAiRecord }),
-    [openAiRecord, closeAiRecord]
-  );
+  const value = useMemo(() => ({ openAiRecord, closeAiRecord }), [openAiRecord, closeAiRecord]);
 
   return (
     <AiRecordModalContext.Provider value={value}>

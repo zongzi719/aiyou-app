@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, TextInput as RNTextInput, Animated, Pressable, TextInputProps } from 'react-native';
+
 import Icon, { IconName } from '../Icon';
 import ThemedText from '../ThemedText';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
 
 export type InputVariant = 'animated' | 'classic' | 'underlined';
@@ -50,7 +52,7 @@ const Input: React.FC<CustomTextInputProps> = ({
     if (variant !== 'classic') {
       const hasValue = localValue !== '';
       Animated.timing(animatedLabelValue, {
-        toValue: (isFocused || hasValue) ? 1 : 0,
+        toValue: isFocused || hasValue ? 1 : 0,
         duration: 200,
         useNativeDriver: false,
       }).start();
@@ -92,8 +94,7 @@ const Input: React.FC<CustomTextInputProps> = ({
       return (
         <Pressable
           onPress={togglePasswordVisibility}
-          className={`absolute right-3 ${variant === 'classic' ? 'top-[16px]' : 'top-[18px]'} z-10`}
-        >
+          className={`absolute right-3 ${variant === 'classic' ? 'top-[16px]' : 'top-[18px]'} z-10`}>
           <Icon name={showPassword ? 'EyeOff' : 'Eye'} size={20} color={colors.text} />
         </Pressable>
       );
@@ -103,8 +104,7 @@ const Input: React.FC<CustomTextInputProps> = ({
       return (
         <Pressable
           onPress={onRightIconPress}
-          className={`absolute right-3 ${variant === 'classic' ? 'top-[16px]' : 'top-[18px]'} z-10`}
-        >
+          className={`absolute right-3 ${variant === 'classic' ? 'top-[16px]' : 'top-[18px]'} z-10`}>
           <Icon name={rightIcon} size={20} color={colors.text} />
         </Pressable>
       );
@@ -116,15 +116,13 @@ const Input: React.FC<CustomTextInputProps> = ({
   // Classic non-animated input
   if (variant === 'classic') {
     return (
-      <View className={`mb-global relative ${containerClassName}`} style={{ position: 'relative' }}>
-        {label && (
-          <ThemedText className="mb-2 font-medium">{label}</ThemedText>
-        )}
+      <View className={`relative mb-global ${containerClassName}`} style={{ position: 'relative' }}>
+        {label && <ThemedText className="mb-2 font-medium">{label}</ThemedText>}
         <View className="relative">
           <RNTextInput
             ref={inputRef}
-            className={`border rounded-2xl  px-3 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${(isPassword || rightIcon) ? 'pr-10' : ''}
-              text-primary bg-transparent
+            className={`rounded-2xl border  px-3 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${isPassword || rightIcon ? 'pr-10' : ''}
+              bg-transparent text-primary
               ${isFocused ? 'border-border' : 'border-border'}
               ${error ? 'border-red-500' : ''}
               ${className}`}
@@ -141,9 +139,7 @@ const Input: React.FC<CustomTextInputProps> = ({
           />
           {renderRightIcon()}
         </View>
-        {error && (
-          <ThemedText className="text-red-500 text-xs mt-1">{error}</ThemedText>
-        )}
+        {error && <ThemedText className="mt-1 text-xs text-red-500">{error}</ThemedText>}
       </View>
     );
   }
@@ -151,39 +147,40 @@ const Input: React.FC<CustomTextInputProps> = ({
   // Underlined input with only bottom border
   if (variant === 'underlined') {
     return (
-      <View className={`mb-6 relative ${containerClassName}`} style={{ position: 'relative' }}>
+      <View className={`relative mb-6 ${containerClassName}`} style={{ position: 'relative' }}>
         <View className="relative">
-          <Pressable className='px-0 bg-background z-40' onPress={() => inputRef.current?.focus()}>
+          <Pressable className="z-40 bg-background px-0" onPress={() => inputRef.current?.focus()}>
             <Animated.Text
-              style={[{
-                top: animatedLabelValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [16, -8],
-                }),
-                fontSize: animatedLabelValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [16, 12],
-                }),
-                color: animatedLabelValue.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [colors.placeholder, colors.text],
-                }),
-                left: 0, // No left padding for underlined variant
-                paddingHorizontal: 0, // No horizontal padding
-                position: 'absolute',
-                zIndex: 50,
-                //backgroundColor: colors.bg,
-              }]}
-              className="text-primary"
-            >
+              style={[
+                {
+                  top: animatedLabelValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, -8],
+                  }),
+                  fontSize: animatedLabelValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: animatedLabelValue.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [colors.placeholder, colors.text],
+                  }),
+                  left: 0, // No left padding for underlined variant
+                  paddingHorizontal: 0, // No horizontal padding
+                  position: 'absolute',
+                  zIndex: 50,
+                  //backgroundColor: colors.bg,
+                },
+              ]}
+              className="text-primary">
               {label}
             </Animated.Text>
           </Pressable>
 
           <RNTextInput
             ref={inputRef}
-            className={`border-b-2 py-3 px-0 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${(isPassword || rightIcon) ? 'pr-10' : ''}
-              text-primary bg-transparent border-t-0 border-l-0 border-r-0
+            className={`border-b-2 px-0 py-3 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${isPassword || rightIcon ? 'pr-10' : ''}
+              border-l-0 border-r-0 border-t-0 bg-transparent text-primary
               ${isFocused ? 'border-border' : 'border-border'}
               ${error ? 'border-red-500' : ''}
               ${className}`}
@@ -202,57 +199,45 @@ const Input: React.FC<CustomTextInputProps> = ({
           {renderRightIcon()}
         </View>
 
-        {error && (
-          <ThemedText className="text-red-500 text-xs mt-1">{error}</ThemedText>
-        )}
+        {error && <ThemedText className="mt-1 text-xs text-red-500">{error}</ThemedText>}
       </View>
     );
   }
 
   // Default animated input (original)
   return (
-    <View className={`mb-global relative ${containerClassName}`}>
+    <View className={`relative mb-global ${containerClassName}`}>
+      <Pressable
+        className="z-40 bg-background px-1"
+        style={{ position: 'absolute', left: 4, top: 0 }}
+        onPress={() => inputRef.current?.focus()}>
+        <Animated.Text style={[labelStyle]} className="bg-background text-primary">
+          {label}
+        </Animated.Text>
+      </Pressable>
 
-
-          <Pressable
-            className='z-40 px-1 bg-background'
-            style={{ position: 'absolute', left: 4, top: 0 }}
-            onPress={() => inputRef.current?.focus()}
-          >
-            <Animated.Text
-              style={[labelStyle]}
-              className="bg-background text-primary"
-            >
-              {label}
-            </Animated.Text>
-          </Pressable>
-
-
-        <RNTextInput
-          ref={inputRef}
-          className={`border rounded-lg py-3 px-3 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${(isPassword || rightIcon) ? 'pr-10' : ''}
-            text-primary bg-transparent
+      <RNTextInput
+        ref={inputRef}
+        className={`rounded-lg border px-3 py-3 ${isMultiline ? 'h-36 pt-4' : 'h-14'} ${isPassword || rightIcon ? 'pr-10' : ''}
+            bg-transparent text-primary
             ${isFocused ? 'border-border' : 'border-border'}
             ${error ? 'border-red-500' : ''}
             ${className}`}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          value={localValue}
-          onChangeText={handleChangeText}
-          secureTextEntry={isPassword && !showPassword}
-          placeholderTextColor="transparent"
-          numberOfLines={isMultiline ? 4 : 1}
-          textAlignVertical={isMultiline ? 'top' : 'center'}
-          multiline={isMultiline}
-          {...props}
-        />
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        value={localValue}
+        onChangeText={handleChangeText}
+        secureTextEntry={isPassword && !showPassword}
+        placeholderTextColor="transparent"
+        numberOfLines={isMultiline ? 4 : 1}
+        textAlignVertical={isMultiline ? 'top' : 'center'}
+        multiline={isMultiline}
+        {...props}
+      />
 
-        {renderRightIcon()}
+      {renderRightIcon()}
 
-
-      {error && (
-        <ThemedText className="text-red-500 text-xs mt-1">{error}</ThemedText>
-      )}
+      {error && <ThemedText className="mt-1 text-xs text-red-500">{error}</ThemedText>}
     </View>
   );
 };

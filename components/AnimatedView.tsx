@@ -1,445 +1,491 @@
-import React, { useEffect, memo, useRef, useState } from 'react';
-import { Animated, ViewStyle, StyleProp, EasingFunction, Easing, View, LayoutChangeEvent, Dimensions, InteractionManager } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import React, { useEffect, memo, useRef, useState } from 'react';
+import {
+  Animated,
+  ViewStyle,
+  StyleProp,
+  EasingFunction,
+  Easing,
+  View,
+  LayoutChangeEvent,
+  Dimensions,
+  InteractionManager,
+} from 'react-native';
 
 export type AnimationType =
-    | 'fadeIn'
-    | 'scaleIn'
-    | 'slideInBottom'
-    | 'slideInRight'
-    | 'slideInLeft'
-    | 'slideInTop'
-    | 'bounceIn'
-    | 'flipInX'
-    | 'zoomInRotate'
-    | 'rotateIn'
-    | 'slideOutBottom'
-    | 'slideOutRight'
-    | 'slideOutLeft'
-    | 'slideOutTop'
-    | 'scaleOut';
+  | 'fadeIn'
+  | 'scaleIn'
+  | 'slideInBottom'
+  | 'slideInRight'
+  | 'slideInLeft'
+  | 'slideInTop'
+  | 'bounceIn'
+  | 'flipInX'
+  | 'zoomInRotate'
+  | 'rotateIn'
+  | 'slideOutBottom'
+  | 'slideOutRight'
+  | 'slideOutLeft'
+  | 'slideOutTop'
+  | 'scaleOut';
 
 interface AnimatedViewProps {
-    children?: React.ReactNode;
-    animation: AnimationType;
-    duration?: number;
-    delay?: number;
-    easing?: EasingFunction;
-    style?: StyleProp<ViewStyle>;
-    className?: string;
-    playOnlyOnce?: boolean;
-    triggerOnVisible?: boolean; // Only animate when component becomes visible in viewport
-    visibilityThreshold?: number; // Pixels needed to be visible to trigger (default: 50)
-    shouldResetAnimation?: boolean; // When true, will reset and replay animation when animation type changes
+  children?: React.ReactNode;
+  animation: AnimationType;
+  duration?: number;
+  delay?: number;
+  easing?: EasingFunction;
+  style?: StyleProp<ViewStyle>;
+  className?: string;
+  playOnlyOnce?: boolean;
+  triggerOnVisible?: boolean; // Only animate when component becomes visible in viewport
+  visibilityThreshold?: number; // Pixels needed to be visible to trigger (default: 50)
+  shouldResetAnimation?: boolean; // When true, will reset and replay animation when animation type changes
 }
 
 // Function to compare props for pure rendering
 const propsAreEqual = (prevProps: AnimatedViewProps, nextProps: AnimatedViewProps) => {
-    // Always re-render when in development mode to support hot reloading
-    if (__DEV__) {
-        return false;
-    }
-    
-    // In production, optimize rendering:
-    // If animation, duration, delay, or easing changes, we should re-render
-    if (prevProps.animation !== nextProps.animation ||
-        prevProps.duration !== nextProps.duration ||
-        prevProps.delay !== nextProps.delay ||
-        prevProps.easing !== nextProps.easing ||
-        prevProps.shouldResetAnimation !== nextProps.shouldResetAnimation) {
-        return false;
-    }
-    
-    // Basic check for children changes (reference equality)
-    if (prevProps.children !== nextProps.children) {
-        return false;
-    }
-    
-    // Check style prop changes
-    if (prevProps.style !== nextProps.style) {
-        return false;
-    }
-    
-    // Check className changes
-    if (prevProps.className !== nextProps.className) {
-        return false;
-    }
-    
-    // No changes detected, avoid re-render
-    return true;
+  // Always re-render when in development mode to support hot reloading
+  if (__DEV__) {
+    return false;
+  }
+
+  // In production, optimize rendering:
+  // If animation, duration, delay, or easing changes, we should re-render
+  if (
+    prevProps.animation !== nextProps.animation ||
+    prevProps.duration !== nextProps.duration ||
+    prevProps.delay !== nextProps.delay ||
+    prevProps.easing !== nextProps.easing ||
+    prevProps.shouldResetAnimation !== nextProps.shouldResetAnimation
+  ) {
+    return false;
+  }
+
+  // Basic check for children changes (reference equality)
+  if (prevProps.children !== nextProps.children) {
+    return false;
+  }
+
+  // Check style prop changes
+  if (prevProps.style !== nextProps.style) {
+    return false;
+  }
+
+  // Check className changes
+  if (prevProps.className !== nextProps.className) {
+    return false;
+  }
+
+  // No changes detected, avoid re-render
+  return true;
 };
 
 function AnimatedViewComponent({
-    children,
-    animation,
-    duration = 300,
-    delay = 0,
-    easing = Easing.bezier(0.4, 0, 0.2, 1),
-    style,
-    className,
-    playOnlyOnce = false,
-    triggerOnVisible = false,
-    visibilityThreshold = 30, // Default to 50px visibility required
-    shouldResetAnimation = true, // By default, reset animation when animation type changes
+  children,
+  animation,
+  duration = 300,
+  delay = 0,
+  easing = Easing.bezier(0.4, 0, 0.2, 1),
+  style,
+  className,
+  playOnlyOnce = false,
+  triggerOnVisible = false,
+  visibilityThreshold = 30, // Default to 50px visibility required
+  shouldResetAnimation = true, // By default, reset animation when animation type changes
 }: AnimatedViewProps) {
-    const animatedValue = useRef(new Animated.Value(0)).current;
-    const isFocused = useIsFocused();
-    const hasAnimatedOnce = useRef(false);
-    const viewRef = useRef<View>(null);
-    // Important: initial state is false if triggerOnVisible is true, otherwise we animate immediately
-    const [isVisible, setIsVisible] = useState(false);
-    const { height: windowHeight } = Dimensions.get('window');
-    const measureInterval = useRef<NodeJS.Timeout | null>(null);
-    const isFirstRender = useRef(true);
-    // Track the last animation type to detect changes
-    const lastAnimationType = useRef<AnimationType>(animation);
-    // Track if we're currently animating out
-    const isAnimatingOut = useRef<boolean>(false);
+  const animatedValue = useRef(new Animated.Value(0)).current;
+  const isFocused = useIsFocused();
+  const hasAnimatedOnce = useRef(false);
+  const viewRef = useRef<View>(null);
+  // Important: initial state is false if triggerOnVisible is true, otherwise we animate immediately
+  const [isVisible, setIsVisible] = useState(false);
+  const { height: windowHeight } = Dimensions.get('window');
+  const measureInterval = useRef<NodeJS.Timeout | null>(null);
+  const isFirstRender = useRef(true);
+  // Track the last animation type to detect changes
+  const lastAnimationType = useRef<AnimationType>(animation);
+  // Track if we're currently animating out
+  const isAnimatingOut = useRef<boolean>(false);
 
-    // Initialize with visibility detection - but delayed to ensure proper measurement
-    useEffect(() => {
-        if (!triggerOnVisible) {
-            // If not using visibility detection, just set to visible
-            setIsVisible(true);
-            return;
-        }
+  // Initialize with visibility detection - but delayed to ensure proper measurement
+  useEffect(() => {
+    if (!triggerOnVisible) {
+      // If not using visibility detection, just set to visible
+      setIsVisible(true);
+      return;
+    }
 
-        // Important: For first render, ensure layout is complete before measuring
-        // and we're actually checking visibility correctly
-        if (isFirstRender.current) {
-            isFirstRender.current = false;
-            
-            // Wait for interactions to complete (navigation, etc)
-            InteractionManager.runAfterInteractions(() => {
-                // Slight delay to ensure component is fully mounted and measurable
-                setTimeout(() => {
-                    checkVisibility();
-                }, 0);
-            });
-        }
+    // Important: For first render, ensure layout is complete before measuring
+    // and we're actually checking visibility correctly
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
 
-        return () => {
-            if (measureInterval.current) {
-                clearInterval(measureInterval.current);
-            }
-        };
-    }, [triggerOnVisible]);
+      // Wait for interactions to complete (navigation, etc)
+      InteractionManager.runAfterInteractions(() => {
+        // Slight delay to ensure component is fully mounted and measurable
+        setTimeout(() => {
+          checkVisibility();
+        }, 0);
+      });
+    }
 
-    // Function to check visibility by measuring the component
-    const checkVisibility = () => {
-        if (!viewRef.current || hasAnimatedOnce.current) return;
+    return () => {
+      if (measureInterval.current) {
+        clearInterval(measureInterval.current);
+      }
+    };
+  }, [triggerOnVisible]);
 
-        // Clear any existing interval
+  // Function to check visibility by measuring the component
+  const checkVisibility = () => {
+    if (!viewRef.current || hasAnimatedOnce.current) return;
+
+    // Clear any existing interval
+    if (measureInterval.current) {
+      clearInterval(measureInterval.current);
+      measureInterval.current = null;
+    }
+
+    // Start periodic measuring until visible
+    measureInterval.current = setInterval(() => {
+      if (!viewRef.current || hasAnimatedOnce.current) {
         if (measureInterval.current) {
+          clearInterval(measureInterval.current);
+        }
+        return;
+      }
+
+      // Measure component position relative to window
+      viewRef.current.measure((x, y, width, height, pageX, pageY) => {
+        // Calculate if it's in viewport (at least visibilityThreshold pixels visible)
+        // Element is in view if its top is within screen bounds OR its bottom is within screen bounds
+        const isElementVisible =
+          // Either top of element is visible in viewport
+          (pageY >= 0 && pageY <= windowHeight - visibilityThreshold) ||
+          // OR bottom of element is visible in viewport
+          (pageY + height >= visibilityThreshold && pageY + height <= windowHeight) ||
+          // OR element completely covers viewport
+          (pageY < 0 && pageY + height > windowHeight);
+
+        if (isElementVisible) {
+          setIsVisible(true);
+          if (measureInterval.current) {
             clearInterval(measureInterval.current);
             measureInterval.current = null;
+          }
         }
+      });
+    }, 0);
+  };
 
-        // Start periodic measuring until visible
-        measureInterval.current = setInterval(() => {
-            if (!viewRef.current || hasAnimatedOnce.current) {
-                if (measureInterval.current) {
-                    clearInterval(measureInterval.current);
-                }
-                return;
-            }
+  // Handle layout to initialize position tracking
+  const handleLayout = (e: LayoutChangeEvent) => {
+    if (!triggerOnVisible || hasAnimatedOnce.current) return;
 
-            // Measure component position relative to window
-            viewRef.current.measure((x, y, width, height, pageX, pageY) => {
-                // Calculate if it's in viewport (at least visibilityThreshold pixels visible)
-                // Element is in view if its top is within screen bounds OR its bottom is within screen bounds
-                const isElementVisible = 
-                    // Either top of element is visible in viewport
-                    (pageY >= 0 && pageY <= windowHeight - visibilityThreshold) ||
-                    // OR bottom of element is visible in viewport
-                    (pageY + height >= visibilityThreshold && pageY + height <= windowHeight) ||
-                    // OR element completely covers viewport
-                    (pageY < 0 && pageY + height > windowHeight);
-                    
-                if (isElementVisible) {
-                    setIsVisible(true);
-                    if (measureInterval.current) {
-                        clearInterval(measureInterval.current);
-                        measureInterval.current = null;
-                    }
-                }
-            });
-        }, 0);
+    // After layout, start visibility detection if not already started
+    if (!isVisible && !measureInterval.current) {
+      checkVisibility();
+    }
+  };
+
+  // Check if this is an "out" animation
+  const isExitAnimation = (animType: AnimationType) => {
+    return animType.includes('Out');
+  };
+
+  // Start animation when conditions are met or when animation type changes
+  useEffect(() => {
+    // Skip if not focused or not visible
+    if (!isFocused || !isVisible) return;
+
+    // Detect if animation type changed
+    const animationChanged = lastAnimationType.current !== animation;
+
+    // Update the current animation type
+    lastAnimationType.current = animation;
+
+    // Check if we're switching to an exit animation
+    const isExiting = isExitAnimation(animation);
+    isAnimatingOut.current = isExiting;
+
+    // If playOnlyOnce is true and animation has played once, only play again if shouldResetAnimation is true
+    // and the animation type has changed
+    if (playOnlyOnce && hasAnimatedOnce.current && (!shouldResetAnimation || !animationChanged)) {
+      return;
+    }
+
+    // Add a unique identifier for this animation to prevent duplicate animations
+    const animationId = Date.now();
+    const currentAnimationId = animationId;
+
+    // Reset animation value to appropriate starting point
+    if (animationChanged || !hasAnimatedOnce.current) {
+      animatedValue.setValue(0);
+    }
+
+    // Start animation
+    Animated.timing(animatedValue, {
+      toValue: 1,
+      duration,
+      delay,
+      easing,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      // Only mark as animated if this is the most recent animation and it finished
+      if (finished && currentAnimationId === animationId) {
+        hasAnimatedOnce.current = true;
+      }
+    });
+
+    // Return cleanup function
+    return () => {
+      // Animation will be cleaned up automatically by React Native
     };
-
-    // Handle layout to initialize position tracking
-    const handleLayout = (e: LayoutChangeEvent) => {
-        if (!triggerOnVisible || hasAnimatedOnce.current) return;
-        
-        // After layout, start visibility detection if not already started
-        if (!isVisible && !measureInterval.current) {
-            checkVisibility();
-        }
-    };
-
-    // Check if this is an "out" animation
-    const isExitAnimation = (animType: AnimationType) => {
-        return animType.includes('Out');
-    };
-
-    // Start animation when conditions are met or when animation type changes
-    useEffect(() => {
-        // Skip if not focused or not visible
-        if (!isFocused || !isVisible) return;
-        
-        // Detect if animation type changed
-        const animationChanged = lastAnimationType.current !== animation;
-        
-        // Update the current animation type
-        lastAnimationType.current = animation;
-        
-        // Check if we're switching to an exit animation
-        const isExiting = isExitAnimation(animation);
-        isAnimatingOut.current = isExiting;
-        
-        // If playOnlyOnce is true and animation has played once, only play again if shouldResetAnimation is true
-        // and the animation type has changed
-        if (playOnlyOnce && hasAnimatedOnce.current && (!shouldResetAnimation || !animationChanged)) {
-            return;
-        }
-        
-        // Add a unique identifier for this animation to prevent duplicate animations
-        const animationId = Date.now();
-        const currentAnimationId = animationId;
-        
-        // Reset animation value to appropriate starting point
-        if (animationChanged || !hasAnimatedOnce.current) {
-            animatedValue.setValue(0);
-        }
-        
-        // Start animation
-        Animated.timing(animatedValue, {
-            toValue: 1,
-            duration,
-            delay,
-            easing,
-            useNativeDriver: true
-        }).start(({ finished }) => {
-            // Only mark as animated if this is the most recent animation and it finished
-            if (finished && currentAnimationId === animationId) {
-                hasAnimatedOnce.current = true;
-            }
-        });
-        
-        // Return cleanup function
-        return () => {
-            // Animation will be cleaned up automatically by React Native
-        };
     // Add animation to dependencies to retrigger when it changes
-    }, [isFocused, isVisible, playOnlyOnce, shouldResetAnimation, animation, duration, delay, easing]);
+  }, [
+    isFocused,
+    isVisible,
+    playOnlyOnce,
+    shouldResetAnimation,
+    animation,
+    duration,
+    delay,
+    easing,
+  ]);
 
-    const getAnimationStyle = (): any => {
-        const baseStyle: ViewStyle = {};
+  const getAnimationStyle = (): any => {
+    const baseStyle: ViewStyle = {};
 
-        switch (animation) {
-            case 'fadeIn':
-                return {
-                    opacity: animatedValue
-                };
+    switch (animation) {
+      case 'fadeIn':
+        return {
+          opacity: animatedValue,
+        };
 
-            case 'scaleIn':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        scale: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.8, 1]
-                        })
-                    }]
-                };
+      case 'scaleIn':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              scale: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.8, 1],
+              }),
+            },
+          ],
+        };
 
-            case 'slideInBottom':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        translateY: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [50, 0]
-                        })
-                    }]
-                };
+      case 'slideInBottom':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              translateY: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [50, 0],
+              }),
+            },
+          ],
+        };
 
-            case 'slideInRight':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        translateX: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [100, 0]
-                        })
-                    }]
-                };
+      case 'slideInRight':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              translateX: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [100, 0],
+              }),
+            },
+          ],
+        };
 
-            case 'slideInLeft':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        translateX: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [-100, 0]
-                        })
-                    }]
-                };
+      case 'slideInLeft':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              translateX: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-100, 0],
+              }),
+            },
+          ],
+        };
 
-            case 'slideInTop':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        translateY: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [-100, 0]
-                        })
-                    }]
-                };
+      case 'slideInTop':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              translateY: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-100, 0],
+              }),
+            },
+          ],
+        };
 
-            case 'bounceIn':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        scale: animatedValue.interpolate({
-                            inputRange: [0, 0.6, 0.8, 1],
-                            outputRange: [0.3, 1.1, 0.9, 1]
-                        })
-                    }]
-                };
+      case 'bounceIn':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              scale: animatedValue.interpolate({
+                inputRange: [0, 0.6, 0.8, 1],
+                outputRange: [0.3, 1.1, 0.9, 1],
+              }),
+            },
+          ],
+        };
 
-            case 'flipInX':
-                return {
-                    opacity: animatedValue,
-                    transform: [{
-                        rotateX: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: ['90deg', '0deg']
-                        })
-                    }]
-                };
+      case 'flipInX':
+        return {
+          opacity: animatedValue,
+          transform: [
+            {
+              rotateX: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['90deg', '0deg'],
+              }),
+            },
+          ],
+        };
 
-            case 'zoomInRotate':
-                return {
-                    //opacity: animatedValue,
-                    transform: [
-                        {
-                            rotate: animatedValue.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: ['-45deg', '0deg']
-                            })
-                        }
-                    ]
-                };
+      case 'zoomInRotate':
+        return {
+          //opacity: animatedValue,
+          transform: [
+            {
+              rotate: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['-45deg', '0deg'],
+              }),
+            },
+          ],
+        };
 
-            case 'rotateIn':
-                return {
-                    //opacity: animatedValue,
-                    transform: [{
-                        rotate: animatedValue.interpolate({
-                            inputRange: [0, 0.5, 1],
-                            outputRange: ['0deg', '50deg', '0deg']
-                        })
-                    }]
-                };
+      case 'rotateIn':
+        return {
+          //opacity: animatedValue,
+          transform: [
+            {
+              rotate: animatedValue.interpolate({
+                inputRange: [0, 0.5, 1],
+                outputRange: ['0deg', '50deg', '0deg'],
+              }),
+            },
+          ],
+        };
 
-            case 'slideOutBottom':
-                return {
-                    opacity: animatedValue.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0]
-                    }),
-                    transform: [{ 
-                        translateY: animatedValue.interpolate({ 
-                            inputRange: [0, 1], 
-                            outputRange: [0, 50] 
-                        }) 
-                    }]
-                };
+      case 'slideOutBottom':
+        return {
+          opacity: animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
+          }),
+          transform: [
+            {
+              translateY: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 50],
+              }),
+            },
+          ],
+        };
 
-            case 'slideOutRight':
-                return {
-                    opacity: animatedValue.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0]
-                    }),
-                    transform: [{ 
-                        translateX: animatedValue.interpolate({ 
-                            inputRange: [0, 1], 
-                            outputRange: [0, 100] 
-                        }) 
-                    }]
-                };
+      case 'slideOutRight':
+        return {
+          opacity: animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
+          }),
+          transform: [
+            {
+              translateX: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 100],
+              }),
+            },
+          ],
+        };
 
-            case 'slideOutLeft':
-                return {
-                    opacity: animatedValue.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0]
-                    }),
-                    transform: [{ 
-                        translateX: animatedValue.interpolate({ 
-                            inputRange: [0, 1], 
-                            outputRange: [0, -100] 
-                        }) 
-                    }]
-                };
+      case 'slideOutLeft':
+        return {
+          opacity: animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
+          }),
+          transform: [
+            {
+              translateX: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -100],
+              }),
+            },
+          ],
+        };
 
-            case 'slideOutTop':
-                return {
-                    opacity: animatedValue.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0]
-                    }),
-                    transform: [{ 
-                        translateY: animatedValue.interpolate({ 
-                            inputRange: [0, 1], 
-                            outputRange: [0, -50] 
-                        }) 
-                    }]
-                };
+      case 'slideOutTop':
+        return {
+          opacity: animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
+          }),
+          transform: [
+            {
+              translateY: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, -50],
+              }),
+            },
+          ],
+        };
 
-            case 'scaleOut':
-                return {
-                    opacity: animatedValue.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0]
-                    }),
-                    transform: [{
-                        scale: animatedValue.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 0.95]
-                        })
-                    }]
-                };
+      case 'scaleOut':
+        return {
+          opacity: animatedValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 0],
+          }),
+          transform: [
+            {
+              scale: animatedValue.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0.95],
+              }),
+            },
+          ],
+        };
 
-            default:
-                return baseStyle;
+      default:
+        return baseStyle;
+    }
+  };
+
+  // Initial style for elements waiting to be visible
+  const initialHiddenStyle: ViewStyle =
+    triggerOnVisible && !isVisible
+      ? {
+          opacity: 0, // Keep element hidden until it's ready to animate
         }
-    };
+      : {};
 
-    // Initial style for elements waiting to be visible
-    const initialHiddenStyle: ViewStyle = triggerOnVisible && !isVisible ? {
-        opacity: 0 // Keep element hidden until it's ready to animate
-    } : {};
-
-    return (
-        <View 
-            ref={viewRef}
-            className={className} 
-            style={[style, initialHiddenStyle]}
-            onLayout={handleLayout}
-            collapsable={false}
-        >
-            <Animated.View
-                style={[getAnimationStyle(), style]}
-                className={className}
-            >
-                {children}
-            </Animated.View>
-        </View>
-    );
+  return (
+    <View
+      ref={viewRef}
+      className={className}
+      style={[style, initialHiddenStyle]}
+      onLayout={handleLayout}
+      collapsable={false}>
+      <Animated.View style={[getAnimationStyle(), style]} className={className}>
+        {children}
+      </Animated.View>
+    </View>
+  );
 }
 
 // Export a memoized version of the component
-export default memo(AnimatedViewComponent, propsAreEqual); 
+export default memo(AnimatedViewComponent, propsAreEqual);

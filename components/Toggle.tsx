@@ -8,14 +8,9 @@ interface ToggleProps {
   className?: string;
 }
 
-const Toggle: React.FC<ToggleProps> = ({
-  value,
-  onChange,
-  disabled = false,
-  className = ''
-}) => {
+const Toggle: React.FC<ToggleProps> = ({ value, onChange, disabled = false, className = '' }) => {
   const [isActive, setIsActive] = useState(value ?? false);
-  const slideAnim = useRef(new Animated.Value(value ?? false ? 1 : 0)).current;
+  const slideAnim = useRef(new Animated.Value((value ?? false) ? 1 : 0)).current;
 
   // Handle controlled and uncontrolled modes
   const isControlled = value !== undefined;
@@ -34,28 +29,29 @@ const Toggle: React.FC<ToggleProps> = ({
       toValue: newValue ? 1 : 0,
       useNativeDriver: true,
       bounciness: 4,
-      speed: 12
+      speed: 12,
     }).start();
   };
 
   return (
     <Pressable
       onPress={toggleSwitch}
-      className={`w-12 h-7 rounded-full ${disabled ? 'opacity-50' : ''} ${className}`}
-    >
+      className={`h-7 w-12 rounded-full ${disabled ? 'opacity-50' : ''} ${className}`}>
       <View
-        className={`w-full h-full rounded-full absolute ${isOn ? 'bg-highlight' : 'bg-secondary'}`}
+        className={`absolute h-full w-full rounded-full ${isOn ? 'bg-highlight' : 'bg-secondary'}`}
       />
       <Animated.View
         style={{
-          transform: [{
-            translateX: slideAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [2, 21]
-            })
-          }]
+          transform: [
+            {
+              translateX: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [2, 21],
+              }),
+            },
+          ],
         }}
-        className="w-6 h-6 bg-white rounded-full shadow-sm my-0.5"
+        className="my-0.5 h-6 w-6 rounded-full bg-white shadow-sm"
       />
     </Pressable>
   );

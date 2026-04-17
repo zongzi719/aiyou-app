@@ -6,11 +6,11 @@ type ScreenContentProps = {
   children?: React.ReactNode;
 };
 
-export const ScreenContent = ({ title, path, children} : ScreenContentProps) => {
+export const ScreenContent = ({ title, path, children }: ScreenContentProps) => {
   return (
-    <View className="items-center flex-1 justify-cente">
+    <View className="justify-cente flex-1 items-center">
       <Text className="text-xl font-bold">{title}</Text>
-      <View className="h-[1px] my-7 w-4/5 bg-gray-200" />
+      <View className="my-7 h-[1px] w-4/5 bg-gray-200" />
       {children}
     </View>
   );

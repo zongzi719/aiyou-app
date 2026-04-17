@@ -1,7 +1,9 @@
+import { Link } from 'expo-router';
 import React, { ReactNode } from 'react';
 import { Text, View, TouchableOpacity, ViewStyle, Image, ImageSourcePropType } from 'react-native';
-import { Link } from 'expo-router';
+
 import Icon, { IconName } from './Icon';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
 type ChipSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 
@@ -77,30 +79,31 @@ export const Chip = ({
     if (leftContent) {
       return leftContent;
     }
-    
+
     if (icon) {
       return (
-        <Icon 
-          name={icon} 
-          size={getDefaultIconSize()} 
-          color={iconColor || (isChipSelected ? colors.icon : colors.icon)} 
-          className="mr-2 -ml-1" 
+        <Icon
+          name={icon}
+          size={getDefaultIconSize()}
+          color={iconColor || (isChipSelected ? colors.icon : colors.icon)}
+          className="-ml-1 mr-2"
         />
       );
     }
-    
+
     if (image) {
       return (
-        <Image className='rounded-lg mr-2 -ml-2'
-          source={image} 
-          style={{ 
-            width: getDefaultImageSize(), 
-            height: getDefaultImageSize(), 
-          }} 
+        <Image
+          className="-ml-2 mr-2 rounded-lg"
+          source={image}
+          style={{
+            width: getDefaultImageSize(),
+            height: getDefaultImageSize(),
+          }}
         />
       );
     }
-    
+
     return null;
   };
 
@@ -113,8 +116,7 @@ export const Chip = ({
       <View className="flex-row items-center">
         {renderLeftContent()}
         <Text
-          className={`text-${textSizeClass} ${isChipSelected ? 'text-invert' : 'text-subtext'}`}
-        >
+          className={`text-${textSizeClass} ${isChipSelected ? 'text-invert' : 'text-subtext'}`}>
           {label}
         </Text>
       </View>
@@ -123,13 +125,9 @@ export const Chip = ({
 
   // Wrapper with appropriate styling
   const chipWrapper = (children: ReactNode) => (
-    <View 
-      className={`${className || ''}`} 
-      style={style}
-    >
+    <View className={`${className || ''}`} style={style}>
       <View
-        className={`${paddingClasses} rounded-full ${isChipSelected ? 'bg-text' : 'bg-secondary'} flex-row items-center justify-center`}
-      >
+        className={`${paddingClasses} rounded-full ${isChipSelected ? 'bg-text' : 'bg-secondary'} flex-row items-center justify-center`}>
         {children}
       </View>
     </View>
@@ -139,19 +137,13 @@ export const Chip = ({
   if (href) {
     return (
       <Link href={href} asChild>
-        <TouchableOpacity activeOpacity={0.7}>
-          {chipWrapper(chipContent)}
-        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7}>{chipWrapper(chipContent)}</TouchableOpacity>
       </Link>
     );
   }
 
   return (
-    <TouchableOpacity
-      onPress={handlePress}
-      activeOpacity={0.7}
-      disabled={!onPress && !selectable}
-    >
+    <TouchableOpacity onPress={handlePress} activeOpacity={0.7} disabled={!onPress && !selectable}>
       {chipWrapper(chipContent)}
     </TouchableOpacity>
   );

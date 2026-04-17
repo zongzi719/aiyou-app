@@ -58,8 +58,15 @@ export const pageApiSpecs: PageApiSpec[] = [
     path: '/',
     name: '首页聊天',
     description: '主对话、抽屉入口、模型选择',
-    plannedApis: ['runs-stream', 'threads-create', 'sessions-create', 'models-list'],
-    currentDataSource: '模板：services/ai + .env AI Key（可按项目替换为后端 API）',
+    plannedApis: [
+      'runs-stream',
+      'threads-create',
+      'sessions-create',
+      'models-list',
+      'asr-chat',
+      'asr-notes',
+    ],
+    currentDataSource: '私人模式：lib/privateChatApi；语音：lib/asrApi（/api/asr、/api/asr-notes）',
   },
   {
     path: '/screens/welcome',
@@ -123,6 +130,8 @@ const libModuleHintsForPage: { routePath: string; apiId: string; pathSubstring: 
   { routePath: '/', apiId: 'threads-create', pathSubstring: 'privateChatApi' },
   { routePath: '/', apiId: 'sessions-create', pathSubstring: 'privateChatApi' },
   { routePath: '/', apiId: 'models-list', pathSubstring: 'modelsApi' },
+  { routePath: '/', apiId: 'asr-chat', pathSubstring: 'asrApi' },
+  { routePath: '/', apiId: 'asr-notes', pathSubstring: 'asrApi' },
 ];
 
 function pageTouchesApi(routePath: string, apiId: string): boolean {

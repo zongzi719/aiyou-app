@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Pressable, Text, StyleProp, ViewStyle } from 'react-native';
+
 import ThemedText from '../ThemedText';
 
 interface CounterProps {
@@ -12,17 +13,17 @@ interface CounterProps {
   style?: StyleProp<ViewStyle>;
 }
 
-export default function Counter({ 
-  label, 
-  value: controlledValue, 
-  onChange, 
-  min = 0, 
+export default function Counter({
+  label,
+  value: controlledValue,
+  onChange,
+  min = 0,
   max = 99,
   className,
-  style
+  style,
 }: CounterProps) {
   const [internalValue, setInternalValue] = useState<number | undefined>(undefined);
-  
+
   // Handle controlled and uncontrolled modes
   const isControlled = controlledValue !== undefined;
   const value = isControlled ? controlledValue : internalValue;
@@ -53,29 +54,27 @@ export default function Counter({
   return (
     <View className={`w-full ${className}`} style={style}>
       <View className="w-full flex-row items-center justify-between">
-        <ThemedText className="text-base flex-1">{label}</ThemedText>
-        <View className="flex-row min-w-[140px] justify-between p-1 items-center bg-secondary rounded-full  overflow-hidden">
-          <Pressable 
+        <ThemedText className="flex-1 text-base">{label}</ThemedText>
+        <View className="min-w-[140px] flex-row items-center justify-between overflow-hidden rounded-full bg-secondary  p-1">
+          <Pressable
             onPress={decrement}
-            className="w-8 h-8 bg-background rounded-full items-center justify-center"
-          >
+            className="h-8 w-8 items-center justify-center rounded-full bg-background">
             <ThemedText className="text-lg">-</ThemedText>
           </Pressable>
-          
+
           <View className="items-center justify-center px-4">
             <ThemedText className="text-base font-medium">
               {value === undefined ? 'Any' : value}
             </ThemedText>
           </View>
 
-          <Pressable 
+          <Pressable
             onPress={increment}
-            className="w-8 h-8 bg-background rounded-full items-center justify-center"
-          >
+            className="h-8 w-8 items-center justify-center rounded-full bg-background">
             <ThemedText className="text-lg">+</ThemedText>
           </Pressable>
         </View>
       </View>
     </View>
   );
-} 
+}

@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, TextInput as RNTextInput, Animated, Pressable, TextInputProps } from 'react-native';
-import Icon from '../Icon';
 
+import Icon from '../Icon';
 import ThemedText from '../ThemedText';
+
 import useThemeColors from '@/app/contexts/ThemeColors';
 
 interface CustomTextInputProps extends TextInputProps {
@@ -36,7 +37,7 @@ const TextInput: React.FC<CustomTextInputProps> = ({
   // Handle label animation
   useEffect(() => {
     Animated.timing(animatedLabelValue, {
-      toValue: (isFocused || value) ? 1 : 0,
+      toValue: isFocused || value ? 1 : 0,
       duration: 200,
       useNativeDriver: false,
     }).start();
@@ -67,45 +68,38 @@ const TextInput: React.FC<CustomTextInputProps> = ({
   const renderRightIcon = () => {
     if (isPassword) {
       return (
-        <Pressable 
-          onPress={togglePasswordVisibility} 
-          className="absolute right-3 top-[18px] z-10"
-        >
+        <Pressable onPress={togglePasswordVisibility} className="absolute right-3 top-[18px] z-10">
           <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} color={colors.text} />
         </Pressable>
       );
     }
-    
+
     if (rightIcon) {
       return (
-        <Pressable 
-          onPress={onRightIconPress} 
-          className="absolute right-3 top-[18px] z-10"
-        >
+        <Pressable onPress={onRightIconPress} className="absolute right-3 top-[18px] z-10">
           <Icon name={rightIcon} size={20} color={colors.text} />
         </Pressable>
       );
     }
-    
+
     return null;
   };
 
   return (
     <View className={`mb-global ${containerClassName}`}>
       <View className="relative">
-        <Pressable className='px-1 bg-background z-40' onPress={() => inputRef.current?.focus()}>
-          <Animated.Text 
-            style={[labelStyle]} 
-            className="absolute z-50 px-1 bg-background text-primary"
-          >
+        <Pressable className="z-40 bg-background px-1" onPress={() => inputRef.current?.focus()}>
+          <Animated.Text
+            style={[labelStyle]}
+            className="absolute z-50 bg-background px-1 text-primary">
             {label}
           </Animated.Text>
         </Pressable>
-        
+
         <RNTextInput
           ref={inputRef}
-          className={`border rounded-lg py-3 px-3 h-14 ${(isPassword || rightIcon) ? 'pr-10' : ''}
-            text-primary bg-transparent
+          className={`h-14 rounded-lg border px-3 py-3 ${isPassword || rightIcon ? 'pr-10' : ''}
+            bg-transparent text-primary
             ${isFocused ? 'border-border' : 'border-border/40'}
             ${error ? 'border-red-500' : ''}
             ${className}`}
@@ -117,13 +111,11 @@ const TextInput: React.FC<CustomTextInputProps> = ({
           placeholderTextColor="transparent"
           {...props}
         />
-        
+
         {renderRightIcon()}
       </View>
-      
-      {error && (
-        <ThemedText className="text-red-500 text-xs mt-1">{error}</ThemedText>
-      )}
+
+      {error && <ThemedText className="mt-1 text-xs text-red-500">{error}</ThemedText>}
     </View>
   );
 };
