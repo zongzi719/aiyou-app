@@ -1,8 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-
-import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
-
 import { LinearGradient } from 'expo-linear-gradient';
 import LottieView from 'lottie-react-native';
 import { useState, useEffect, useRef } from 'react';
@@ -20,6 +17,8 @@ import {
   ImageBackground,
   Modal,
   FlatList,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -36,12 +35,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AnimatedView from './AnimatedView';
 import { CardScroller } from './CardScroller';
 import Icon from './Icon';
-import { normalizeRecordingMetering, RecordingVoiceWave } from './RecordingVoiceWave';
-import { ShimmerText } from './ShimmerText';
+import { RecordingVoiceWave } from './RecordingVoiceWave';
 import ThemedText from './ThemedText';
 
 import useThemeColors from '@/app/contexts/ThemeColors';
-import { useRecording } from '@/hooks/useRecording';
+import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
+import { useStreamingAsr } from '@/hooks/useStreamingAsr';
 import { setHomeRecordPanelVisible } from '@/lib/homeRecordPanelStore';
 import { peekKnowledgeData } from '@/lib/listDataCache';
 import { knowledgeApi, type KnowledgeFile } from '@/services/knowledgeApi';
@@ -52,6 +51,10 @@ const imageExitAnimation = new Keyframe({
   0: { opacity: 1, transform: [{ scale: 1 }] },
   100: { opacity: 0, transform: [{ scale: 0.8 }] },
 }).duration(120);
+
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
 
 export interface SelectedFile {
   /** 本地文件 URI；来自知识库时可为空字符串，发送前再拉取 */
@@ -77,8 +80,9 @@ export const ChatInput = (props: ChatInputProps) => {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isRecordingUI, setIsRecordingUI] = useState(false);
   const [showHomeRecordPanel, setShowHomeRecordPanel] = useState(false);
+  /** 点击✅等结束录音时立即收起底部语音区（不等 WS 关闭），提升响应 */
+  const [homeVoiceSheetDismissed, setHomeVoiceSheetDismissed] = useState(false);
   const [isStoppingHomeRecording, setIsStoppingHomeRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [showSourceMenu, setShowSourceMenu] = useState(false);
@@ -87,7 +91,9 @@ export const ChatInput = (props: ChatInputProps) => {
   const [loadingKnowledgeFiles, setLoadingKnowledgeFiles] = useState(false);
   const lottieRef = useRef<LottieView>(null);
   const inputRef = useRef<any>(null);
-
+  /** 本次流式识别开始前的输入框内容 */
+  const asrPrefixRef = useRef('');
+  const wasStreamingRef = useRef(false);
   // Android focus animation values
   const androidFocusProgress = useSharedValue(0);
   const overlayOpacity = useSharedValue(0);
@@ -120,17 +126,30 @@ export const ChatInput = (props: ChatInputProps) => {
     };
   }, []);
 
-  // Recording hook
+  const combineAsrPrefix = (prefix: string, session: string) => {
+    if (!session.trim()) return prefix;
+    if (!prefix.trim()) return session;
+    return `${prefix} ${session}`;
+  };
+
   const {
-    isTranscribing,
-    startRecording,
-    stopRecording,
-    pauseRecording,
-    resumeRecording,
-    transcribeAudio,
-    isPaused,
-    metering,
-  } = useRecording();
+    isStreaming: isRecordingUI,
+    meterLevel: streamMeterLevel,
+    startStreaming,
+    stopStreaming,
+    cancelStreaming,
+  } = useStreamingAsr({
+    mode: 'chat',
+    onPartialTranscript: (sessionText) => {
+      setInputText(combineAsrPrefix(asrPrefixRef.current, sessionText));
+    },
+    onTranscript: (sessionText) => {
+      setInputText(combineAsrPrefix(asrPrefixRef.current, sessionText));
+    },
+    onError: (msg) => {
+      Alert.alert('语音识别', msg);
+    },
+  });
 
   // Animation shared values
   const rotation = useSharedValue(0);
@@ -271,13 +290,14 @@ export const ChatInput = (props: ChatInputProps) => {
     Keyboard.dismiss();
   };
 
-  // Start recording
+  // Start streaming ASR (non-home variant)
   const handleStartRecording = async () => {
     const fadeConfig = { duration: 10, easing: Easing.out(Easing.ease) };
 
     try {
       setIsStoppingHomeRecording(false);
-      await startRecording();
+      asrPrefixRef.current = inputText;
+      await startStreaming();
 
       // Hide Mic + AudioLines, show Stop
       audioButtonsVisible.value = withSpring(0, { damping: 100, stiffness: 600 });
@@ -286,80 +306,110 @@ export const ChatInput = (props: ChatInputProps) => {
         stopButtonVisible.value = withSpring(1, { damping: 100, stiffness: 600 });
         lottieVisible.value = withTiming(1, fadeConfig);
       }, 100);
-
-      setIsRecordingUI(true);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Could not start recording. Please check microphone permissions.');
     }
   };
 
-  const resetRecordingVisualState = () => {
-    const fadeConfig = { duration: 10, easing: Easing.out(Easing.ease) };
-    stopButtonVisible.value = withSpring(0, { damping: 200, stiffness: 600 });
-    lottieVisible.value = withTiming(0, fadeConfig);
-    setTimeout(() => {
-      audioButtonsVisible.value = withSpring(1, { damping: 200, stiffness: 600 });
-      inputVisible.value = withTiming(1, fadeConfig);
-    }, 100);
-    setIsRecordingUI(false);
-    setIsStoppingHomeRecording(false);
-    setRecordingSeconds(0);
-  };
+  /** 流式识别结束或取消后恢复底部动画（isRecordingUI 由 hook 驱动） */
+  useEffect(() => {
+    if (wasStreamingRef.current && !isRecordingUI) {
+      const fadeConfig = { duration: 10, easing: Easing.out(Easing.ease) };
+      stopButtonVisible.value = withSpring(0, { damping: 200, stiffness: 600 });
+      lottieVisible.value = withTiming(0, fadeConfig);
+      setTimeout(() => {
+        audioButtonsVisible.value = withSpring(1, { damping: 200, stiffness: 600 });
+        inputVisible.value = withTiming(1, fadeConfig);
+      }, 100);
+      setIsStoppingHomeRecording(false);
+      setRecordingSeconds(0);
+    }
+    wasStreamingRef.current = isRecordingUI;
+  }, [isRecordingUI]);
 
-  // Stop recording and transcribe
+  useEffect(() => {
+    if (!isRecordingUI) {
+      setHomeVoiceSheetDismissed(false);
+    }
+  }, [isRecordingUI]);
+
+  // Stop streaming：发送 end，等待 WS 关闭后由 effect 复位 UI
   const handleStopRecording = async () => {
     setIsStoppingHomeRecording(true);
     try {
-      const audioUri = await stopRecording();
-      if (audioUri) {
-        const transcription = await transcribeAudio(audioUri);
-        setInputText((prev) => (prev ? `${prev} ${transcription}` : transcription));
-      }
+      await stopStreaming();
     } catch (error) {
       Alert.alert(
         '识别失败',
         error instanceof Error ? error.message : '语音转文字失败，请稍后重试'
       );
-    } finally {
-      resetRecordingVisualState();
-      setShowHomeRecordPanel(false);
+    }
+  };
+
+  /** 首页：结束录音并立即收起底部语音面板（LayoutAnimation 过渡） */
+  const handleHomeConfirmVoiceDone = async () => {
+    if (isStoppingHomeRecording) return;
+    Keyboard.dismiss();
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(
+        200,
+        LayoutAnimation.Types.easeInEaseOut,
+        LayoutAnimation.Properties.opacity
+      )
+    );
+    setHomeVoiceSheetDismissed(true);
+    setShowHomeRecordPanel(false);
+    setIsStoppingHomeRecording(true);
+    try {
+      await stopStreaming();
+    } catch (error) {
+      setHomeVoiceSheetDismissed(false);
+      setIsStoppingHomeRecording(false);
+      Alert.alert(
+        '识别失败',
+        error instanceof Error ? error.message : '语音转文字失败，请稍后重试'
+      );
     }
   };
 
   const handleCancelRecording = async () => {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(
+        180,
+        LayoutAnimation.Types.easeInEaseOut,
+        LayoutAnimation.Properties.opacity
+      )
+    );
+    setHomeVoiceSheetDismissed(true);
     setShowHomeRecordPanel(false);
     if (!isRecordingUI) return;
     setIsStoppingHomeRecording(true);
     try {
-      await stopRecording();
+      await cancelStreaming();
+      setInputText(asrPrefixRef.current);
     } catch {
-      // 用户取消录音，不需要额外提示
-    } finally {
-      resetRecordingVisualState();
+      // 用户取消录音
     }
   };
 
   /** 主输入条麦克风：只展开录音面板，不自动开始录音（与设计图一致） */
   const openHomeRecordPanel = () => {
     Keyboard.dismiss();
+    setHomeVoiceSheetDismissed(false);
     setShowHomeRecordPanel(true);
   };
 
-  /** 面板中央按钮：未录音时点击才开始录音；录音中点击为暂停/继续 */
+  /** 面板中央：未录音时开始识别；录音中显示暂停图标，点击即结束本次录音（流式 ASR 无真暂停） */
   const handleHomePanelCenterPress = async () => {
     if (isStoppingHomeRecording) return;
+    if (isRecordingUI) {
+      await handleHomeConfirmVoiceDone();
+      return;
+    }
     try {
-      if (!isRecordingUI) {
-        await startRecording();
-        setIsRecordingUI(true);
-        setRecordingSeconds(0);
-        return;
-      }
-      if (isPaused) {
-        await resumeRecording();
-      } else {
-        await pauseRecording();
-      }
+      asrPrefixRef.current = inputText;
+      await startStreaming();
+      setRecordingSeconds(0);
     } catch (error) {
       Alert.alert('录音失败', error instanceof Error ? error.message : '请检查麦克风权限后重试');
     }
@@ -469,23 +519,27 @@ export const ChatInput = (props: ChatInputProps) => {
   };
 
   const isHomeVariant = props.variant === 'home';
-  const homeRecordPanelOpen = isHomeVariant && (showHomeRecordPanel || isRecordingUI);
+  /** 顶部输入条是否与底部大面板同属「语音会话」态（点✅收起面板后切回紧凑条） */
+  const homeInputVoiceSessionUi =
+    (showHomeRecordPanel || isRecordingUI) && !homeVoiceSheetDismissed;
+  const homeRecordPanelOpen =
+    isHomeVariant && !homeVoiceSheetDismissed && (showHomeRecordPanel || isRecordingUI);
   /** 遮罩高度：输入条 + 间距 + 录音面板 + 安全区（与布局大致对齐，避免挡住面板） */
   const homeRecordPanelBodyPx = 200;
   const homeRecordDimmerBottom = 60 + 8 + homeRecordPanelBodyPx + Math.max(insets.bottom, 12);
   const homeRecordingTime = `${Math.floor(recordingSeconds / 60)
     .toString()
     .padStart(2, '0')} : ${(recordingSeconds % 60).toString().padStart(2, '0')}`;
-  const homeVoiceWaveLevel = normalizeRecordingMetering(metering);
-  const homeVoiceWaveActive = isRecordingUI && !isPaused;
+  const homeVoiceWaveLevel = isRecordingUI ? streamMeterLevel : 0;
+  const homeVoiceWaveActive = isRecordingUI;
 
   useEffect(() => {
-    if (!isRecordingUI || isPaused || isStoppingHomeRecording) return;
+    if (!isRecordingUI || isStoppingHomeRecording) return;
     const timer = setInterval(() => {
       setRecordingSeconds((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
-  }, [isRecordingUI, isPaused, isStoppingHomeRecording]);
+  }, [isRecordingUI, isStoppingHomeRecording]);
 
   useEffect(() => {
     setHomeRecordPanelVisible(homeRecordPanelOpen);
@@ -606,7 +660,7 @@ export const ChatInput = (props: ChatInputProps) => {
             className={`${isHomeVariant ? '' : 'rounded-[25px] border border-border bg-background'}`}>
             {isHomeVariant ? (
               <View className="gap-2 pb-1">
-                {showHomeRecordPanel || isRecordingUI ? (
+                {homeInputVoiceSessionUi ? (
                   <View className="flex-row items-end">
                     <Pressable
                       onPress={() => setShowSourceMenu(true)}
@@ -679,7 +733,8 @@ export const ChatInput = (props: ChatInputProps) => {
                       <View className="flex-row items-center gap-2">
                         <Pressable
                           onPress={openHomeRecordPanel}
-                          className="border-white/28 bg-black/35 h-[34px] w-[34px] items-center justify-center rounded-full border"
+                          disabled={isRecordingUI}
+                          className={`border-white/28 bg-black/35 h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
                           accessibilityRole="button"
                           accessibilityLabel="录音">
                           <Icon name="Mic" size={17} color="white" />
@@ -725,26 +780,16 @@ export const ChatInput = (props: ChatInputProps) => {
 
                   {/* Text Input */}
                   <Animated.View style={inputStyle} pointerEvents={isRecordingUI ? 'none' : 'auto'}>
-                    {isTranscribing ? (
-                      <View
-                        className="px-6 py-5"
-                        style={{ minHeight: 60, justifyContent: 'center' }}>
-                        <ShimmerText text="Transcribing..." className="text-base text-text" />
-                      </View>
-                    ) : (
-                      <TextInput
-                        ref={inputRef}
-                        placeholder={isHomeVariant ? '问一问AI YOU' : 'Ask me anything...'}
-                        placeholderTextColor={
-                          isHomeVariant ? 'rgba(255,255,255,0.65)' : colors.text
-                        }
-                        className={`px-6 py-5 ${isHomeVariant ? 'text-white' : 'text-text'}`}
-                        value={inputText}
-                        onChangeText={setInputText}
-                        style={{ minHeight: 60 }}
-                        multiline
-                      />
-                    )}
+                    <TextInput
+                      ref={inputRef}
+                      placeholder={isHomeVariant ? '问一问AI YOU' : 'Ask me anything...'}
+                      placeholderTextColor={isHomeVariant ? 'rgba(255,255,255,0.65)' : colors.text}
+                      className={`px-6 py-5 ${isHomeVariant ? 'text-white' : 'text-text'}`}
+                      value={inputText}
+                      onChangeText={setInputText}
+                      style={{ minHeight: 60 }}
+                      multiline
+                    />
                   </Animated.View>
                 </View>
                 <View className="flex-row justify-between rounded-b-3xl px-4 pb-2 pt-4">
@@ -862,34 +907,37 @@ export const ChatInput = (props: ChatInputProps) => {
                         ? 'text-[20px] font-medium leading-[26px] text-[#A5A5A5]'
                         : 'text-[15px] leading-[20px] text-[#A5A5A5]'
                     }>
-                    {isRecordingUI
-                      ? isPaused
-                        ? `暂停中 ${homeRecordingTime}`
-                        : homeRecordingTime
-                      : '点击录音'}
+                    {isRecordingUI ? homeRecordingTime : '点击录音'}
                   </ThemedText>
                 </View>
 
                 <View className="min-h-0 flex-1 flex-row items-center justify-center">
                   {isRecordingUI ? (
                     <Pressable
-                      onPress={() => void handleCancelRecording()}
+                      onPress={() => {
+                        handleCancelRecording().catch(() => {});
+                      }}
                       className="absolute left-5 z-10 h-[40px] w-[40px] items-center justify-center rounded-full border border-white/20 bg-[#111827]/90">
                       <Icon name="RefreshCw" size={21} color="white" />
                     </Pressable>
                   ) : null}
                   <Pressable
-                    onPress={() => void handleHomePanelCenterPress()}
+                    onPress={() => {
+                      handleHomePanelCenterPress().catch(() => {});
+                    }}
                     className="h-[72px] w-[72px] items-center justify-center rounded-[36px] border border-[#F5C65A]/80 bg-[#2E3440]">
                     <Icon
-                      name={isRecordingUI && !isPaused ? 'Pause' : 'Mic'}
+                      name={isRecordingUI ? 'Pause' : 'Mic'}
                       size={30}
                       color="#FFFFFF"
+                      strokeWidth={isRecordingUI ? 2.4 : 2}
                     />
                   </Pressable>
                   {isRecordingUI ? (
                     <Pressable
-                      onPress={() => void handleStopRecording()}
+                      onPress={() => {
+                        handleHomeConfirmVoiceDone().catch(() => {});
+                      }}
                       className="absolute right-5 z-10 h-[40px] w-[40px] items-center justify-center rounded-full border border-white/20 bg-[#111827]/90">
                       <Icon name="Check" size={22} color="white" />
                     </Pressable>
@@ -916,7 +964,9 @@ export const ChatInput = (props: ChatInputProps) => {
             style={{ bottom: insets.bottom + floatingTabExtra + 62 }}>
             <Pressable
               className="border-white/8 flex-row items-center border-b py-3"
-              onPress={() => void handleSelectKnowledgeBase()}>
+              onPress={() => {
+                handleSelectKnowledgeBase().catch(() => {});
+              }}>
               <Icon name="LibraryBig" size={20} color="white" />
               <ThemedText className="ml-3 text-[16px] text-white">知识库</ThemedText>
             </Pressable>

@@ -1,7 +1,7 @@
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
-import { useRecording } from '@/hooks/useRecording';
+import { useStreamingAsr } from '@/hooks/useStreamingAsr';
 import {
   analyzeNoteInput,
   createInspirationNote,
@@ -83,11 +83,44 @@ type Props = {
   onRequestClose: () => void;
 };
 
+function joinVoiceParts(...parts: string[]): string {
+  return parts.filter((p) => p.trim().length > 0).join(' ');
+}
+
 export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const { isRecording, isTranscribing, startRecording, stopRecording, transcribeAudio } =
-    useRecording();
+
+  /** 首次语音前输入框原文；voiceAccumulated 非空后保持不变 */
+  const preVoiceTextRef = useRef('');
+  /** 历次流式 session 已落定文本之和 */
+  const voiceAccumulatedRef = useRef('');
+  const wasVoiceStreamingRef = useRef(false);
+
+  const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
+  /** 区分采集中与已点结束、等待 done/OSS */
+  const [voicePhase, setVoicePhase] = useState<'idle' | 'capturing' | 'finalizing'>('idle');
+
+  const {
+    isStreaming: isVoiceStreaming,
+    startStreaming,
+    stopStreaming,
+  } = useStreamingAsr({
+    mode: 'notes',
+    onPartialTranscript: (sessionText) => {
+      setDraft(joinVoiceParts(preVoiceTextRef.current, voiceAccumulatedRef.current, sessionText));
+    },
+    onTranscript: (t, url) => {
+      voiceAccumulatedRef.current = joinVoiceParts(voiceAccumulatedRef.current, t);
+      setDraft(joinVoiceParts(preVoiceTextRef.current, voiceAccumulatedRef.current));
+      if (url?.trim()) {
+        setPendingAudioUrl(url.trim());
+      }
+    },
+    onError: (msg) => {
+      Alert.alert('语音识别', msg);
+    },
+  });
 
   /** 略放大弹窗，避免输入区加高后底部麦克风被裁切 */
   const sheetMaxH = Math.round(windowHeight * 0.93);
@@ -115,6 +148,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setResult(null);
       setSuggestionRound(0);
       setIsSaving(false);
+      preVoiceTextRef.current = '';
+      voiceAccumulatedRef.current = '';
+      setPendingAudioUrl(null);
+      setVoicePhase('idle');
+      wasVoiceStreamingRef.current = false;
     }
   }, [visible]);
 
@@ -124,19 +162,21 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
 
   const handleMicPress = useCallback(async () => {
     try {
-      if (!isRecording) {
-        await startRecording();
-      } else {
-        const uri = await stopRecording();
-        if (uri) {
-          const text = await transcribeAudio(uri);
-          setDraft((prev) => (prev ? `${prev}\n${text}` : text));
+      if (!isVoiceStreaming) {
+        if (!voiceAccumulatedRef.current.trim()) {
+          preVoiceTextRef.current = draft;
         }
+        setVoicePhase('capturing');
+        await startStreaming();
+      } else {
+        setVoicePhase('finalizing');
+        await stopStreaming();
       }
     } catch (e) {
+      setVoicePhase('idle');
       Alert.alert('录音失败', e instanceof Error ? e.message : '请检查麦克风权限后重试');
     }
-  }, [isRecording, startRecording, stopRecording, transcribeAudio]);
+  }, [isVoiceStreaming, draft, startStreaming, stopStreaming]);
 
   const isLikelyChatIntent = useCallback((text: string) => {
     const t = text.trim();
@@ -225,6 +265,13 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     [closeAll, isLikelyChatIntent, mapInspirationToModal, mapScheduleToModal]
   );
 
+  useEffect(() => {
+    if (wasVoiceStreamingRef.current && !isVoiceStreaming) {
+      setVoicePhase('idle');
+    }
+    wasVoiceStreamingRef.current = isVoiceStreaming;
+  }, [isVoiceStreaming]);
+
   const onSave = useCallback(async () => {
     if (!result || isSaving) return;
     setIsSaving(true);
@@ -246,6 +293,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
           ai_content: result.aiContent,
           ai_insights: result.aiInsights,
           tags: result.tags,
+          audio_url: pendingAudioUrl,
         });
       }
       const tab = result.kind === 'schedule' ? 'schedule' : 'inspiration';
@@ -265,7 +313,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     } finally {
       setIsSaving(false);
     }
-  }, [closeAll, isSaving, rawSubmitted, result]);
+  }, [closeAll, isSaving, rawSubmitted, result, pendingAudioUrl]);
 
   const renderInput = () => (
     <View className="px-1 pb-2">
@@ -301,7 +349,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            placeholder={isRecording ? '正在聆听…' : '在此输入，或点击下方麦克风'}
+            placeholder={isVoiceStreaming ? '正在聆听…' : '在此输入，或点击下方麦克风'}
             placeholderTextColor="rgba(255,255,255,0.35)"
             multiline
             className="min-h-[240px] rounded-2xl border border-white/10 bg-black/40 px-3 py-3 text-[15px] text-white"
@@ -328,7 +376,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
               onPress={() => {
                 runAnalyze(draft);
               }}
-              disabled={isTranscribing}
+              disabled={isVoiceStreaming}
               className="active:opacity-85 h-11 w-11 items-center justify-center rounded-full bg-white"
               accessibilityRole="button"
               accessibilityLabel="提交分析">
@@ -341,7 +389,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       <View className="mt-8 items-center pb-1">
         <Pressable
           onPress={() => {
-            handleMicPress();
+            handleMicPress().catch(() => {});
           }}
           accessibilityRole="button"
           accessibilityLabel="语音输入">
@@ -351,15 +399,19 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             end={{ x: 1, y: 1 }}
             style={styles.micOrb}>
             <Icon
-              name={isRecording ? 'Pause' : 'Mic'}
+              name={isVoiceStreaming ? 'Pause' : 'Mic'}
               size={28}
               color="#fff"
-              strokeWidth={isRecording ? 2.5 : 2}
+              strokeWidth={isVoiceStreaming ? 2.5 : 2}
             />
           </LinearGradient>
         </Pressable>
         <ThemedText className="text-white/55 mt-3 text-xs">
-          {isTranscribing ? '正在识别语音…' : isRecording ? '点击结束录音' : '点击录音'}
+          {voicePhase === 'finalizing'
+            ? '正在识别语音…'
+            : isVoiceStreaming
+              ? '点击结束录音'
+              : '点击录音'}
         </ThemedText>
       </View>
     </View>
@@ -604,7 +656,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
                 </Pressable>
               </View>
 
-              {phase === 'input' && isRecording ? (
+              {phase === 'input' && isVoiceStreaming ? (
                 <ThemedText className="shrink-0 px-5 pb-1 text-xs text-cyan-300/90">
                   正在聆听…
                 </ThemedText>

@@ -287,6 +287,8 @@ PODS:
     - Yoga
   - ExpoSharing (14.0.8):
     - ExpoModulesCore
+  - ExpoStreamAudio (0.1.3):
+    - ExpoModulesCore
   - ExpoSystemUI (6.0.9):
     - ExpoModulesCore
   - EXStructuredHeaders (5.0.0)
@@ -2447,6 +2449,7 @@ DEPENDENCIES:
   - ExpoLocation (from `../node_modules/expo-location/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoSharing (from `../node_modules/expo-sharing/ios`)
+  - ExpoStreamAudio (from `../node_modules/expo-stream-audio/ios`)
   - ExpoSystemUI (from `../node_modules/expo-system-ui/ios`)
   - EXStructuredHeaders (from `../node_modules/expo-structured-headers/ios`)
   - EXUpdates (from `../node_modules/expo-updates/ios`)
@@ -2599,6 +2602,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-modules-core"
   ExpoSharing:
     :path: "../node_modules/expo-sharing/ios"
+  ExpoStreamAudio:
+    :path: "../node_modules/expo-stream-audio/ios"
   ExpoSystemUI:
     :path: "../node_modules/expo-system-ui/ios"
   EXStructuredHeaders:
@@ -2797,6 +2802,7 @@ SPEC CHECKSUMS:
   ExpoLocation: d5b61cb4970fa982e39ca94246a206a0c3b812ca
   ExpoModulesCore: f3da4f1ab5a8375d0beafab763739dbee8446583
   ExpoSharing: 0d983394ed4a80334bab5a0d5384f75710feb7e8
+  ExpoStreamAudio: f57661c8657c6be999c5f20d72c124f32f519da7
   ExpoSystemUI: 2ad325f361a2fcd96a464e8574e19935c461c9cc
   EXStructuredHeaders: c951e77f2d936f88637421e9588c976da5827368
   EXUpdates: f86d4af4362c2c83a7bf8531d777e9fba680e2d9

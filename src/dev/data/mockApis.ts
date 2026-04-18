@@ -1229,7 +1229,7 @@ export const apiEndpoints: ApiEndpoint[] = [
     successResponse: JSON.stringify({ text: '识别出的文字内容' }, null, 2),
     errorResponse: JSON.stringify({ error: 'No audio file provided' }, null, 2),
     notes:
-      '需登录态；先上传 OSS 再调腾讯云 ASR（16k_zh）。勿手动设置 Content-Type（由客户端生成 boundary）。',
+      'App 主路径已改为 WS `/api/asr/ws?mode=chat`（PCM 流）；POST 仍可作为回退。需登录态；勿手动设置 multipart boundary。',
   },
   {
     id: 'asr-notes',
@@ -1253,7 +1253,7 @@ export const apiEndpoints: ApiEndpoint[] = [
     ),
     errorResponse: JSON.stringify({ error: 'No audio file provided' }, null, 2),
     notes:
-      '与 /api/asr 请求相同；成功响应多 audio_url，OSS 路径为 user_Inspiration_notebook/{userId}/',
+      'App 主路径已改为 WS `/api/asr/ws?mode=notes`（PCM 流 + done/audio_url）；POST 仍可作为回退。OSS 路径为 user_Inspiration_notebook/{userId}/',
   },
 
   // ===== Uploads =====
