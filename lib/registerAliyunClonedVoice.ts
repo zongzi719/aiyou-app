@@ -1,5 +1,9 @@
 import { uploadRegisterVoiceRecording } from '@/lib/aliyunOssUpload';
-import { createAliyunVoiceFromUrl, waitForAliyunVoiceReady } from '@/lib/aliyunVoiceApi';
+import {
+  createAliyunVoiceFromUrl,
+  updateAliyunVoiceFromUrl,
+  waitForAliyunVoiceReady,
+} from '@/lib/aliyunVoiceApi';
 import { putProfileCache } from '@/lib/profileCache';
 import { updateProfile } from '@/services/profileApi';
 
@@ -12,14 +16,17 @@ function buildVoicePrefix(): string {
 export type CloneAliyunVoiceOptions = {
   localUri: string;
   userId: string;
+  /** 若已有 CosyVoice 复刻音色，应走 update_voice（同一 voice_id），避免重复创建。 */
+  existingVoiceId?: string;
   onStatus?: (text: string) => void;
 };
 
-/** 录音 → OSS → CosyVoice → 轮询 OK（不写资料，便于与 persistVoiceIdAndContinue 统一落库） */
+/** 录音 → OSS → CosyVoice（创建或更新）→ 轮询 OK（不写资料，便于与 persistVoiceIdAndContinue 统一落库） */
 export async function cloneAliyunVoiceFromLocalRecording(
   options: CloneAliyunVoiceOptions
 ): Promise<{ voiceId: string; publicUrl: string; objectKey: string }> {
-  const { localUri, userId, onStatus } = options;
+  const { localUri, userId, onStatus, existingVoiceId } = options;
+  const existing = existingVoiceId?.trim();
 
   onStatus?.('正在上传录音到 OSS…');
   const { publicUrl, objectKey } = await uploadRegisterVoiceRecording({
@@ -28,14 +35,22 @@ export async function cloneAliyunVoiceFromLocalRecording(
     publicReadAcl: true,
   });
 
-  onStatus?.('正在提交声音复刻任务…');
-  const created = await createAliyunVoiceFromUrl({
-    audioUrl: publicUrl,
-    prefix: buildVoicePrefix(),
-  });
+  let voiceIdForPoll: string;
+  if (existing) {
+    onStatus?.('正在提交声音复刻更新任务（update_voice）…');
+    await updateAliyunVoiceFromUrl({ voiceId: existing, audioUrl: publicUrl });
+    voiceIdForPoll = existing;
+  } else {
+    onStatus?.('正在提交声音复刻创建任务…');
+    const created = await createAliyunVoiceFromUrl({
+      audioUrl: publicUrl,
+      prefix: buildVoicePrefix(),
+    });
+    voiceIdForPoll = created.voiceId;
+  }
 
-  onStatus?.(`音色处理中：${created.voiceId}…`);
-  const ready = await waitForAliyunVoiceReady(created.voiceId, {
+  onStatus?.(`音色处理中：${voiceIdForPoll}…`);
+  const ready = await waitForAliyunVoiceReady(voiceIdForPoll, {
     timeoutMs: 6 * 60 * 1000,
     intervalMs: 8_000,
     onProgress: (status) => onStatus?.(`音色处理中：${status}`),
@@ -47,7 +62,7 @@ export async function cloneAliyunVoiceFromLocalRecording(
 export type RegisterAliyunClonedVoiceOptions = CloneAliyunVoiceOptions;
 
 /**
- * 录音 → OSS（regesiter_voice/{userId}/…）→ 公网 URL → CosyVoice 创建音色 → 轮询 OK → PATCH 资料 voice_id
+ * 录音 → OSS（regesiter_voice/{userId}/…）→ 公网 URL → CosyVoice 创建或更新音色 → 轮询 OK → PATCH 资料 voice_id
  */
 export async function registerAliyunClonedVoiceFromRecording(
   options: RegisterAliyunClonedVoiceOptions

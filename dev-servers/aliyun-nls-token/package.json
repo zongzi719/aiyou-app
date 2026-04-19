@@ -1,0 +1,15 @@
+{
+  "name": "aliyun-nls-token-dev-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "开发用：用 AccessKey 调用 CreateToken，供 Luna App 调试阿里云实时语音识别（勿用于生产暴露）",
+  "scripts": {
+    "start": "node index.mjs",
+    "verify-ws": "node verify-ws.mjs"
+  },
+  "dependencies": {
+    "@alicloud/pop-core": "^1.8.0",
+    "ws": "^8.18.0"
+  }
+}

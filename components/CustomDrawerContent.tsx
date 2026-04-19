@@ -17,8 +17,8 @@ import {
   privateThreadsCacheStale,
   LIST_CACHE_POLL_INTERVAL_MS,
 } from '@/lib/listDataCache';
-import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import { searchPrivateThreads, type ThreadSummary } from '@/lib/privateChatApi';
+import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import { fetchProfile, bustAvatarCache, type UserProfile } from '@/services/profileApi';
 
 type Props = {
@@ -78,6 +78,10 @@ function groupThreadsByDate(threads: ThreadSummary[]): ThreadGroup[] {
     }))
     .sort((a, b) => b.sortTs - a.sortTs);
 }
+
+const SHOW_NLS_RT_DEBUG =
+  (typeof __DEV__ !== 'undefined' && __DEV__) ||
+  process.env.EXPO_PUBLIC_ENABLE_NLS_DEBUG === 'true';
 
 function filterThreadsByQuery(threads: ThreadSummary[], query: string): ThreadSummary[] {
   const q = query.trim().toLowerCase();
@@ -226,7 +230,7 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
             </>
           ) : (
             <View className="flex-row items-center">
-              <View className="bg-secondary h-12 w-12 items-center justify-center rounded-full">
+              <View className="h-12 w-12 items-center justify-center rounded-full bg-secondary">
                 <ActivityIndicator size="small" color={colors.highlight} />
               </View>
               <View className="ml-3 h-12 flex-1 justify-center">
@@ -251,6 +255,41 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
           </View>
           <Icon name="ChevronRight" size={16} color="rgba(233,214,164,0.9)" />
         </TouchableOpacity>
+
+        {SHOW_NLS_RT_DEBUG ? (
+          <>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                drawerNavigation.closeDrawer();
+                router.push('/screens/aliyun-realtime-asr-debug');
+              }}
+              className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+              <View className="flex-row items-center gap-2">
+                <Icon name="AudioLines" size={16} color="#A8C8E8" />
+                <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                  实时语音调试
+                </ThemedText>
+              </View>
+              <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                drawerNavigation.closeDrawer();
+                router.push('/screens/expert-call-workflow-debug');
+              }}
+              className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+              <View className="flex-row items-center gap-2">
+                <Icon name="Phone" size={16} color="#A8C8E8" />
+                <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                  专家通话调试
+                </ThemedText>
+              </View>
+              <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+            </TouchableOpacity>
+          </>
+        ) : null}
 
         <View className="mb-3">
           <View className="h-10 flex-row items-center rounded-full bg-[#1E2A39] px-4">

@@ -1,6 +1,9 @@
 const ALIYUN_CUSTOMIZATION_PATH = '/services/audio/tts/customization';
+const ALIYUN_SPEECH_SYNTHESIZER_PATH = '/services/audio/tts/SpeechSynthesizer';
 const DEFAULT_BEIJING_BASE_URL = 'https://dashscope.aliyuncs.com/api/v1';
 const DEFAULT_TARGET_MODEL = 'cosyvoice-v3.5-plus';
+
+const DEFAULT_PREVIEW_LINE = '你好，这是复刻音色的试听效果。';
 
 type CreateVoiceResponse = {
   output?: {
@@ -26,6 +29,26 @@ type QueryVoiceResponse = {
     resource_link?: string;
     gmt_create?: string;
     gmt_modified?: string;
+  };
+  request_id?: string;
+  code?: string;
+  message?: string;
+};
+
+type UpdateVoiceResponse = {
+  output?: Record<string, unknown>;
+  request_id?: string;
+  code?: string;
+  message?: string;
+};
+
+type SpeechSynthResponse = {
+  output?: {
+    finish_reason?: string;
+    audio?: {
+      url?: string;
+      data?: string;
+    };
   };
   request_id?: string;
   code?: string;
@@ -157,6 +180,98 @@ export async function createAliyunVoiceFromUrl(params: {
     requestId: result.request_id,
     status: result.output?.status,
   };
+}
+
+/**
+ * 声音复刻：用新音频更新已有音色（voice_id 不变）。声音设计类音色不支持。
+ * @see https://help.aliyun.com/zh/model-studio/cosyvoice-clone-design-api
+ */
+export async function updateAliyunVoiceFromUrl(params: {
+  voiceId: string;
+  audioUrl: string;
+}): Promise<{ requestId?: string }> {
+  const voiceId = params.voiceId.trim();
+  const audioUrl = params.audioUrl.trim();
+  if (!voiceId) {
+    throw new Error('voice_id 不能为空。');
+  }
+  if (!audioUrl) {
+    throw new Error('请输入公网可访问的录音 URL。');
+  }
+  if (!/^https?:\/\//i.test(audioUrl)) {
+    throw new Error('录音 URL 格式不正确，请以 http:// 或 https:// 开头。');
+  }
+  const result = await postCustomization<UpdateVoiceResponse>({
+    model: 'voice-enrollment',
+    input: {
+      action: 'update_voice',
+      voice_id: voiceId,
+      url: audioUrl,
+    },
+  });
+  if (result.code || result.message) {
+    throw new Error(normalizeAliyunError(result, '更新音色失败'));
+  }
+  return { requestId: result.request_id };
+}
+
+/**
+ * CosyVoice 非流式 HTTP 合成，返回短期有效的音频 URL（约 24h）。
+ * @see https://help.aliyun.com/zh/model-studio/non-realtime-cosyvoice-api
+ */
+export async function synthesizeAliyunCosyVoiceToAudioUrl(params: {
+  voiceId: string;
+  text?: string;
+  targetModel?: string;
+}): Promise<{ audioUrl: string; requestId?: string }> {
+  const { apiKey, baseUrl, targetModel: defaultTargetModel } = getAliyunVoiceConfig();
+  const model = params.targetModel?.trim() || defaultTargetModel;
+  const voice = params.voiceId.trim();
+  if (!voice) {
+    throw new Error('voice_id 不能为空。');
+  }
+  const text = (params.text?.trim() || DEFAULT_PREVIEW_LINE).slice(0, 600);
+  const url = `${baseUrl}${ALIYUN_SPEECH_SYNTHESIZER_PATH}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      input: {
+        text,
+        voice,
+        format: 'mp3',
+        sample_rate: 24000,
+      },
+    }),
+  });
+  const raw = await response.text().catch(() => '');
+  let parsed: unknown = {};
+  try {
+    parsed = raw ? JSON.parse(raw) : {};
+  } catch {
+    if (!response.ok) {
+      throw new Error(`语音合成请求失败 (${response.status})：${raw.slice(0, 300)}`);
+    }
+    throw new Error(`语音合成响应解析失败：${raw.slice(0, 300)}`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      normalizeAliyunError(parsed, `语音合成请求失败 (${response.status})：${raw.slice(0, 300)}`)
+    );
+  }
+  const result = parsed as SpeechSynthResponse;
+  if (result.code || result.message) {
+    throw new Error(normalizeAliyunError(result, '语音合成失败'));
+  }
+  const audioUrl = result.output?.audio?.url?.trim() || '';
+  if (!audioUrl) {
+    throw new Error('语音合成成功但未返回音频 URL。');
+  }
+  return { audioUrl, requestId: result.request_id };
 }
 
 export async function queryAliyunVoice(voiceId: string): Promise<AliyunVoiceDetails> {

@@ -14,6 +14,15 @@ export interface UserProfile {
   voice_id?: string;
 }
 
+/** 接口可能返回 camelCase 的 voiceId，统一归一到 voice_id */
+type UserProfileWire = UserProfile & { voiceId?: string };
+
+function normalizeProfileUser(user: UserProfileWire): UserProfile {
+  const merged = user.voice_id?.trim() || user.voiceId?.trim() || undefined;
+  const { voiceId: _omitVoiceId, ...rest } = user;
+  return merged != null ? { ...rest, voice_id: merged } : rest;
+}
+
 export interface UpdateProfileBody {
   display_name?: string;
   avatar_url?: string;
@@ -58,8 +67,8 @@ export async function fetchProfile(): Promise<UserProfile> {
   const [base, headers] = await Promise.all([getBaseUrl(), getAuthHeaders()]);
   const res = await fetch(`${base}/api/auth/profile`, { headers });
   if (!res.ok) throw new Error(`获取资料失败 (${res.status})`);
-  const json = (await res.json()) as { user: UserProfile };
-  return json.user;
+  const json = (await res.json()) as { user: UserProfileWire };
+  return normalizeProfileUser(json.user);
 }
 
 /** PATCH /api/auth/profile */
@@ -71,8 +80,8 @@ export async function updateProfile(body: UpdateProfileBody): Promise<UserProfil
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`保存失败 (${res.status})`);
-  const json = (await res.json()) as { user: UserProfile };
-  return json.user;
+  const json = (await res.json()) as { user: UserProfileWire };
+  return normalizeProfileUser(json.user);
 }
 
 /** POST /api/auth/avatar — multipart/form-data */
@@ -93,8 +102,8 @@ export async function uploadAvatar(uri: string, mimeType = 'image/jpeg'): Promis
     body: formData,
   });
   if (!res.ok) throw new Error(`头像上传失败 (${res.status})`);
-  const json = (await res.json()) as { user: UserProfile };
-  return json.user;
+  const json = (await res.json()) as { user: UserProfileWire };
+  return normalizeProfileUser(json.user);
 }
 
 /** 防止 OSS 缓存旧头像，URL 末尾追加时间戳 */
