@@ -14,7 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
 import { persistAuthSession } from '@/lib/authSession';
+import { putProfileCache } from '@/lib/profileCache';
 import { postUserLogin } from '@/lib/userLoginApi';
+import { fetchProfile, needsAiBossModelOnboarding } from '@/services/profileApi';
 
 export default function LoginScreen() {
   const [account, setAccount] = useState('');
@@ -83,6 +85,17 @@ export default function LoginScreen() {
       tenantId: tenant_id,
       workspaceId: workspace_id,
     });
+
+    try {
+      const profile = await fetchProfile();
+      putProfileCache(profile);
+      if (needsAiBossModelOnboarding(profile)) {
+        router.replace('/screens/model-init?postLogin=1');
+        return;
+      }
+    } catch {
+      /* 资料拉取失败时不阻断登录，仍进入首页 */
+    }
     router.replace('/');
   };
 

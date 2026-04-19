@@ -48,6 +48,15 @@ export function formatAiLearningDataLine(docCount: number, conversationCount: nu
   return `AI学习数据 - ${docCount}份资料 - ${conversationCount}次访谈对话`;
 }
 
+/** 未完成 AI BOSS 模型初始化：缺音色或头像时需先走 model-init */
+export function needsAiBossModelOnboarding(
+  profile: Pick<UserProfile, 'voice_id' | 'avatar_url'>
+): boolean {
+  const hasVoice = Boolean(profile.voice_id?.trim());
+  const hasAvatar = Boolean(profile.avatar_url?.trim());
+  return !hasVoice || !hasAvatar;
+}
+
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { token } = await getAuthSession();
   if (!token) throw new Error('未登录');

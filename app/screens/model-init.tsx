@@ -4,7 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -345,6 +345,8 @@ type ChatRow =
   | { id: string; kind: 'memory'; title: string; tag: string; body: string };
 
 export default function ModelInitScreen() {
+  const { postLogin } = useLocalSearchParams<{ postLogin?: string }>();
+  const isPostLoginOnboarding = postLogin === '1';
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<Phase>('intro');
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -1297,7 +1299,16 @@ export default function ModelInitScreen() {
                   已完成初次见面沟通，接下来将根据你上传的所有数据生成老板数字记忆模型。
                 </ThemedText>
                 <View className="mt-14 w-full">
-                  <GoldButton label="开始" onPress={() => router.back()} />
+                  <GoldButton
+                    label="开始"
+                    onPress={() => {
+                      if (isPostLoginOnboarding) {
+                        router.replace('/');
+                        return;
+                      }
+                      router.back();
+                    }}
+                  />
                 </View>
               </View>
             ) : null}
