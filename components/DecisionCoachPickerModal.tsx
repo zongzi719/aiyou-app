@@ -77,7 +77,7 @@ export default function DecisionCoachPickerModal({
           <View className="flex-row items-center justify-between">
             <View className="min-w-0">
               <ThemedText className="text-[18px] font-semibold text-white">选择教练</ThemedText>
-              <ThemedText className="text-white/55 mt-1 text-[12px]">
+              <ThemedText className="mt-1 text-[12px] text-[#6A7282]">
                 最多选择三个教练 ({selectedCount}/3)
               </ThemedText>
             </View>
@@ -93,8 +93,8 @@ export default function DecisionCoachPickerModal({
                 <Pressable
                   key={c.id}
                   onPress={() => toggleCoach(c.id)}
-                  className={`rounded-2xl border px-4 py-3 ${
-                    selected ? 'border-white/18 bg-white/6' : 'bg-white/4 border-white/10'
+                  className={`rounded-2xl px-4 py-3 ${
+                    selected ? 'bg-[#2B3239]' : 'bg-white/4 border border-white/10'
                   }`}
                   accessibilityRole="button"
                   accessibilityLabel={`选择教练 ${c.name}`}>
@@ -112,7 +112,7 @@ export default function DecisionCoachPickerModal({
                         </ThemedText>
                       </View>
                       <ThemedText
-                        className="text-white/55 mt-1 text-[12px] leading-[16px]"
+                        className="mt-1 text-[12px] leading-[16px] text-[#A6A6A6]"
                         numberOfLines={2}>
                         {c.tagline}
                       </ThemedText>

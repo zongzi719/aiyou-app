@@ -240,7 +240,7 @@ export default function ApiManagement() {
                             {count}处已调用
                           </span>
                         ) : (
-                          <span style={{ color: '#404040', fontSize: 12 }}>未调用</span>
+                          <span style={{ color: '#9ca3af', fontSize: 12 }}>未调用</span>
                         )}
                       </td>
                       <td style={S.td}>

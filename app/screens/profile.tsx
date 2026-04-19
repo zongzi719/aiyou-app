@@ -262,7 +262,7 @@ export default function ProfileScreen() {
                 }
                 size="xl"
               />
-              <View className="absolute bottom-0 right-0 h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-primary">
+              <View className="bg-highlight absolute bottom-0 right-0 h-7 w-7 items-center justify-center rounded-full border-2 border-background">
                 {avatarUploading ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (

@@ -429,7 +429,7 @@ export default function MemoryScheduleDetailScreen() {
                     )
                   }
                   className={`h-8 w-8 items-center justify-center rounded-full border ${
-                    task.is_completed ? 'border-primary bg-primary' : 'border-border'
+                    task.is_completed ? 'border-highlight bg-highlight' : 'border-border'
                   }`}>
                   {task.is_completed ? <Icon name="Check" size={14} color="#fff" /> : null}
                 </TouchableOpacity>
@@ -505,7 +505,7 @@ export default function MemoryScheduleDetailScreen() {
                     className="mb-2 flex-row items-start gap-3 rounded-xl border border-border bg-secondary px-3 py-3">
                     <View
                       className={`mt-0.5 h-6 w-6 items-center justify-center rounded-full border ${
-                        task.is_completed ? 'border-primary bg-primary' : 'border-border'
+                        task.is_completed ? 'border-highlight bg-highlight' : 'border-border'
                       }`}>
                       {task.is_completed ? <Icon name="Check" size={14} color="#fff" /> : null}
                     </View>

@@ -45,11 +45,11 @@ const BusinessSwitch = () => {
           shadowRadius: 3.84, // iOS shadow radius
           elevation: 8, // Android shadow
         }}
-        className="flex w-[220px] flex-row items-center justify-center rounded-full bg-primary py-3">
+        className="flex w-[220px] flex-row items-center justify-center rounded-full border border-white/30 bg-white/15 py-3">
         <Animated.View style={{ transform: [{ rotate: spin }] }}>
-          <Icon name="RefreshCw" size={18} color={colors.invert} />
+          <Icon name="RefreshCw" size={18} color={colors.text} />
         </Animated.View>
-        <Text className="ml-3 text-base font-medium text-invert">
+        <Text className="text-primary ml-3 text-base font-medium">
           {isBusinessMode ? 'Switch to browsing' : 'Switch to business'}
         </Text>
       </Pressable>

@@ -252,11 +252,11 @@ export default function ExpertCallWorkflowDebugScreen() {
             onPress={() => {
               startSession().catch(() => null);
             }}
-            className="flex-1 items-center rounded-2xl bg-primary py-3.5">
+            className="bg-highlight flex-1 items-center rounded-2xl py-3.5">
             {isSessionActive ? (
-              <ActivityIndicator color="#111" />
+              <ActivityIndicator color="#ffffff" />
             ) : (
-              <ThemedText className="text-base font-semibold text-[#111]">开始识别</ThemedText>
+              <ThemedText className="text-base font-semibold text-primary">开始识别</ThemedText>
             )}
           </TouchableOpacity>
           <TouchableOpacity
@@ -371,11 +371,11 @@ export default function ExpertCallWorkflowDebugScreen() {
           onPress={() => {
             runWorkflow().catch(() => {});
           }}
-          className={`mt-6 items-center rounded-2xl py-4 ${canRun ? 'bg-primary' : 'bg-secondary opacity-50'}`}>
+          className={`mt-6 items-center rounded-2xl py-4 ${canRun ? 'bg-highlight' : 'bg-secondary opacity-50'}`}>
           {workflowLoading ? (
-            <ActivityIndicator color="#111" />
+            <ActivityIndicator color="#ffffff" />
           ) : (
-            <ThemedText className="text-base font-semibold text-[#111]">调用工作流</ThemedText>
+            <ThemedText className="text-base font-semibold text-primary">调用工作流</ThemedText>
           )}
         </TouchableOpacity>
 
@@ -437,7 +437,7 @@ export default function ExpertCallWorkflowDebugScreen() {
             <ThemedText className="text-sm text-subtext">TTS 音频</ThemedText>
             <TouchableOpacity
               accessibilityRole="button"
-              className="mt-3 flex-row items-center gap-2 self-start rounded-xl bg-primary px-4 py-3"
+              className="bg-highlight mt-3 flex-row items-center gap-2 self-start rounded-xl px-4 py-3"
               onPress={() => {
                 playRemoteAudio(lastAudioUrl).catch((err) => {
                   const msg = err instanceof Error ? err.message : '无法播放该 URL';
@@ -447,8 +447,8 @@ export default function ExpertCallWorkflowDebugScreen() {
                   );
                 });
               }}>
-              <Icon name="Play" size={20} color="#111" />
-              <ThemedText className="text-base font-semibold text-[#111]">试听 / 重新播放</ThemedText>
+              <Icon name="Play" size={20} color="#ffffff" />
+              <ThemedText className="text-base font-semibold text-primary">试听 / 重新播放</ThemedText>
             </TouchableOpacity>
             <ThemedText className="mt-2 break-all font-mono text-xs text-primary" selectable>
               {lastAudioUrl}

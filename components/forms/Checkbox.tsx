@@ -4,8 +4,6 @@ import { View, Pressable } from 'react-native';
 import Icon from '../Icon';
 import ThemedText from '../ThemedText';
 
-import useThemeColors from '@/app/contexts/ThemeColors';
-
 interface CheckboxProps {
   label: string;
   checked?: boolean;
@@ -21,8 +19,6 @@ const Checkbox: React.FC<CheckboxProps> = ({
   error,
   className = '',
 }) => {
-  const colors = useThemeColors();
-
   // Internal state if no onChange provided (for mockups)
   const [internalChecked, setInternalChecked] = React.useState(checked);
 
@@ -43,14 +39,10 @@ const Checkbox: React.FC<CheckboxProps> = ({
         <View
           className={`
           flex h-6 w-6 items-center justify-center rounded border
-          ${isChecked ? 'border-highlight bg-primary' : 'border-border/40'}
+          ${isChecked ? 'border-highlight bg-highlight' : 'border-border/40'}
           ${error ? 'border-red-500' : ''}
         `}>
-          {isChecked && (
-            <View className="h-full w-full items-center justify-center rounded border-[2px] border-border bg-highlight">
-              <Icon name="Check" size={14} color="#fff" />
-            </View>
-          )}
+          {isChecked ? <Icon name="Check" size={14} color="#fff" /> : null}
         </View>
         <ThemedText className="ml-2">{label}</ThemedText>
       </Pressable>

@@ -130,7 +130,7 @@ const TopSwitch = ({
       </View>
 
       <View className="flex-row items-center gap-2">
-        {activePage === 'memory' && onInitModelPress ? (
+        {activePage === 'aiCeo' && onInitModelPress ? (
           <TouchableOpacity
             activeOpacity={0.85}
             className="rounded-full border border-[#B98C44]/60 bg-[#081A33] px-3 py-1.5"
@@ -816,7 +816,7 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
                     className="flex-row items-center gap-2 py-1">
                     <View
                       className={`h-5 w-5 items-center justify-center rounded-full border ${
-                        task.is_completed ? 'border-primary bg-primary' : 'border-border'
+                        task.is_completed ? 'border-highlight bg-highlight' : 'border-border'
                       }`}>
                       {task.is_completed ? <Icon name="Check" size={12} color="#fff" /> : null}
                     </View>

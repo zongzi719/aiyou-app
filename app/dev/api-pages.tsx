@@ -321,9 +321,9 @@ export default function ApiPagePreview() {
                         <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#a3a3a3' }}>
                           {api.path}
                         </span>
-                        <span style={{ fontSize: 12, color: '#525252' }}>{api.name}</span>
+                        <span style={{ fontSize: 12, color: '#a3a3a3' }}>{api.name}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: '#525252' }}>{api.description}</div>
+                      <div style={{ fontSize: 11, color: '#a3a3a3' }}>{api.description}</div>
                     </div>
                   );
                 })}

@@ -64,7 +64,7 @@ const Card: React.FC<CardProps> = ({
   rating,
   badge,
   hasFavorite = false,
-  badgeColor = '#000000',
+  badgeColor = '#3f3f46',
   imageHeight = 200,
   showOverlay = true,
   overlayGradient = ['transparent', 'rgba(0,0,0,0.3)'] as readonly [string, string],
@@ -126,7 +126,7 @@ const Card: React.FC<CardProps> = ({
     if (!price) return null;
     return (
       <ThemedText
-        className={`text-sm font-bold ${variant === 'overlay' ? 'text-white' : 'text-invert'}`}>
+        className={`text-sm font-bold ${variant === 'overlay' ? 'text-white' : 'text-primary'}`}>
         {price}
       </ThemedText>
     );

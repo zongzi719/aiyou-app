@@ -53,11 +53,11 @@ export default function AliyunRealtimeAsrDebugScreen() {
             onPress={() => {
               startSession().catch(() => null);
             }}
-            className="flex-1 items-center rounded-2xl bg-primary py-3.5">
+            className="bg-highlight flex-1 items-center rounded-2xl py-3.5">
             {isSessionActive ? (
-              <ActivityIndicator color="#111" />
+              <ActivityIndicator color="#ffffff" />
             ) : (
-              <ThemedText className="text-base font-semibold text-[#111]">开始</ThemedText>
+              <ThemedText className="text-base font-semibold text-primary">开始</ThemedText>
             )}
           </TouchableOpacity>
           <TouchableOpacity

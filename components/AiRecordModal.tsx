@@ -18,8 +18,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useTheme } from '@/app/contexts/ThemeContext';
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
+import { themes } from '@/utils/color-theme';
 import { useStreamingAsr } from '@/hooks/useStreamingAsr';
 import {
   analyzeNoteInput,
@@ -35,7 +37,6 @@ import { setPendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 
 const GOLD = '#F5D34F';
 /** 白底 / 金底按钮上的文字，避免与 ThemedText 默认 text-primary 冲突导致看不清 */
-const FOOTER_LABEL_ON_LIGHT = '#111111';
 const CYAN_GLOW = 'rgba(34, 211, 238, 0.45)';
 
 const SUGGESTION_ROUNDS: string[][] = [
@@ -89,6 +90,7 @@ function joinVoiceParts(...parts: string[]): string {
 
 export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const { height: windowHeight } = useWindowDimensions();
 
   /** 首次语音前输入框原文；voiceAccumulated 非空后保持不变 */
@@ -350,9 +352,10 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             value={draft}
             onChangeText={setDraft}
             placeholder={isVoiceStreaming ? '正在聆听…' : '在此输入，或点击下方麦克风'}
-            placeholderTextColor="rgba(255,255,255,0.35)"
+            placeholderTextColor="rgba(255,255,255,0.85)"
             multiline
             className="min-h-[240px] rounded-2xl border border-white/10 bg-black/40 px-3 py-3 text-[15px] text-white"
+            style={{ color: '#ffffff' }}
             textAlignVertical="top"
           />
           <View className="mt-3 flex-row items-center justify-between px-1">
@@ -377,10 +380,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
                 runAnalyze(draft);
               }}
               disabled={isVoiceStreaming}
-              className="active:opacity-85 h-11 w-11 items-center justify-center rounded-full bg-white"
+              className="active:opacity-85 h-11 w-11 items-center justify-center rounded-full"
+              style={{ backgroundColor: GOLD }}
               accessibilityRole="button"
               accessibilityLabel="提交分析">
-              <Icon name="ArrowUp" size={22} color="#111" strokeWidth={2.2} />
+              <Icon name="ArrowUp" size={22} color="#ffffff" strokeWidth={2.2} />
             </Pressable>
           </View>
         </View>
@@ -406,7 +410,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             />
           </LinearGradient>
         </Pressable>
-        <ThemedText className="text-white/55 mt-3 text-xs">
+        <ThemedText className="mt-3 text-xs" style={{ color: '#ffffff' }}>
           {voicePhase === 'finalizing'
             ? '正在识别语音…'
             : isVoiceStreaming
@@ -468,9 +472,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         </View>
         {p.todos.length > 0 && (
           <View className="mt-4">
-            <ThemedText className="text-white/45 mb-2 text-xs">待办</ThemedText>
+            <ThemedText className="mb-2 text-xs" style={{ color: '#ffffff' }}>
+              待办
+            </ThemedText>
             {p.todos.map((t) => (
-              <ThemedText key={t} className="text-white/85 mt-1 text-sm">
+              <ThemedText key={t} className="mt-1 text-sm" style={{ color: '#ffffff' }}>
                 · {t}
               </ThemedText>
             ))}
@@ -478,11 +484,15 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         )}
         {p.actionPoints.length > 0 && (
           <View className="mt-4">
-            <ThemedText className="text-white/45 mb-2 text-xs">行动要点</ThemedText>
+            <ThemedText className="mb-2 text-xs" style={{ color: '#ffffff' }}>
+              行动要点
+            </ThemedText>
             {p.actionPoints.map((t) => (
               <View key={t} className="mt-2 flex-row gap-2">
                 <Icon name="Lightbulb" size={16} color={GOLD} />
-                <ThemedText className="text-white/85 flex-1 text-sm">{t}</ThemedText>
+                <ThemedText className="flex-1 text-sm" style={{ color: '#ffffff' }}>
+                  {t}
+                </ThemedText>
               </View>
             ))}
           </View>
@@ -521,8 +531,12 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         </View>
         {p.coreIdea ? (
           <View className="mt-4">
-            <ThemedText className="text-white/45 mb-1 text-xs">核心想法</ThemedText>
-            <ThemedText className="text-white/85 text-sm leading-6">{p.coreIdea}</ThemedText>
+            <ThemedText className="mb-1 text-xs" style={{ color: '#ffffff' }}>
+              核心想法
+            </ThemedText>
+            <ThemedText className="text-sm leading-6" style={{ color: '#ffffff' }}>
+              {p.coreIdea}
+            </ThemedText>
           </View>
         ) : null}
         {p.missingFields.length > 0 && (
@@ -542,9 +556,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         ) : null}
         {p.todos.length > 0 && (
           <View className="mt-4">
-            <ThemedText className="text-white/45 mb-2 text-xs">待办事项</ThemedText>
+            <ThemedText className="mb-2 text-xs" style={{ color: '#ffffff' }}>
+              待办事项
+            </ThemedText>
             {p.todos.map((t) => (
-              <ThemedText key={t} className="text-white/85 mt-1 text-sm">
+              <ThemedText key={t} className="mt-1 text-sm" style={{ color: '#ffffff' }}>
                 · {t}
               </ThemedText>
             ))}
@@ -552,11 +568,15 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         )}
         {p.conclusions.length > 0 && (
           <View className="mt-4">
-            <ThemedText className="text-white/45 mb-2 text-xs">关键结论</ThemedText>
+            <ThemedText className="mb-2 text-xs" style={{ color: '#ffffff' }}>
+              关键结论
+            </ThemedText>
             {p.conclusions.map((t) => (
               <View key={t} className="mt-2 flex-row gap-2">
                 <Icon name="Lightbulb" size={16} color={GOLD} />
-                <ThemedText className="text-white/85 flex-1 text-sm">{t}</ThemedText>
+                <ThemedText className="flex-1 text-sm" style={{ color: '#ffffff' }}>
+                  {t}
+                </ThemedText>
               </View>
             ))}
           </View>
@@ -578,7 +598,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
       <Pressable
         onPress={closeAll}
-        className="active:opacity-85 flex-1 items-center rounded-full bg-white py-3"
+        className="active:opacity-85 flex-1 items-center rounded-full border border-white/25 bg-white/12 py-3"
         accessibilityRole="button"
         accessibilityLabel="取消">
         <Text style={styles.footerBtnLabelLight}>取消</Text>
@@ -592,7 +612,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         style={{ backgroundColor: GOLD }}
         accessibilityRole="button"
         accessibilityLabel="保存">
-        <Text style={styles.footerBtnLabelLight}>{isSaving ? '保存中…' : '保存'}</Text>
+        <Text style={styles.footerBtnLabelOnGold}>{isSaving ? '保存中…' : '保存'}</Text>
       </Pressable>
       <Pressable
         onPress={() => {
@@ -617,7 +637,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       onRequestClose={closeAll}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.kavRoot}>
+        style={[styles.kavRoot, themes[theme]]}>
         <View style={styles.overlayRoot}>
           <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFillObject} />
           <Pressable
@@ -738,7 +758,12 @@ const styles = StyleSheet.create({
   footerBtnLabelLight: {
     fontSize: 14,
     fontWeight: '600',
-    color: FOOTER_LABEL_ON_LIGHT,
+    color: '#f4f4f5',
+  },
+  footerBtnLabelOnGold: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   footerBtnLabelDark: {
     fontSize: 14,

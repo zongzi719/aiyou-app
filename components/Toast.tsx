@@ -70,12 +70,12 @@ const Toast: React.FC<ToastProps> = ({
           shadowColor: colors.text,
         },
       ]}>
-      <View className="flex-row items-center justify-center rounded-xl bg-invert py-6">
+      <View className="flex-row items-center justify-center rounded-xl border border-white/15 bg-secondary py-6">
         <View
           className="mr-2 h-2 w-2 rounded-full"
           style={{ backgroundColor: getBackgroundColor() }}
         />
-        <Text className="text-invert">{message}</Text>
+        <Text className="text-primary">{message}</Text>
       </View>
     </Animated.View>
   );

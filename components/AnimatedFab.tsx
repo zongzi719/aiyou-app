@@ -207,7 +207,7 @@ const AnimatedFab: React.FC<AnimatedFabProps> = ({
 
       <TouchableWithoutFeedback>
         <Animated.View
-          className={`absolute z-10 items-center justify-center bg-primary shadow-md shadow-black/30
+          className={`absolute z-10 items-center justify-center bg-highlight shadow-md shadow-black/30
             ${getPositionClasses()}
             ${className}`}
           style={[

@@ -685,7 +685,9 @@ const HomeScreen = () => {
                       <ThemedText className="text-[32px] leading-[45px] text-white">
                         我是AI YOU
                       </ThemedText>
-                      <ThemedText className="mt-1 text-[16px] leading-[22px] text-white/75">
+                      <ThemedText
+                        className="mt-1 text-[16px] leading-[22px]"
+                        style={{ color: 'rgba(255,255,255,0.78)' }}>
                         你的分身已经准备用你的方式思考
                       </ThemedText>
 
@@ -717,10 +719,14 @@ const HomeScreen = () => {
                       </View>
 
                       <View className="mt-12">
-                        <ThemedText className="text-white/85 text-[16px] leading-[22px]">
+                        <ThemedText
+                          className="text-[16px] leading-[22px]"
+                          style={{ color: 'rgba(255,255,255,0.9)' }}>
                           或者随便聊点什么
                         </ThemedText>
-                        <ThemedText className="text-white/85 text-[16px] leading-[22px]">
+                        <ThemedText
+                          className="text-[16px] leading-[22px]"
+                          style={{ color: 'rgba(255,255,255,0.9)' }}>
                           --我都能接得住
                         </ThemedText>
                       </View>

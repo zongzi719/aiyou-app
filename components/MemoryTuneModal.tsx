@@ -1,3 +1,4 @@
+import { Audio } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -23,9 +24,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import useThemeColors from '@/app/contexts/ThemeColors';
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
-import { useRecording } from '@/hooks/useRecording';
+import { useStreamingAsr } from '@/hooks/useStreamingAsr';
+import {
+  completeBailianWorkflowStream,
+  completeBailianWorkflowSync,
+  isBailianWorkflowIncrementalOutputEnabled,
+  runTypewriter,
+} from '@/lib/bailianAppCompletion';
 import { peekMemoryMemories, putMemoryMemories } from '@/lib/listDataCache';
+import { preferHttpsMediaUrl } from '@/lib/preferHttpsMediaUrl';
 import { translateCategory, type UserMemory, memoryApi } from '@/services/memoryApi';
+import { fetchProfile } from '@/services/profileApi';
 
 type TuneMessage = {
   id: string;
@@ -44,6 +53,11 @@ type Props = {
 };
 
 const cloneIntro = '学习你的语气、思维。和我说话，我会越来越像你。';
+
+/** 专家通话：说完话后静音多久自动截断并发送（毫秒） */
+const EXPERT_SILENCE_MS = 1000;
+/** expo-stream-audio 音量 0–1，略高于底噪视为在说话 */
+const EXPERT_SPEECH_LEVEL_THRESHOLD = 0.08;
 
 function inferCategory(input: string): { category: string; dimensionLabel: string } {
   if (/决策|判断|取舍|选择|优先级/.test(input))
@@ -64,25 +78,7 @@ function buildCandidate(content: string): string {
   return `我倾向于：${text.slice(0, 40)}...`;
 }
 
-function buildCloneReply(input: string, memories: UserMemory[]): string {
-  const sample = memories
-    .slice(0, 2)
-    .map((m) => m.content)
-    .filter(Boolean)
-    .join('；');
-  if (sample) {
-    return `我理解了。结合你之前的记忆（${sample}），你刚才这句话更像是在强调「${input.slice(0, 20)}${input.length > 20 ? '...' : ''}」。`;
-  }
-  return '我理解了，这句话体现了你稳定的思考倾向。我先帮你抽取成一条可沉淀记忆。';
-}
-
 type ExpertCallLine = { id: string; role: 'user' | 'clone'; text: string };
-
-function buildExpertLiveReply(userText: string): string {
-  const t = userText.trim();
-  if (t.length < 6) return '好的，我在听，你继续说说你的想法。';
-  return `收到。关于「${t.slice(0, 28)}${t.length > 28 ? '…' : ''}」，我先记下了，还想补充吗？`;
-}
 
 function formatCallDuration(totalSec: number): string {
   const m = Math.floor(totalSec / 60);
@@ -90,18 +86,38 @@ function formatCallDuration(totalSec: number): string {
   return `${String(m).padStart(2, '0')} : ${String(s).padStart(2, '0')}`;
 }
 
+function formatWorkflowError(e: unknown): string {
+  if (e instanceof Error) return e.message || '未知错误';
+  if (typeof e === 'string') return e || '未知错误';
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return '工作流调用失败';
+  }
+}
+
 export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { height: windowHeight } = useWindowDimensions();
-  const { isRecording, isTranscribing, startRecording, stopRecording, transcribeAudio, metering } =
-    useRecording();
+
+  const submitMessageRef = useRef<(text: string) => void>(() => {});
+  const expertCallOpenRef = useRef(false);
+  const expertCallMutedRef = useRef(true);
+  const expertVoiceIdRef = useRef('');
+  const expertFlushResolversRef = useRef<((t: string) => void)[]>([]);
+  const expertWorkflowAbortRef = useRef<AbortController | null>(null);
+  const expertWorkflowLoadingRef = useRef(false);
+  const handleExpertSegmentTextRef = useRef<(raw: string) => Promise<void>>(async () => {});
+  const soundRef = useRef<Audio.Sound | null>(null);
+
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [voicePanelVisible, setVoicePanelVisible] = useState(false);
   const [voiceWillCancel, setVoiceWillCancel] = useState(false);
   const [voiceStartY, setVoiceStartY] = useState<number | null>(null);
+  const [holdAsrPreview, setHoldAsrPreview] = useState('');
   const [messages, setMessages] = useState<TuneMessage[]>([]);
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [pendingMemory, setPendingMemory] = useState<TuneMessage['memory'] | null>(null);
@@ -111,10 +127,31 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const [expertCallMuted, setExpertCallMuted] = useState(true);
   const [expertCallSeconds, setExpertCallSeconds] = useState(0);
   const [expertCallLines, setExpertCallLines] = useState<ExpertCallLine[]>([]);
+  const [expertVoiceId, setExpertVoiceId] = useState('');
+  const [expertWorkflowLoading, setExpertWorkflowLoading] = useState(false);
+
   const expertLinesRef = useRef<ExpertCallLine[]>([]);
   const expertRoundHasSpeechRef = useRef(false);
   const expertSilenceStartRef = useRef<number | null>(null);
-  const expertAutoSendingRef = useRef(false);
+  const expertAutoTruncatingRef = useRef(false);
+  const expertRestartAfterWorkflowRef = useRef(true);
+  const pendingMemoryMessageIdRef = useRef<string | null>(null);
+
+  const [editingPendingMemory, setEditingPendingMemory] = useState(false);
+  const [memoryEditDraft, setMemoryEditDraft] = useState('');
+
+  useEffect(() => {
+    expertCallOpenRef.current = expertCallOpen;
+  }, [expertCallOpen]);
+  useEffect(() => {
+    expertCallMutedRef.current = expertCallMuted;
+  }, [expertCallMuted]);
+  useEffect(() => {
+    expertVoiceIdRef.current = expertVoiceId;
+  }, [expertVoiceId]);
+  useEffect(() => {
+    expertWorkflowLoadingRef.current = expertWorkflowLoading;
+  }, [expertWorkflowLoading]);
 
   useEffect(() => {
     expertLinesRef.current = expertCallLines;
@@ -140,6 +177,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setVoicePanelVisible(false);
     setVoiceWillCancel(false);
     setVoiceStartY(null);
+    setHoldAsrPreview('');
     setPendingMemory(null);
     setInputMode('text');
     setAttachMenuVisible(false);
@@ -147,11 +185,18 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setExpertCallMuted(true);
     setExpertCallSeconds(0);
     setExpertCallLines([]);
+    setExpertVoiceId('');
+    setExpertWorkflowLoading(false);
+    setEditingPendingMemory(false);
+    setMemoryEditDraft('');
+    pendingMemoryMessageIdRef.current = null;
     expertLinesRef.current = [];
+    expertWorkflowAbortRef.current?.abort();
+    expertWorkflowAbortRef.current = null;
     setMessages([{ id: 'intro', role: 'clone', text: cloneIntro }]);
 
     let cancelled = false;
-    void (async () => {
+    (async () => {
       try {
         const latest = await memoryApi.getMemories();
         if (cancelled) return;
@@ -160,12 +205,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       } catch {
         /* ignore */
       }
-    })();
+    })().catch(() => {});
 
     return () => {
       cancelled = true;
     };
   }, [visible]);
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    };
+  }, []);
 
   const sheetHeight = useMemo(() => {
     const byRatio = Math.round(windowHeight * 0.82);
@@ -187,7 +239,6 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
       const inferred = inferCategory(normalized);
       const candidate = buildCandidate(normalized);
-      const cloneReply = buildCloneReply(normalized, memories);
 
       await new Promise((resolve) => setTimeout(resolve, 420));
 
@@ -204,15 +255,264 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
       setMessages((prev) => [
         ...prev,
-        { id: `a-${Date.now()}`, role: 'clone', text: cloneReply },
         memoryMessage,
         { id: `done-${Date.now()}`, role: 'clone', text: '记住啦。' },
       ]);
       setPendingMemory(memoryMessage.memory ?? null);
       setSending(false);
     },
-    [memories, saving, sending]
+    [saving, sending]
   );
+
+  useEffect(() => {
+    submitMessageRef.current = submitMessage;
+  }, [submitMessage]);
+
+  const playRemoteAudio = useCallback(async (uri: string) => {
+    const playbackUri = preferHttpsMediaUrl(uri);
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+    try {
+      await soundRef.current?.unloadAsync();
+    } catch {
+      /* ignore */
+    }
+    soundRef.current = null;
+    const { sound, status } = await Audio.Sound.createAsync(
+      { uri: playbackUri },
+      { shouldPlay: true, volume: 1 }
+    );
+    if (!status.isLoaded) {
+      const err =
+        'error' in status && typeof status.error === 'string' ? status.error : '音频未能加载';
+      await sound.unloadAsync().catch(() => {});
+      throw new Error(err);
+    }
+    soundRef.current = sound;
+
+    /** 播完再恢复录音，避免扬声器里的专家语音被 ASR 当成用户下一句 */
+    await Promise.race([
+      new Promise<void>((resolve, reject) => {
+        sound.setOnPlaybackStatusUpdate((s) => {
+          if (!s.isLoaded) {
+            if ('error' in s && s.error) reject(new Error(String(s.error)));
+            return;
+          }
+          if (s.didJustFinish) resolve();
+        });
+      }),
+      new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 120_000);
+      }),
+    ]).catch(() => {});
+
+    try {
+      await sound.unloadAsync();
+    } catch {
+      /* ignore */
+    }
+    soundRef.current = null;
+
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    }).catch(() => {});
+  }, []);
+
+  const {
+    isStreaming: holdIsStreaming,
+    startStreaming: startHoldStreaming,
+    stopStreaming: stopHoldStreaming,
+    cancelStreaming: cancelHoldStreaming,
+  } = useStreamingAsr({
+    mode: 'chat',
+    backend: 'aliyun',
+    onPartialTranscript: (t) => {
+      setHoldAsrPreview(t);
+    },
+    onTranscript: (text) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      Promise.resolve(submitMessageRef.current(trimmed)).catch(() => {});
+    },
+    onError: (msg) => {
+      Alert.alert('语音识别', msg);
+    },
+  });
+
+  const runExpertWorkflowForUserText = useCallback(
+    async (userText: string, cloneLineId: string, ac: AbortController) => {
+      const vid = expertVoiceIdRef.current;
+      let replyText = '';
+      let audioUrl: string | null = null;
+
+      if (!isBailianWorkflowIncrementalOutputEnabled()) {
+        const sync = await completeBailianWorkflowSync(userText, vid, { signal: ac.signal });
+        replyText = sync.text.trim();
+        audioUrl = sync.audioUrl;
+        setExpertCallLines((prev) =>
+          prev.map((l) =>
+            l.id === cloneLineId ? { ...l, text: replyText || '（无文本回复）' } : l
+          )
+        );
+      } else {
+        const streamResult = await completeBailianWorkflowStream(
+          userText,
+          vid,
+          {
+            onTextChunk: (full) => {
+              setExpertCallLines((prev) =>
+                prev.map((l) => (l.id === cloneLineId ? { ...l, text: full } : l))
+              );
+            },
+            onAudioUrl: (url) => {
+              audioUrl = url;
+            },
+          },
+          { signal: ac.signal }
+        );
+
+        replyText = streamResult.text.trim();
+        audioUrl = streamResult.audioUrl;
+
+        if (!replyText && !audioUrl) {
+          const sync = await completeBailianWorkflowSync(userText, vid, { signal: ac.signal });
+          replyText = sync.text.trim();
+          audioUrl = sync.audioUrl;
+          setExpertCallLines((prev) =>
+            prev.map((l) => (l.id === cloneLineId ? { ...l, text: '' } : l))
+          );
+          const twSpeed = sync.text.length > 120 ? 12 : 6;
+          await runTypewriter(
+            sync.text,
+            (typed) => {
+              setExpertCallLines((prev) =>
+                prev.map((l) => (l.id === cloneLineId ? { ...l, text: typed } : l))
+              );
+            },
+            { signal: ac.signal, msPerChar: twSpeed }
+          );
+        }
+      }
+
+      if (audioUrl) {
+        try {
+          await playRemoteAudio(audioUrl);
+        } catch (e) {
+          console.warn('[MemoryTuneModal] expert TTS play failed', e);
+        }
+      }
+    },
+    [playRemoteAudio]
+  );
+
+  const {
+    isStreaming: expertIsStreaming,
+    meterLevel: expertMeterLevel,
+    startStreaming: startExpertStreaming,
+    stopStreaming: stopExpertStreaming,
+    cancelStreaming: cancelExpertStreaming,
+  } = useStreamingAsr({
+    mode: 'chat',
+    backend: 'aliyun',
+    onPartialTranscript: () => {},
+    onTranscript: (text) => {
+      const flush = expertFlushResolversRef.current.shift();
+      if (flush) {
+        flush(text);
+        return;
+      }
+      if (!expertCallOpenRef.current || expertWorkflowLoadingRef.current) return;
+      Promise.resolve(handleExpertSegmentTextRef.current(text)).catch(() => {});
+    },
+    onError: (msg) => {
+      Alert.alert('语音识别', msg);
+    },
+  });
+
+  const handleExpertSegmentText = useCallback(
+    async (raw: string) => {
+      const t = raw.trim();
+      expertRestartAfterWorkflowRef.current = true;
+
+      if (!t) {
+        if (
+          expertCallOpenRef.current &&
+          !expertCallMutedRef.current &&
+          !expertWorkflowLoadingRef.current
+        ) {
+          try {
+            await startExpertStreaming();
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
+
+      const uid = `ec-u-${Date.now()}`;
+      const userLine: ExpertCallLine = { id: uid, role: 'user', text: t };
+      setExpertCallLines((prev) => {
+        const next = [...prev, userLine];
+        expertLinesRef.current = next;
+        return next;
+      });
+
+      const cloneLineId = `ec-a-${Date.now()}`;
+      setExpertCallLines((prev) => {
+        const next = [...prev, { id: cloneLineId, role: 'clone' as const, text: '' }];
+        expertLinesRef.current = next;
+        return next;
+      });
+
+      setExpertWorkflowLoading(true);
+      expertWorkflowAbortRef.current?.abort();
+      const ac = new AbortController();
+      expertWorkflowAbortRef.current = ac;
+
+      try {
+        await runExpertWorkflowForUserText(t, cloneLineId, ac);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        const msg = formatWorkflowError(e);
+        setExpertCallLines((prev) => {
+          const next = prev.map((l) =>
+            l.id === cloneLineId ? { ...l, text: `工作流失败：${msg.slice(0, 600)}` } : l
+          );
+          expertLinesRef.current = next;
+          return next;
+        });
+      } finally {
+        setExpertWorkflowLoading(false);
+        if (
+          expertRestartAfterWorkflowRef.current &&
+          expertCallOpenRef.current &&
+          !expertCallMutedRef.current
+        ) {
+          try {
+            await startExpertStreaming();
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    },
+    [runExpertWorkflowForUserText, startExpertStreaming]
+  );
+
+  handleExpertSegmentTextRef.current = handleExpertSegmentText;
+
+  useEffect(() => {
+    if (visible) return;
+    cancelHoldStreaming().catch(() => {});
+    cancelExpertStreaming().catch(() => {});
+  }, [visible, cancelHoldStreaming, cancelExpertStreaming]);
 
   const handleSend = useCallback(async () => {
     await submitMessage(draft);
@@ -220,17 +520,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   const startVoicePress = useCallback(
     async (pageY?: number) => {
-      if (isTranscribing || saving || sending) return;
+      if (sending || saving || !!pendingMemory || expertCallOpen) return;
       setVoiceWillCancel(false);
       setVoicePanelVisible(true);
       setVoiceStartY(pageY ?? null);
+      setHoldAsrPreview('');
       try {
-        await startRecording();
+        await cancelHoldStreaming();
+        await startHoldStreaming();
       } catch {
         setVoicePanelVisible(false);
       }
     },
-    [isTranscribing, saving, sending, startRecording]
+    [cancelHoldStreaming, expertCallOpen, pendingMemory, saving, sending, startHoldStreaming]
   );
 
   const trackVoiceMove = useCallback(
@@ -242,31 +544,22 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   );
 
   const endVoicePress = useCallback(async () => {
-    if (!isRecording && !voicePanelVisible) return;
+    if (!holdIsStreaming && !voicePanelVisible) return;
     setVoicePanelVisible(false);
     setVoiceStartY(null);
     try {
-      const uri = await stopRecording();
-      if (!uri || voiceWillCancel) {
-        setVoiceWillCancel(false);
-        return;
+      if (voiceWillCancel) {
+        await cancelHoldStreaming();
+        setHoldAsrPreview('');
+      } else {
+        await stopHoldStreaming();
       }
-      const text = (await transcribeAudio(uri)).trim();
-      if (!text) return;
-      await submitMessage(text);
     } catch {
       /* ignore */
     } finally {
       setVoiceWillCancel(false);
     }
-  }, [
-    isRecording,
-    voicePanelVisible,
-    stopRecording,
-    voiceWillCancel,
-    transcribeAudio,
-    submitMessage,
-  ]);
+  }, [cancelHoldStreaming, holdIsStreaming, stopHoldStreaming, voicePanelVisible, voiceWillCancel]);
 
   const pickAttachmentFile = useCallback(async () => {
     setAttachMenuVisible(false);
@@ -314,124 +607,137 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   }, [submitMessage]);
 
   const openExpertCall = useCallback(async () => {
-    if (pendingMemory || saving || sending || isTranscribing) return;
+    if (pendingMemory || saving || sending || holdIsStreaming || expertWorkflowLoading) return;
     Keyboard.dismiss();
     setAttachMenuVisible(false);
     setExpertCallLines([]);
     expertLinesRef.current = [];
-    setExpertCallMuted(false);
     expertRoundHasSpeechRef.current = false;
     expertSilenceStartRef.current = null;
-    expertAutoSendingRef.current = false;
+    expertFlushResolversRef.current = [];
     setExpertCallOpen(true);
+    setExpertCallMuted(false);
     try {
-      await startRecording();
+      const p = await fetchProfile();
+      const v = p.voice_id?.trim() ?? '';
+      setExpertVoiceId(v);
+      expertVoiceIdRef.current = v;
+    } catch {
+      setExpertVoiceId('');
+      expertVoiceIdRef.current = '';
+    }
+    try {
+      await startExpertStreaming();
     } catch {
       setExpertCallMuted(true);
-      Alert.alert('无法录音', '请检查麦克风权限后重试。');
+      setExpertCallOpen(false);
+      Alert.alert('无法开始识别', '请检查麦克风权限与 NLS 配置后重试。');
     }
-  }, [isTranscribing, pendingMemory, saving, sending, startRecording]);
-
-  const finishExpertSpeechRound = useCallback(async () => {
-    if (!expertCallOpen || expertAutoSendingRef.current) return;
-    expertAutoSendingRef.current = true;
-    setExpertCallMuted(true);
-    expertRoundHasSpeechRef.current = false;
-    expertSilenceStartRef.current = null;
-    try {
-      const uri = await stopRecording();
-      if (!uri) return;
-      const text = (await transcribeAudio(uri)).trim();
-      if (!text) return;
-      const uid = `ec-u-${Date.now()}`;
-      setExpertCallLines((prev) => {
-        const next = [...prev, { id: uid, role: 'user' as const, text }];
-        expertLinesRef.current = next;
-        return next;
-      });
-      await new Promise((r) => setTimeout(r, 420));
-      setExpertCallLines((prev) => {
-        const next = [
-          ...prev,
-          {
-            id: `ec-a-${Date.now()}`,
-            role: 'clone' as const,
-            text: buildExpertLiveReply(text),
-          },
-        ];
-        expertLinesRef.current = next;
-        return next;
-      });
-    } catch {
-      /* ignore */
-    } finally {
-      expertAutoSendingRef.current = false;
-    }
-  }, [expertCallOpen, stopRecording, transcribeAudio]);
+  }, [
+    expertWorkflowLoading,
+    holdIsStreaming,
+    pendingMemory,
+    saving,
+    sending,
+    startExpertStreaming,
+  ]);
 
   const toggleExpertMic = useCallback(async () => {
-    if (!expertCallOpen || isTranscribing) return;
+    if (!expertCallOpen) return;
     if (expertCallMuted) {
+      if (expertWorkflowLoading) {
+        Alert.alert('请稍候', '专家正在思考回答，请稍后再开麦。');
+        return;
+      }
       setExpertCallMuted(false);
       expertRoundHasSpeechRef.current = false;
       expertSilenceStartRef.current = null;
-      expertAutoSendingRef.current = false;
       try {
-        await startRecording();
+        await startExpertStreaming();
       } catch {
         setExpertCallMuted(true);
-        Alert.alert('无法录音', '请检查麦克风权限后重试。');
+        Alert.alert('无法开麦', '请检查麦克风权限后重试。');
       }
     } else {
-      await finishExpertSpeechRound();
+      await cancelExpertStreaming();
+      setExpertCallMuted(true);
     }
-  }, [expertCallOpen, expertCallMuted, finishExpertSpeechRound, isTranscribing, startRecording]);
+  }, [
+    cancelExpertStreaming,
+    expertCallMuted,
+    expertCallOpen,
+    expertWorkflowLoading,
+    startExpertStreaming,
+  ]);
 
   useEffect(() => {
-    if (!expertCallOpen || expertCallMuted || !isRecording) {
+    if (!expertCallOpen || expertCallMuted || !expertIsStreaming || expertWorkflowLoading) {
       expertRoundHasSpeechRef.current = false;
       expertSilenceStartRef.current = null;
       return;
     }
-    const currentMeter = typeof metering === 'number' ? metering : -160;
-    const isSpeakingNow = currentMeter > -42;
+    const isSpeakingNow = expertMeterLevel > EXPERT_SPEECH_LEVEL_THRESHOLD;
     if (isSpeakingNow) {
       expertRoundHasSpeechRef.current = true;
       expertSilenceStartRef.current = null;
       return;
     }
-    // 仅在“已经说过话后”的静音段触发自动截断，避免开麦后不说话就立即发送空内容。
     if (!expertRoundHasSpeechRef.current) return;
     if (expertSilenceStartRef.current == null) {
       expertSilenceStartRef.current = Date.now();
       return;
     }
-    if (Date.now() - expertSilenceStartRef.current >= 1200 && !expertAutoSendingRef.current) {
-      void finishExpertSpeechRound();
+    if (
+      Date.now() - expertSilenceStartRef.current >= EXPERT_SILENCE_MS &&
+      !expertAutoTruncatingRef.current
+    ) {
+      expertAutoTruncatingRef.current = true;
+      (async () => {
+        try {
+          await stopExpertStreaming();
+        } finally {
+          expertAutoTruncatingRef.current = false;
+        }
+      })().catch(() => {});
     }
-  }, [expertCallMuted, expertCallOpen, finishExpertSpeechRound, isRecording, metering]);
+  }, [
+    expertCallMuted,
+    expertCallOpen,
+    expertIsStreaming,
+    expertMeterLevel,
+    expertWorkflowLoading,
+    stopExpertStreaming,
+  ]);
 
   const hangUpExpertCall = useCallback(async () => {
+    expertRestartAfterWorkflowRef.current = false;
+    expertWorkflowAbortRef.current?.abort();
+    expertWorkflowAbortRef.current = null;
+
     let lines = [...expertLinesRef.current];
+
+    if (expertIsStreaming) {
+      const extra = await new Promise<string>((resolve) => {
+        const t = setTimeout(() => resolve(''), 12_000);
+        expertFlushResolversRef.current.push((txt) => {
+          clearTimeout(t);
+          resolve(txt);
+        });
+        stopExpertStreaming().catch(() => {});
+      });
+      const trimmed = extra.trim();
+      if (trimmed) {
+        lines = [...lines, { id: `ec-u-${Date.now()}`, role: 'user', text: trimmed }];
+      }
+    } else {
+      await cancelExpertStreaming();
+    }
+
     setExpertCallOpen(false);
     setExpertCallMuted(true);
     expertRoundHasSpeechRef.current = false;
     expertSilenceStartRef.current = null;
-    expertAutoSendingRef.current = false;
-
-    if (isRecording) {
-      try {
-        const uri = await stopRecording();
-        if (uri) {
-          const text = (await transcribeAudio(uri)).trim();
-          if (text) {
-            lines = [...lines, { id: `ec-u-${Date.now()}`, role: 'user', text }];
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+    expertFlushResolversRef.current = [];
 
     setExpertCallLines([]);
     expertLinesRef.current = [];
@@ -448,7 +754,6 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     const combined = userParts.map((l) => l.text).join('；');
     const inferred = inferCategory(combined);
     const candidate = buildCandidate(combined);
-    const cloneReply = buildCloneReply(combined, memories);
 
     setMessages((prev) => [...prev, ...merged]);
 
@@ -459,8 +764,10 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       category: inferred.category,
       dimensionLabel: inferred.dimensionLabel,
     };
+    const memMsgId = `m-${Date.now()}`;
+    pendingMemoryMessageIdRef.current = memMsgId;
     const memoryBlock: TuneMessage = {
-      id: `m-${Date.now()}`,
+      id: memMsgId,
       role: 'memory',
       text: '记忆已生成',
       memory: memoryPayload,
@@ -468,12 +775,11 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
     setMessages((prev) => [
       ...prev,
-      { id: `a-${Date.now()}`, role: 'clone', text: cloneReply },
       memoryBlock,
       { id: `done-${Date.now()}`, role: 'clone', text: '记住啦。' },
     ]);
     setPendingMemory(memoryPayload);
-  }, [isRecording, memories, stopRecording, transcribeAudio]);
+  }, [cancelExpertStreaming, expertIsStreaming, stopExpertStreaming]);
 
   const handleAccept = useCallback(async () => {
     if (!pendingMemory || saving) return;
@@ -497,6 +803,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       putMemoryMemories(next);
       setMemories(next);
       setPendingMemory(null);
+      setEditingPendingMemory(false);
       setMessages((prev) => [
         ...prev,
         { id: `saved-${Date.now()}`, role: 'clone', text: '已存入记忆库。' },
@@ -505,6 +812,28 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       setSaving(false);
     }
   }, [memories, pendingMemory, saving]);
+
+  const handleSaveMemoryEdit = useCallback(() => {
+    const t = memoryEditDraft.replace(/\s+/g, ' ').trim();
+    if (!t) {
+      Alert.alert('提示', '记忆内容不能为空');
+      return;
+    }
+    setPendingMemory((p) => (p ? { ...p, content: t } : null));
+    const mid = pendingMemoryMessageIdRef.current;
+    if (mid) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === mid && m.role === 'memory' && m.memory
+            ? { ...m, memory: { ...m.memory, content: t } }
+            : m
+        )
+      );
+    }
+    setEditingPendingMemory(false);
+  }, [memoryEditDraft]);
+
+  const voiceInputBusy = holdIsStreaming || sending;
 
   return (
     <Modal
@@ -558,22 +887,68 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 }
 
                 if (msg.role === 'memory' && msg.memory) {
+                  const canEditPending =
+                    pendingMemoryMessageIdRef.current === msg.id && !!pendingMemory;
                   return (
                     <View key={msg.id} className="mb-4 rounded-3xl bg-[#4A4A4D] p-4">
                       <View className="mb-1 flex-row items-center justify-between">
                         <ThemedText className="text-[14px] font-bold text-white">
                           {msg.text}
                         </ThemedText>
-                        <View className="flex-row items-center">
-                          <Icon name="Diamond" size={16} color="#21D4C6" />
-                          <ThemedText className="ml-2 text-[14px] font-semibold text-[#21D4C6]">
-                            {msg.memory.dimensionLabel}
-                          </ThemedText>
+                        <View className="flex-row flex-wrap items-center justify-end gap-2">
+                          {canEditPending && !editingPendingMemory ? (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="编辑记忆内容"
+                              onPress={() => {
+                                setMemoryEditDraft(msg.memory!.content);
+                                setEditingPendingMemory(true);
+                              }}
+                              hitSlop={8}>
+                              <ThemedText className="text-[13px] text-[#21D4C6]">编辑</ThemedText>
+                            </Pressable>
+                          ) : null}
+                          <View className="flex-row items-center">
+                            <Icon name="Diamond" size={16} color="#21D4C6" />
+                            <ThemedText className="ml-2 text-[14px] font-semibold text-[#21D4C6]">
+                              {msg.memory.dimensionLabel}
+                            </ThemedText>
+                          </View>
                         </View>
                       </View>
-                      <ThemedText className="text-[13px] text-[#E5E7EB]">
-                        {msg.memory.content}
-                      </ThemedText>
+                      {editingPendingMemory && canEditPending ? (
+                        <TextInput
+                          className="border-white/15 mt-2 min-h-[88px] rounded-xl border bg-black/20 px-3 py-2 text-[13px] text-[#E5E7EB]"
+                          multiline
+                          textAlignVertical="top"
+                          value={memoryEditDraft}
+                          onChangeText={setMemoryEditDraft}
+                          placeholder="编辑记忆正文"
+                          placeholderTextColor="#8A8F99"
+                        />
+                      ) : (
+                        <ThemedText className="text-[13px] text-[#E5E7EB]">
+                          {msg.memory.content}
+                        </ThemedText>
+                      )}
+                      {editingPendingMemory && canEditPending ? (
+                        <View className="mt-3 flex-row justify-end gap-5">
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() => setEditingPendingMemory(false)}
+                            hitSlop={8}>
+                            <ThemedText className="text-white/55 text-[13px]">取消</ThemedText>
+                          </Pressable>
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={handleSaveMemoryEdit}
+                            hitSlop={8}>
+                            <ThemedText className="text-[13px] font-semibold text-[#21D4C6]">
+                              保存
+                            </ThemedText>
+                          </Pressable>
+                        </View>
+                      ) : null}
                       <ThemedText className="mt-2 text-[12px] text-[#BFC3CB]">
                         分类：{translateCategory(msg.memory.category)}
                       </ThemedText>
@@ -600,14 +975,17 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
               <View className="mb-3 mt-1 flex-row gap-3 px-4">
                 <Pressable
                   className="flex-1 items-center rounded-full bg-black py-4"
-                  onPress={() => setPendingMemory(null)}>
+                  onPress={() => {
+                    setPendingMemory(null);
+                    setEditingPendingMemory(false);
+                  }}>
                   <ThemedText className="text-[18px] font-semibold text-white">继续对话</ThemedText>
                 </Pressable>
                 <Pressable
-                  className={`flex-1 items-center rounded-full bg-white py-4 ${saving ? 'opacity-60' : ''}`}
+                  className={`bg-white/12 flex-1 items-center rounded-full border border-white/30 py-4 ${saving ? 'opacity-60' : ''}`}
                   disabled={saving}
                   onPress={handleAccept}>
-                  <ThemedText className="text-[18px] font-semibold text-[#111]">
+                  <ThemedText className="text-[18px] font-semibold text-white">
                     {saving ? '保存中...' : '接受'}
                   </ThemedText>
                 </Pressable>
@@ -641,9 +1019,9 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                       placeholderTextColor="#8A8F99"
                       value={draft}
                       onChangeText={setDraft}
-                      editable={!saving && !isRecording && !voicePanelVisible && !pendingMemory}
+                      editable={!saving && !holdIsStreaming && !voicePanelVisible && !pendingMemory}
                       onSubmitEditing={() => {
-                        void handleSend();
+                        handleSend().catch(() => {});
                       }}
                       returnKeyType="send"
                     />
@@ -651,21 +1029,21 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 ) : (
                   <Pressable
                     className="h-12 flex-1 items-center justify-center rounded-full border border-[#60626A] bg-[#2A2C33] px-4"
-                    disabled={saving || isTranscribing || !!pendingMemory}
+                    disabled={saving || voiceInputBusy || !!pendingMemory}
                     onPressIn={(event) => {
-                      void startVoicePress(event.nativeEvent.pageY);
+                      startVoicePress(event.nativeEvent.pageY).catch(() => {});
                     }}
                     onTouchMove={(event) => {
                       trackVoiceMove(event.nativeEvent.pageY);
                     }}
                     onPressOut={() => {
-                      void endVoicePress();
+                      endVoicePress().catch(() => {});
                     }}>
                     <ThemedText
-                      className={`text-base font-medium ${isRecording || voicePanelVisible ? 'text-[#8A8F99]' : 'text-white'}`}>
-                      {isTranscribing
-                        ? '正在识别语音…'
-                        : isRecording || voicePanelVisible
+                      className={`text-base font-medium ${holdIsStreaming || voicePanelVisible ? 'text-[#8A8F99]' : 'text-white'}`}>
+                      {sending
+                        ? '发送中…'
+                        : holdIsStreaming || voicePanelVisible
                           ? voiceWillCancel
                             ? '松开取消'
                             : '松开发送 · 上划取消'
@@ -675,8 +1053,10 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 )}
                 <Pressable
                   className="ml-2 h-12 w-12 overflow-hidden rounded-full bg-[#29303B]"
-                  disabled={saving || !!pendingMemory}
-                  onPress={openExpertCall}>
+                  disabled={saving || !!pendingMemory || expertWorkflowLoading}
+                  onPress={() => {
+                    openExpertCall().catch(() => {});
+                  }}>
                   <Image
                     source={require('@/assets/img/thomino.jpg')}
                     className="h-full w-full"
@@ -700,7 +1080,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     <Pressable
                       className="flex-row items-center border-b border-white/10 px-5 py-4 active:bg-white/5"
                       onPress={() => {
-                        void pickAttachmentFile();
+                        pickAttachmentFile().catch(() => {});
                       }}>
                       <Icon name="FileText" size={22} color="#fff" />
                       <ThemedText className="ml-3 text-[16px] text-white">文件</ThemedText>
@@ -708,7 +1088,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     <Pressable
                       className="flex-row items-center border-b border-white/10 px-5 py-4 active:bg-white/5"
                       onPress={() => {
-                        void pickAttachmentAlbum();
+                        pickAttachmentAlbum().catch(() => {});
                       }}>
                       <Icon name="Image" size={22} color="#fff" />
                       <ThemedText className="ml-3 text-[16px] text-white">相册</ThemedText>
@@ -716,7 +1096,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     <Pressable
                       className="flex-row items-center px-5 py-4 active:bg-white/5"
                       onPress={() => {
-                        void pickAttachmentCamera();
+                        pickAttachmentCamera().catch(() => {});
                       }}>
                       <Icon name="Camera" size={22} color="#fff" />
                       <ThemedText className="ml-3 text-[16px] text-white">拍照</ThemedText>
@@ -746,7 +1126,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     </ThemedText>
                     <Pressable
                       onPress={() => {
-                        void hangUpExpertCall();
+                        hangUpExpertCall().catch(() => {});
                       }}
                       className="absolute right-4 top-0 h-10 w-10 items-center justify-center rounded-full bg-white/10">
                       <Icon name="X" size={18} color="#fff" />
@@ -768,7 +1148,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     {expertCallLines.length === 0 ? (
                       <View className="mt-8 px-4">
                         <ThemedText className="text-center text-[14px] leading-6 text-white/60">
-                          点击麦克风开始说话，再次点击结束本轮发言；挂断后将为本轮对话生成记忆，确认后写入记忆库。
+                          开麦后可直接说话；停顿约 {Math.round(EXPERT_SILENCE_MS / 1000)}{' '}
+                          秒无语音将自动发送并由百炼工作流生成回答。可点麦克风静音；挂断后为本轮对话生成记忆，确认后写入记忆库。
                         </ThemedText>
                       </View>
                     ) : null}
@@ -782,7 +1163,9 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                       ) : (
                         <View key={line.id} className="mb-3 items-start">
                           <View className="bg-white/12 max-w-[82%] rounded-2xl px-3.5 py-2.5">
-                            <ThemedText className="text-[15px] text-white">{line.text}</ThemedText>
+                            <ThemedText className="text-[15px] text-white">
+                              {line.text || (expertWorkflowLoading ? '思考中…' : '')}
+                            </ThemedText>
                           </View>
                         </View>
                       )
@@ -792,21 +1175,25 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                   <View
                     className="bg-black/55 rounded-t-3xl px-6 pt-5"
                     style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
-                    <ThemedText className="mb-5 text-center text-[20px] font-medium tracking-wide text-white">
-                      {formatCallDuration(expertCallSeconds)}
-                    </ThemedText>
+                    <View className="mb-2 flex-row items-center justify-center gap-2">
+                      <ThemedText className="text-center text-[20px] font-medium tracking-wide text-white">
+                        {formatCallDuration(expertCallSeconds)}
+                      </ThemedText>
+                      {expertWorkflowLoading ? (
+                        <ActivityIndicator size="small" color="#F5D34F" />
+                      ) : null}
+                    </View>
                     <View className="mb-5 flex-row items-center justify-around">
                       <Pressable
                         onPress={() => {
-                          void toggleExpertMic();
+                          toggleExpertMic().catch(() => {});
                         }}
-                        disabled={isTranscribing}
                         className={`h-16 w-16 items-center justify-center rounded-full border-2 ${expertCallMuted ? 'border-white/40 bg-white/5' : 'border-[#5AF0B6] bg-white/10'}`}>
                         <Icon name={expertCallMuted ? 'MicOff' : 'Mic'} size={26} color="#fff" />
                       </Pressable>
                       <Pressable
                         onPress={() => {
-                          void hangUpExpertCall();
+                          hangUpExpertCall().catch(() => {});
                         }}
                         className="h-16 w-16 items-center justify-center rounded-full border-2 border-white/40 bg-white/5">
                         <Icon name="PhoneOff" size={26} color="#EF4444" />
@@ -814,7 +1201,15 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     </View>
                     <View className="h-3 items-center justify-center overflow-hidden rounded-full">
                       <LinearGradient
-                        colors={['transparent', 'rgba(245,211,79,0.85)', 'transparent']}
+                        colors={
+                          expertIsStreaming && !expertCallMuted
+                            ? [
+                                'transparent',
+                                `rgba(245,211,79,${0.35 + expertMeterLevel * 0.65})`,
+                                'transparent',
+                              ]
+                            : ['transparent', 'rgba(245,211,79,0.85)', 'transparent']
+                        }
                         start={{ x: 0, y: 0.5 }}
                         end={{ x: 1, y: 0.5 }}
                         style={{ height: 4, width: '70%', borderRadius: 999, alignSelf: 'center' }}
@@ -827,18 +1222,26 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
             {!expertCallOpen && voicePanelVisible ? (
               <View className="bg-black/35 absolute inset-0 z-30 items-center justify-center">
-                <View className="w-[72%] rounded-3xl bg-[#2A2C33] px-5 py-6">
+                <View className="w-[85%] rounded-3xl bg-[#2A2C33] px-5 py-6">
                   <View className="items-center">
                     <View
                       className={`h-16 w-16 items-center justify-center rounded-full ${voiceWillCancel ? 'bg-[#7F1D1D]' : 'bg-[#3A414D]'}`}>
                       <Icon name={voiceWillCancel ? 'X' : 'Mic'} size={28} color="#fff" />
                     </View>
                     <ThemedText className="mt-4 text-lg font-semibold text-white">
-                      {voiceWillCancel ? '松开手指，取消发送' : '正在录音...'}
+                      {voiceWillCancel ? '松开手指，取消发送' : '正在聆听…'}
                     </ThemedText>
-                    <ThemedText className="mt-2 text-sm text-[#BFC3CB]">
-                      {voiceWillCancel ? '已进入取消区域' : '上划可取消，松开自动发送'}
-                    </ThemedText>
+                    {holdAsrPreview.trim() && !voiceWillCancel ? (
+                      <ThemedText
+                        className="mt-3 max-h-28 text-center text-[15px] leading-6 text-[#E5E7EB]"
+                        numberOfLines={6}>
+                        {holdAsrPreview}
+                      </ThemedText>
+                    ) : (
+                      <ThemedText className="mt-2 text-sm text-[#BFC3CB]">
+                        {voiceWillCancel ? '已进入取消区域' : '上划可取消，松开发送'}
+                      </ThemedText>
+                    )}
                   </View>
                 </View>
               </View>

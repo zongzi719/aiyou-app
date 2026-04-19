@@ -77,7 +77,7 @@ export const MultipleImagePicker: React.FC<MultipleImagePickerProps> = ({
               className="relative flex h-28 w-28 flex-col items-center justify-center rounded-xl border border-border p-4"
               android_ripple={{ color: 'rgba(0,0,0,0.3)', borderless: false }}>
               <Icon name="Camera" size={24} />
-              <Text className="absolute bottom-4 w-full text-center text-xs text-black text-primary">
+              <Text className="text-primary absolute bottom-4 w-full text-center text-xs">
                 Main photo
               </Text>
             </Pressable>

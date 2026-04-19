@@ -79,6 +79,9 @@ function groupThreadsByDate(threads: ThreadSummary[]): ThreadGroup[] {
     .sort((a, b) => b.sortTs - a.sortTs);
 }
 
+/** 侧边栏「音色调试 / 实时语音调试 / 专家通话调试」总开关；需要时再改为 true */
+const SHOW_SIDEBAR_DEBUG_ENTRIES = false;
+
 const SHOW_NLS_RT_DEBUG =
   (typeof __DEV__ !== 'undefined' && __DEV__) ||
   process.env.EXPO_PUBLIC_ENABLE_NLS_DEBUG === 'true';
@@ -215,7 +218,9 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
                   <ThemedText className="text-[26px] font-semibold tracking-[0.4px] text-primary">
                     {profileName}
                   </ThemedText>
-                  <ThemedText className="text-primary/80 mb-[2px] text-base font-semibold">
+                  <ThemedText
+                    className="mb-[2px] text-base font-semibold"
+                    style={{ color: colors.text, opacity: 0.88 }}>
                     Lv.1
                   </ThemedText>
                 </View>
@@ -242,52 +247,56 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
 
         <View className="border-border/70 mb-3 border-b" />
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => {
-            drawerNavigation.closeDrawer();
-            router.push('/screens/voice-timbre-debug');
-          }}
-          className="mb-3 flex-row items-center justify-between rounded-2xl border border-[#B98C44]/40 bg-[#1E2A39] px-4 py-3">
-          <View className="flex-row items-center gap-2">
-            <Icon name="Mic" size={16} color="#E9D6A4" />
-            <ThemedText className="text-sm font-semibold text-[#E9D6A4]">音色调试</ThemedText>
-          </View>
-          <Icon name="ChevronRight" size={16} color="rgba(233,214,164,0.9)" />
-        </TouchableOpacity>
-
-        {SHOW_NLS_RT_DEBUG ? (
+        {SHOW_SIDEBAR_DEBUG_ENTRIES ? (
           <>
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => {
                 drawerNavigation.closeDrawer();
-                router.push('/screens/aliyun-realtime-asr-debug');
+                router.push('/screens/voice-timbre-debug');
               }}
-              className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+              className="mb-3 flex-row items-center justify-between rounded-2xl border border-[#B98C44]/40 bg-[#1E2A39] px-4 py-3">
               <View className="flex-row items-center gap-2">
-                <Icon name="AudioLines" size={16} color="#A8C8E8" />
-                <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
-                  实时语音调试
-                </ThemedText>
+                <Icon name="Mic" size={16} color="#E9D6A4" />
+                <ThemedText className="text-sm font-semibold text-[#E9D6A4]">音色调试</ThemedText>
               </View>
-              <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+              <Icon name="ChevronRight" size={16} color="rgba(233,214,164,0.9)" />
             </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => {
-                drawerNavigation.closeDrawer();
-                router.push('/screens/expert-call-workflow-debug');
-              }}
-              className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
-              <View className="flex-row items-center gap-2">
-                <Icon name="Phone" size={16} color="#A8C8E8" />
-                <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
-                  专家通话调试
-                </ThemedText>
-              </View>
-              <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
-            </TouchableOpacity>
+
+            {SHOW_NLS_RT_DEBUG ? (
+              <>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    drawerNavigation.closeDrawer();
+                    router.push('/screens/aliyun-realtime-asr-debug');
+                  }}
+                  className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+                  <View className="flex-row items-center gap-2">
+                    <Icon name="AudioLines" size={16} color="#A8C8E8" />
+                    <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                      实时语音调试
+                    </ThemedText>
+                  </View>
+                  <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    drawerNavigation.closeDrawer();
+                    router.push('/screens/expert-call-workflow-debug');
+                  }}
+                  className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+                  <View className="flex-row items-center gap-2">
+                    <Icon name="Phone" size={16} color="#A8C8E8" />
+                    <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                      专家通话调试
+                    </ThemedText>
+                  </View>
+                  <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+                </TouchableOpacity>
+              </>
+            ) : null}
           </>
         ) : null}
 

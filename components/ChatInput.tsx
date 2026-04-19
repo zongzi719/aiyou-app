@@ -857,8 +857,8 @@ export const ChatInput = (props: ChatInputProps) => {
                       </Pressable>
                       <Pressable
                         onPress={handleStartRecording}
-                        className="flex h-10 w-10 items-center justify-center rounded-full bg-primary">
-                        <Icon name="AudioLines" size={18} color={colors.invert} />
+                        className="bg-highlight flex h-10 w-10 items-center justify-center rounded-full">
+                        <Icon name="AudioLines" size={18} color="#ffffff" />
                       </Pressable>
                     </Animated.View>
 
@@ -879,8 +879,8 @@ export const ChatInput = (props: ChatInputProps) => {
                       <Animated.View style={[sendButtonStyle, { position: 'absolute', right: 0 }]}>
                         <Pressable
                           onPress={handleSendMessage}
-                          className="flex h-10 w-10 items-center justify-center rounded-full bg-primary">
-                          <Icon name="Send" size={18} color={colors.invert} />
+                          className="bg-highlight flex h-10 w-10 items-center justify-center rounded-full">
+                          <Icon name="Send" size={18} color="#ffffff" />
                         </Pressable>
                       </Animated.View>
                     )}
@@ -1059,8 +1059,8 @@ const FileAttachmentBadge = ({ file, onRemove }: { file: SelectedFile; onRemove:
   const displayName = file.name.length > 20 ? `${file.name.slice(0, 18)}…` : file.name;
   return (
     <View className="flex-row items-center gap-x-2 rounded-2xl border border-border bg-secondary px-3 py-2">
-      <View className="h-7 w-7 items-center justify-center rounded-lg bg-primary">
-        <Text className="text-[9px] font-bold text-invert">{ext.slice(0, 4)}</Text>
+      <View className="bg-highlight h-7 w-7 items-center justify-center rounded-lg">
+        <Text className="text-[9px] font-bold text-white">{ext.slice(0, 4)}</Text>
       </View>
       <Text className="max-w-[120px] text-xs font-medium text-primary" numberOfLines={1}>
         {displayName}

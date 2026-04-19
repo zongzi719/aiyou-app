@@ -1,10 +1,96 @@
 import React from 'react';
-import { Pressable, Switch, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Switch, View } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 
 import Icon from '@/components/Icon';
 import ShimmerText from '@/components/ShimmerText';
 import ThemedText from '@/components/ThemedText';
 import { shadowPresets } from '@/utils/useShadow';
+
+const decisionCoachSectionMarkdownStyles = StyleSheet.create({
+  body: {
+    color: '#B5B5B5',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  paragraph: {
+    marginTop: 0,
+    marginBottom: 0,
+    marginVertical: 2,
+  },
+  strong: {
+    color: '#B5B5B5',
+    fontWeight: '700',
+  },
+  em: {
+    color: '#B5B5B5',
+    fontStyle: 'italic',
+  },
+  bullet_list: {
+    marginVertical: 4,
+  },
+  ordered_list: {
+    marginVertical: 4,
+  },
+  list_item: {
+    marginVertical: 2,
+  },
+  link: {
+    color: '#B5B5B5',
+    textDecorationLine: 'underline',
+  },
+  code_inline: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    color: '#B5B5B5',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+  },
+  code_block: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#B5B5B5',
+    padding: 8,
+    borderRadius: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    marginVertical: 4,
+  },
+  fence: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#B5B5B5',
+    padding: 8,
+    borderRadius: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    marginVertical: 4,
+  },
+  heading1: {
+    color: '#B5B5B5',
+    fontSize: 15,
+    fontWeight: '700',
+    marginVertical: 4,
+  },
+  heading2: {
+    color: '#B5B5B5',
+    fontSize: 14,
+    fontWeight: '700',
+    marginVertical: 4,
+  },
+  heading3: {
+    color: '#B5B5B5',
+    fontSize: 13,
+    fontWeight: '600',
+    marginVertical: 4,
+  },
+  blockquote: {
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgba(255,255,255,0.35)',
+    paddingLeft: 10,
+    marginVertical: 6,
+  },
+});
 
 export type DecisionCoachCardModel = {
   coachId: string;
@@ -69,9 +155,16 @@ function SectionBlock({
         <Icon name={icon} size={16} color="rgba(255,255,255,0.9)" />
         <ThemedText className={`text-[14px] font-semibold ${titleColor}`}>{title}</ThemedText>
       </View>
-      <ThemedText className="text-white/85 mt-2 text-[13px] leading-[19px]">
-        {text.trim()}
-      </ThemedText>
+      <View className="mt-2">
+        <Markdown
+          style={decisionCoachSectionMarkdownStyles}
+          onLinkPress={(url) => {
+            Linking.openURL(url);
+            return false;
+          }}>
+          {text.trim()}
+        </Markdown>
+      </View>
     </View>
   );
 }
@@ -90,7 +183,7 @@ export default function DecisionCoachCard({ model, onToggleEnabled }: Props) {
             <ThemedText className="text-[15px] font-semibold text-white" numberOfLines={1}>
               {model.coachName}
             </ThemedText>
-            <ThemedText className="text-white/55 mt-0.5 text-[12px]" numberOfLines={1}>
+            <ThemedText className="mt-0.5 text-[12px] text-white" numberOfLines={1}>
               {model.coachRole}
             </ThemedText>
           </View>

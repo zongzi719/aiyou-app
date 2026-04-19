@@ -141,7 +141,6 @@ interface FileRowProps {
 }
 
 const FileRow = ({ file, onPress, selectionMode, selected, onToggleSelect }: FileRowProps) => {
-  const colors = useThemeColors();
   return (
     <TouchableOpacity
       onPress={() => (selectionMode ? onToggleSelect() : onPress())}
@@ -150,9 +149,9 @@ const FileRow = ({ file, onPress, selectionMode, selected, onToggleSelect }: Fil
       {selectionMode && (
         <View
           className={`mr-2 h-6 w-6 items-center justify-center rounded border ${
-            selected ? 'border-primary bg-primary' : 'border-border'
+            selected ? 'border-highlight bg-highlight' : 'border-border'
           }`}>
-          {selected ? <Icon name="Check" size={14} color={colors.invert} /> : null}
+          {selected ? <Icon name="Check" size={14} color="#ffffff" /> : null}
         </View>
       )}
       <FileBadge mimeType={file.mime_type} />
@@ -219,8 +218,8 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}
-              className="flex-1 items-center rounded-xl bg-primary py-3">
-              <Text className="text-base font-semibold text-invert">创建</Text>
+              className="flex-1 items-center rounded-xl border border-white/30 bg-white/15 py-3">
+              <ThemedText className="text-base font-semibold text-primary">创建</ThemedText>
             </TouchableOpacity>
           </View>
         </View>

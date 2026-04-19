@@ -8,6 +8,16 @@ import {
 import { useCallback, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 
+import {
+  AliyunNlsRealtimeTranscriber,
+  createCachedNlsTokenGetter,
+  getAliyunNlsAppkeyForStreaming,
+  getNlsGatewayWssForStreaming,
+  getStreamingAsrBackend,
+  nlsStartTranscriptionPayloadFromEnv,
+  validateAliyunNlsConfigForStreaming,
+  type StreamingAsrBackend,
+} from '@/lib/aliyunNls';
 import { PcmInt16FrameAccumulator } from '@/lib/asrPcmAccumulate';
 import { int16ArrayToLeUint8, resampleInt16MonoTo16k } from '@/lib/asrResample';
 import type { AsrServerMessage } from '@/lib/asrWebSocketSession';
@@ -49,6 +59,8 @@ function base64ToUint8Array(b64: string): Uint8Array {
 
 export type StreamingAsrOptions = {
   mode: AsrWsMode;
+  /** 覆盖 EXPO_PUBLIC_ASR_BACKEND；分身优化等场景可强制走阿里云实时识别 */
+  backend?: StreamingAsrBackend;
   /** 句内/句末实时展示：accumulated + partial */
   onPartialTranscript: (displayText: string) => void;
   /** 会话落定（chat：close 兜底；notes：done 或 close 兜底） */
@@ -73,6 +85,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   const [meterLevel, setMeterLevel] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const nlsTranscriberRef = useRef<AliyunNlsRealtimeTranscriber | null>(null);
+  const nlsTokenGetterRef = useRef<ReturnType<typeof createCachedNlsTokenGetter> | null>(null);
+  const nlsCleanupOnceRef = useRef(false);
+
   const pcmAccRef = useRef<PcmInt16FrameAccumulator | null>(null);
   const frameSubRef = useRef<{ remove: () => void } | null>(null);
   const errorSubRef = useRef<{ remove: () => void } | null>(null);
@@ -89,6 +105,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   const sessionActiveRef = useRef(false);
   /** expo-stream-audio 每帧带实际采样率；与网关约定 16k 不一致时必须重采样 */
   const micSampleRateRef = useRef<number | null>(null);
+
+  if (nlsTokenGetterRef.current === null) {
+    nlsTokenGetterRef.current = createCachedNlsTokenGetter();
+  }
 
   const resetSessionText = () => {
     sessionRef.current = {
@@ -117,7 +137,6 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
         break;
       }
       case 'final': {
-        // 定稿时以服务端 final.text 为准；勿用 lastPartial||text，否则在「final 短片段 + 仍保留长 partial」时会整段重复追加（如 今天×3）
         const t = typeof msg.text === 'string' ? msg.text.trim() : '';
         const committed = t.length > 0 ? t : s.lastPartial.trim();
         if (committed.length > 0) {
@@ -182,6 +201,59 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     wsRef.current = null;
   };
 
+  const runAliyunCleanup = useCallback(async () => {
+    if (nlsCleanupOnceRef.current) return;
+    nlsCleanupOnceRef.current = true;
+    try {
+      await cleanupNative();
+    } catch {
+      /* noop */
+    }
+    try {
+      nlsTranscriberRef.current?.close();
+    } catch {
+      /* noop */
+    }
+    nlsTranscriberRef.current = null;
+    sessionActiveRef.current = false;
+    setIsStreaming(false);
+    setMeterLevel(0);
+  }, []);
+
+  const applyNlsPartial = (raw: string) => {
+    const s = sessionRef.current;
+    if (s.cancelled) return;
+    s.lastPartial = stripAccumulatedPrefixFromPartial(s.accumulated, raw);
+    emitPartial();
+  };
+
+  const applyNlsSentenceEnd = (text: string) => {
+    const s = sessionRef.current;
+    if (s.cancelled) return;
+    const t = text.trim();
+    const committed = t.length > 0 ? t : s.lastPartial.trim();
+    if (committed.length > 0) {
+      if (!shouldSkipDuplicateFinalAppend(s.accumulated, committed)) {
+        s.accumulated += committed;
+      }
+    }
+    s.lastPartial = '';
+    emitPartial();
+  };
+
+  const applyNlsTranscriptionCompleted = () => {
+    const s = sessionRef.current;
+    if (s.cancelled) return;
+    s.doneReceived = true;
+    const full = s.accumulated + s.lastPartial;
+    s.lastPartial = '';
+    s.accumulated = full;
+    if (!s.completedEmitted) {
+      s.completedEmitted = true;
+      optsRef.current.onTranscript(full, null);
+    }
+  };
+
   const runMockSession = () => {
     resetSessionText();
     mockTimersRef.current.forEach(clearTimeout);
@@ -239,6 +311,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     sessionActiveRef.current = true;
     micSampleRateRef.current = null;
     resetSessionText();
+    nlsCleanupOnceRef.current = false;
     setIsStreaming(true);
     setMeterLevel(0);
 
@@ -261,6 +334,127 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     const mode = optsRef.current.mode;
     const pcmAcc = new PcmInt16FrameAccumulator();
     pcmAccRef.current = pcmAcc;
+
+    const backend = optsRef.current.backend ?? getStreamingAsrBackend();
+
+    if (backend === 'aliyun') {
+      const cfgErr = validateAliyunNlsConfigForStreaming();
+      if (cfgErr) {
+        sessionActiveRef.current = false;
+        setIsStreaming(false);
+        pcmAccRef.current = null;
+        optsRef.current.onError?.(cfgErr);
+        return;
+      }
+
+      const gateway = getNlsGatewayWssForStreaming();
+      const appkey = getAliyunNlsAppkeyForStreaming();
+      const getToken = nlsTokenGetterRef.current!;
+
+      const client = new AliyunNlsRealtimeTranscriber({
+        gatewayWss: gateway,
+        appkey,
+        getToken,
+        payload: nlsStartTranscriptionPayloadFromEnv(),
+        onConnectionClosed: () => {
+          if (!sessionRef.current.cancelled && !sessionRef.current.completedEmitted) {
+            finalizeOnClose();
+          }
+          runAliyunCleanup().catch(() => {});
+        },
+        handlers: {
+          onPartial: (text) => {
+            applyNlsPartial(text);
+          },
+          onSentenceEnd: (text) => {
+            applyNlsSentenceEnd(text);
+          },
+          onCompleted: () => {
+            applyNlsTranscriptionCompleted();
+            runAliyunCleanup().catch(() => {});
+          },
+          onTaskFailed: (msg) => {
+            optsRef.current.onError?.(msg || '语音识别失败');
+            runAliyunCleanup().catch(() => {});
+          },
+        },
+      });
+
+      nlsTranscriberRef.current = client;
+
+      try {
+        await client.connectAndStart();
+      } catch {
+        nlsTranscriberRef.current = null;
+        sessionActiveRef.current = false;
+        setIsStreaming(false);
+        optsRef.current.onError?.('语音识别连接失败');
+        try {
+          client.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
+
+      frameSubRef.current = addFrameListener((ev) => {
+        try {
+          if (!ev.pcmBase64?.trim()) return;
+          const bytes = base64ToUint8Array(ev.pcmBase64);
+          const byteLen = bytes.byteLength - (bytes.byteLength % 2);
+          if (byteLen < 2) return;
+          const view = new DataView(bytes.buffer, bytes.byteOffset, byteLen);
+          const n = byteLen / 2;
+          const pcm = new Int16Array(n);
+          for (let i = 0; i < n; i++) {
+            pcm[i] = view.getInt16(i * 2, true);
+          }
+
+          const rate =
+            typeof ev.sampleRate === 'number' && ev.sampleRate > 0 ? ev.sampleRate : 16000;
+          if (micSampleRateRef.current === null) {
+            micSampleRateRef.current = rate;
+            if (__DEV__ && Math.abs(rate - 16000) > 1) {
+              console.info('[ASR] 麦克风实际采样率', rate, 'Hz，已重采样为 16000 Hz 再发往 NLS');
+            }
+          }
+          const srcRate = micSampleRateRef.current ?? rate;
+          const pcm16k = resampleInt16MonoTo16k(pcm, srcRate);
+          const outBytes = int16ArrayToLeUint8(pcm16k);
+          const chunks = pcmAcc.appendPcmInt16LE(outBytes);
+          const tr = nlsTranscriberRef.current;
+          for (const c of chunks) {
+            tr?.sendPcmChunk(new Uint8Array(c));
+          }
+          if (typeof ev.level === 'number') {
+            setMeterLevel(ev.level);
+          }
+        } catch (e) {
+          optsRef.current.onError?.(e instanceof Error ? e.message : '音频帧处理失败');
+        }
+      });
+
+      errorSubRef.current = addErrorListener((ev) => {
+        optsRef.current.onError?.(ev.message || '录音流错误');
+      });
+
+      try {
+        await streamAudioStart({
+          sampleRate: 16000,
+          channels: 1,
+          enableLevelMeter: true,
+          frameDurationMs: 20,
+        });
+      } catch (e) {
+        sessionActiveRef.current = false;
+        await cleanupNative();
+        nlsTranscriberRef.current?.close();
+        nlsTranscriberRef.current = null;
+        setIsStreaming(false);
+        optsRef.current.onError?.(e instanceof Error ? e.message : '无法开始录音');
+      }
+      return;
+    }
 
     let ws: WebSocket;
     try {
@@ -339,7 +533,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       setIsStreaming(false);
       optsRef.current.onError?.(e instanceof Error ? e.message : '无法开始录音');
     }
-  }, []);
+  }, [runAliyunCleanup]);
 
   const stopStreaming = useCallback(async () => {
     if (await getGlobalMock()) {
@@ -350,10 +544,21 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       setMeterLevel(0);
       return;
     }
+
     sessionRef.current.endSent = true;
     await streamAudioStop().catch(() => {});
 
     const pad = pcmAccRef.current?.flushPadWithZeros();
+
+    if (nlsTranscriberRef.current) {
+      const tr = nlsTranscriberRef.current;
+      if (pad) {
+        tr.sendPcmChunk(new Uint8Array(pad));
+      }
+      tr.stop();
+      return;
+    }
+
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       if (pad) {
@@ -384,6 +589,13 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
 
     await cleanupNative();
     cleanupWs();
+    nlsCleanupOnceRef.current = false;
+    try {
+      nlsTranscriberRef.current?.close();
+    } catch {
+      /* noop */
+    }
+    nlsTranscriberRef.current = null;
     sessionActiveRef.current = false;
     setIsStreaming(false);
     setMeterLevel(0);

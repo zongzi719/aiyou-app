@@ -223,7 +223,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                   onPress={handleSaveOption}
                   title="Save"
                   size="medium"
-                  className="ml-2 items-center  justify-center bg-primary px-6"
+                  className="ml-2 items-center justify-center px-6"
                 />
               </View>
             </View>

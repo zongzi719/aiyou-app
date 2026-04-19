@@ -7,3 +7,11 @@ export { NLS_REALTIME_RECORDING_OPTIONS } from './nlsRecordingOptions';
 export { nlsStartTranscriptionPayloadFromEnv } from './nlsStartTranscriptionPayload';
 export { createGrowingWavPcmReader } from './readGrowingWavPcm';
 export { findWavPcmDataByteOffset, base64ToUint8Array } from './wavPcm';
+export {
+  createCachedNlsTokenGetter,
+  getAliyunNlsAppkeyForStreaming,
+  getNlsGatewayWssForStreaming,
+  getStreamingAsrBackend,
+  validateAliyunNlsConfigForStreaming,
+  type StreamingAsrBackend,
+} from './streamingAsrAliyun';

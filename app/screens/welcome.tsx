@@ -35,8 +35,8 @@ export default function OnboardingScreen() {
                 if (!agreed) return;
                 router.push('/screens/login');
               }}
-              className={`items-center rounded-full py-4 ${agreed ? 'bg-white' : 'bg-white/70'}`}>
-              <ThemedText style={{ color: '#111111' }} className="text-xl font-medium">
+              className={`items-center rounded-full border border-white/35 py-4 ${agreed ? 'bg-white/15' : 'bg-white/10'}`}>
+              <ThemedText className="text-xl font-medium text-white">
                 账号登录
               </ThemedText>
             </Pressable>

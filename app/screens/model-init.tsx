@@ -1,5 +1,5 @@
-import MaskedView from '@react-native-masked-view/masked-view';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -107,7 +107,7 @@ async function compressForAvatarUpload(inputUri: string): Promise<string> {
 }
 
 async function buildAvatarUploadCandidates(inputUri: string): Promise<string[]> {
-  const presets: Array<{ width: number; compress: number }> = [
+  const presets: { width: number; compress: number }[] = [
     { width: 768, compress: 0.82 },
     { width: 640, compress: 0.72 },
     { width: 512, compress: 0.62 },
@@ -219,7 +219,7 @@ function GoldButton({
         end={{ x: 1, y: 1 }}
         style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
       />
-      <ThemedText className="text-center text-base font-bold text-black">{label}</ThemedText>
+      <ThemedText className="text-center text-base font-bold text-white">{label}</ThemedText>
     </TouchableOpacity>
   );
 }
@@ -239,7 +239,7 @@ function IntroStartButton({ onPress }: { onPress: () => void }) {
         style={[StyleSheet.absoluteFill, { borderRadius: 30 }]}
       />
       <View className="flex-1 items-center justify-center">
-        <ThemedText className="text-base font-normal text-black">开始</ThemedText>
+        <ThemedText className="text-base font-normal text-white">开始</ThemedText>
       </View>
     </TouchableOpacity>
   );
@@ -351,6 +351,7 @@ export default function ModelInitScreen() {
   const [voiceSubmitting, setVoiceSubmitting] = useState(false);
   const [voiceStatusText, setVoiceStatusText] = useState('');
   const [hasExistingVoiceId, setHasExistingVoiceId] = useState(false);
+  const [hasExistingAvatar, setHasExistingAvatar] = useState(false);
   const [voiceGateChecked, setVoiceGateChecked] = useState(false);
   const [recoveringVoiceTask, setRecoveringVoiceTask] = useState(false);
   const [voicePromptText, setVoicePromptText] = useState(VOICE_SCRIPT);
@@ -368,6 +369,10 @@ export default function ModelInitScreen() {
 
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const avatarAbortRef = useRef<AbortController | null>(null);
+  const prevPhaseRef = useRef<Phase>('intro');
+  const imageAvatarSkipPromptShownRef = useRef(false);
+  /** 从「生成中」取消回到图像步骤时不再弹出「已有头像可跳过」 */
+  const skipImageAvatarPromptAfterCancelRef = useRef(false);
   const { isRecording, isPaused, startRecording, stopRecording, pauseRecording, resumeRecording } =
     useRecording();
 
@@ -383,6 +388,9 @@ export default function ModelInitScreen() {
     const updated = await updateProfile({ voice_id: normalizedVoiceId });
     putProfileCache(updated);
     setHasExistingVoiceId(true);
+    if (updated.avatar_url?.trim()) {
+      setHasExistingAvatar(true);
+    }
     void AsyncStorage.removeItem(LAST_VOICE_CLONE_TASK_ID_KEY).catch(() => {});
     setVoiceQualityFailCount(0);
     setPhase('image');
@@ -472,9 +480,12 @@ export default function ModelInitScreen() {
         setProfileUserId(profile.user_id?.trim() || null);
         const existingVoiceId = profile.voice_id?.trim();
         setHasExistingVoiceId(Boolean(existingVoiceId));
+        const existingAvatar = profile.avatar_url?.trim();
+        setHasExistingAvatar(Boolean(existingAvatar));
       } catch {
         if (cancelled) return;
         setHasExistingVoiceId(false);
+        setHasExistingAvatar(false);
         setProfileUserId(null);
       } finally {
         if (!cancelled) {
@@ -557,12 +568,43 @@ export default function ModelInitScreen() {
       return;
     }
     if (hasExistingVoiceId) {
-      Alert.alert('提示', '检测到你已完成声音设置，已为你跳过此步骤。');
-      setPhase('image');
+      Alert.alert('提示', '检测到你已设置过声音，本步可以跳过；如需更新音色，也可继续完成采集。', [
+        { text: '继续采集声音', onPress: () => setPhase('voice') },
+        { text: '前往下一步', onPress: () => setPhase('image') },
+      ]);
       return;
     }
     setPhase('voice');
   };
+
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+
+    if (phase !== 'image') {
+      imageAvatarSkipPromptShownRef.current = false;
+      skipImageAvatarPromptAfterCancelRef.current = false;
+      return;
+    }
+    if (!voiceGateChecked || !hasExistingAvatar) return;
+
+    if (prev === 'avatarLoading') {
+      skipImageAvatarPromptAfterCancelRef.current = true;
+      return;
+    }
+    if (skipImageAvatarPromptAfterCancelRef.current) return;
+    if (imageAvatarSkipPromptShownRef.current) return;
+
+    imageAvatarSkipPromptShownRef.current = true;
+    Alert.alert(
+      '提示',
+      '检测到你已上传过头像，本步可以跳过直接进入下一环节；也可继续选择照片生成数字形象。',
+      [
+        { text: '继续上传', style: 'cancel' },
+        { text: '前往下一环节', onPress: () => setPhase('interviewPreamble') },
+      ]
+    );
+  }, [phase, hasExistingAvatar, voiceGateChecked]);
 
   const toggleRecord = async () => {
     try {
@@ -761,6 +803,9 @@ export default function ModelInitScreen() {
         },
       });
       putProfileCache(uploadedPortraitProfile);
+      if (uploadedPortraitProfile.avatar_url?.trim()) {
+        setHasExistingAvatar(true);
+      }
       const portraitPublicUrl = uploadedPortraitProfile.avatar_url;
       if (!portraitPublicUrl?.trim()) throw new Error('照片上传成功但未返回可访问的图片地址');
 
@@ -831,6 +876,9 @@ export default function ModelInitScreen() {
         },
       });
       putProfileCache(finalProfile);
+      if (finalProfile.avatar_url?.trim()) {
+        setHasExistingAvatar(true);
+      }
 
       setGeneratedAvatarUrl(finalProfile.avatar_url || lastUrl);
       setAvatarProgress(100);
@@ -1272,7 +1320,7 @@ export default function ModelInitScreen() {
                 <TouchableOpacity
                   onPress={sendInterview}
                   className="h-10 w-10 items-center justify-center rounded-full bg-[#B98C44]">
-                  <Icon name="ArrowUp" size={20} color="#111" />
+                  <Icon name="ArrowUp" size={20} color="#ffffff" />
                 </TouchableOpacity>
               </View>
             </View>

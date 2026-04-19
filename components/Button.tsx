@@ -44,7 +44,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const buttonStyles = {
-    primary: 'bg-primary',
+    primary: 'border border-white/30 bg-white/15',
     secondary: 'bg-secondary',
     outline: 'border border-border bg-transparent',
     ghost: 'bg-transparent',
@@ -66,10 +66,7 @@ export const Button: React.FC<ButtonProps> = ({
     full: 'rounded-full',
   };
 
-  const textColor =
-    variant === 'outline' || variant === 'secondary' || variant === 'ghost'
-      ? 'text-primary'
-      : 'text-invert';
+  const textColor = 'text-primary';
   const disabledStyle = disabled ? 'opacity-50' : '';
 
   // Default icon sizes based on button size

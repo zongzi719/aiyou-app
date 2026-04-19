@@ -116,7 +116,7 @@ export const Chip = ({
       <View className="flex-row items-center">
         {renderLeftContent()}
         <Text
-          className={`text-${textSizeClass} ${isChipSelected ? 'text-invert' : 'text-subtext'}`}>
+          className={`text-${textSizeClass} ${isChipSelected ? 'text-primary' : 'text-subtext'}`}>
           {label}
         </Text>
       </View>
@@ -127,7 +127,7 @@ export const Chip = ({
   const chipWrapper = (children: ReactNode) => (
     <View className={`${className || ''}`} style={style}>
       <View
-        className={`${paddingClasses} rounded-full ${isChipSelected ? 'bg-text' : 'bg-secondary'} flex-row items-center justify-center`}>
+        className={`${paddingClasses} rounded-full ${isChipSelected ? 'border border-white/35 bg-white/15' : 'bg-secondary'} flex-row items-center justify-center`}>
         {children}
       </View>
     </View>

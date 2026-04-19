@@ -8,7 +8,6 @@ import {
   Platform,
   TextInput,
   ImageBackground,
-  Text,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -187,10 +186,10 @@ export default function LoginScreen() {
               <Pressable
                 onPress={handleLogin}
                 disabled={isLoading}
-                className={`h-12 items-center justify-center rounded-full bg-white ${isLoading ? 'opacity-70' : ''}`}>
-                <Text className="text-sm font-normal" style={{ color: '#000000' }}>
+                className={`h-12 items-center justify-center rounded-full border border-white/35 bg-white/15 ${isLoading ? 'opacity-70' : ''}`}>
+                <ThemedText className="text-sm font-normal text-white">
                   {isLoading ? '登录中...' : '登录'}
-                </Text>
+                </ThemedText>
               </Pressable>
             </View>
           </View>

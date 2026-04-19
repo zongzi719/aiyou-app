@@ -46,10 +46,10 @@ export const BotSwitch = () => {
   return (
     <>
       <Pressable
-        className="flex-row rounded-full border border-neutral-300 border-transparent bg-secondary bg-text py-1 pl-3 pr-2"
+        className="flex-row rounded-full border border-white/30 bg-white/15 py-1 pl-3 pr-2"
         onPress={openModelSelector}>
-        <ThemedText className="mr-1 !text-invert">{selectedModel}</ThemedText>
-        <Icon name="ChevronDown" size={16} className="opacity-50" color={colors.invert} />
+        <ThemedText className="mr-1 text-primary">{selectedModel}</ThemedText>
+        <Icon name="ChevronDown" size={16} className="opacity-50" color={colors.text} />
       </Pressable>
 
       {/* ActionSheet for model selection */}
@@ -72,8 +72,8 @@ export const BotSwitch = () => {
 
           <Pressable
             onPress={() => actionSheetRef.current?.hide()}
-            className="mt-4 items-center rounded-full bg-text py-3">
-            <ThemedText className="font-semibold !text-invert">Cancel</ThemedText>
+            className="mt-4 items-center rounded-full border border-white/30 bg-white/15 py-3">
+            <ThemedText className="font-semibold text-primary">Cancel</ThemedText>
           </Pressable>
         </View>
       </ActionSheetThemed>

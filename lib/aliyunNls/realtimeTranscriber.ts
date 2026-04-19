@@ -40,6 +40,8 @@ export class AliyunNlsRealtimeTranscriber {
       handlers?: NlsRealtimeHandlers;
       /** 与默认 PCM 参数合并；参见 StartTranscription payload */
       payload?: Record<string, unknown>;
+      /** WebSocket 关闭（含对端断开、本地 close） */
+      onConnectionClosed?: () => void;
     }
   ) {}
 
@@ -55,6 +57,11 @@ export class AliyunNlsRealtimeTranscriber {
       const t = setTimeout(() => {
         reject(new Error('等待 TranscriptionStarted 超时'));
       }, 15000);
+
+      ws.onclose = () => {
+        this.canSendBinary = false;
+        this.options.onConnectionClosed?.();
+      };
 
       ws.onopen = () => {
         const msg: NlsMessage = {

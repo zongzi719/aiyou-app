@@ -58,7 +58,9 @@ export default function DecisionWelcome({
           <ThemedText className="text-[24px] font-semibold leading-[30px] text-white">
             欢迎来到决策模式
           </ThemedText>
-          <ThemedText className="mt-3 max-w-[260px] text-center text-[16px] leading-[22px] text-white/85">
+          <ThemedText
+            className="mt-3 max-w-[260px] text-center text-[16px] leading-[22px]"
+            style={{ color: 'rgba(255,255,255,0.9)' }}>
             在此模式下，你的商业问题将由多位教练共同分析，帮助您
           </ThemedText>
 
@@ -101,7 +103,7 @@ export default function DecisionWelcome({
                           numberOfLines={1}>
                           {defaultCoach.name}
                         </ThemedText>
-                        <ThemedText className="text-[12px] text-[#A6A6A6]" numberOfLines={1}>
+                        <ThemedText className="text-[12px] text-white" numberOfLines={1}>
                           {defaultCoach.roleLabel || '默认教练'}
                         </ThemedText>
                       </View>
@@ -128,12 +130,10 @@ export default function DecisionWelcome({
 
           <Pressable
             onPress={onStart}
-            className="mt-8 h-10 w-[219px] items-center justify-center rounded-[26px] bg-white"
+            className="mt-8 h-10 w-[219px] items-center justify-center rounded-[26px] border border-white bg-white"
             accessibilityRole="button"
             accessibilityLabel="开始对话">
-            <ThemedText style={{ color: '#111111' }} className="text-[12px] font-semibold">
-              开始对话
-            </ThemedText>
+            <ThemedText className="text-[12px] font-semibold text-[#111]">开始对话</ThemedText>
           </Pressable>
         </View>
       </View>
