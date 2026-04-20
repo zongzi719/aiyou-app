@@ -1,14 +1,9 @@
 import React, { useCallback, useEffect } from 'react';
 import { View, StyleProp, ViewStyle, LayoutChangeEvent } from 'react-native';
-import {
-  PanGestureHandler,
-  PanGestureHandlerGestureEvent,
-  TapGestureHandler,
-} from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  useAnimatedGestureHandler,
   runOnJS,
   useDerivedValue,
   withTiming,
@@ -32,10 +27,6 @@ interface SliderProps {
   step?: number;
   size?: SliderSize;
 }
-
-type AnimatedGestureContext = {
-  startPercentage: number;
-};
 
 const sizeStyles = {
   s: {
@@ -118,76 +109,67 @@ const Slider = ({
     );
   });
 
-  // Handle direct tap on track
-  const calculateValueFromTap = (x: number) => {
-    // Get real container width excluding thumb size
-    const usableWidth = containerWidth.value - currentSize.thumbSize;
+  const thumbSize = currentSize.thumbSize;
+  const panStartPercentage = useSharedValue(0);
+
+  const notifyChange = useCallback(
+    (v: number) => {
+      onValueChange?.(v);
+    },
+    [onValueChange]
+  );
+
+  const tapGesture = Gesture.Tap().onEnd((e) => {
+    'worklet';
+    const usableWidth = containerWidth.value - thumbSize;
     if (usableWidth <= 0) return;
 
-    // Calculate position relative to usable width, accounting for thumb radius offset
-    let newPercentage = Math.max(0, Math.min(1, (x - currentSize.thumbSize / 2) / usableWidth));
-
-    // Calculate raw value
+    const x = e.x;
+    let newPercentage = Math.max(0, Math.min(1, (x - thumbSize / 2) / usableWidth));
     const rawValue = minValue + newPercentage * (maxValue - minValue);
 
-    // Apply stepping
-    let steppedValue;
+    let steppedValue: number;
     if (step > 0) {
       steppedValue = Math.round((rawValue - minValue) / step) * step + minValue;
       steppedValue = Math.min(Math.max(steppedValue, minValue), maxValue);
-
-      // Recalculate percentage from stepped value
       newPercentage = (steppedValue - minValue) / (maxValue - minValue);
     } else {
       steppedValue = rawValue;
     }
 
-    // Update percentage and notify
     percentage.value = withTiming(newPercentage, { duration: 150 });
-
     if (onValueChange) {
-      onValueChange(steppedValue);
+      runOnJS(notifyChange)(steppedValue);
     }
-  };
+  });
 
-  // Handle pan gesture
-  const panHandler = useAnimatedGestureHandler<
-    PanGestureHandlerGestureEvent,
-    AnimatedGestureContext
-  >({
-    onStart: (_, ctx) => {
-      ctx.startPercentage = percentage.value;
-    },
-    onActive: (event, ctx) => {
-      // Calculate position relative to usable width (excluding thumb)
-      const usableWidth = containerWidth.value - currentSize.thumbSize;
+  const panGesture = Gesture.Pan()
+    .onBegin(() => {
+      panStartPercentage.value = percentage.value;
+    })
+    .onUpdate((event) => {
+      const usableWidth = containerWidth.value - thumbSize;
       if (usableWidth <= 0) return;
 
-      let newPercentage = ctx.startPercentage + event.translationX / usableWidth;
+      let newPercentage = panStartPercentage.value + event.translationX / usableWidth;
       newPercentage = Math.min(Math.max(newPercentage, 0), 1);
 
-      // Calculate raw value
       const rawValue = minValue + newPercentage * (maxValue - minValue);
 
-      // Apply stepping
-      let steppedValue;
+      let steppedValue: number;
       if (step > 0) {
         steppedValue = Math.round((rawValue - minValue) / step) * step + minValue;
         steppedValue = Math.min(Math.max(steppedValue, minValue), maxValue);
-
-        // Recalculate percentage from stepped value
         newPercentage = (steppedValue - minValue) / (maxValue - minValue);
       } else {
         steppedValue = rawValue;
       }
 
       percentage.value = newPercentage;
-
       if (onValueChange) {
-        runOnJS(onValueChange)(steppedValue);
+        runOnJS(notifyChange)(steppedValue);
       }
-    },
-  });
+    });
 
   // Thumb position style
   const thumbStyle = useAnimatedStyle(() => ({
@@ -227,14 +209,6 @@ const Slider = ({
     return displayValue.value.toFixed(decimalPoints);
   });
 
-  // Handle tap gesture on track
-  const handleTapGesture = useCallback(
-    (event: { nativeEvent: { x: number } }) => {
-      calculateValueFromTap(event.nativeEvent.x);
-    },
-    [calculateValueFromTap]
-  );
-
   return (
     <View className={`w-full ${className}`} style={style}>
       {label && (
@@ -250,7 +224,7 @@ const Slider = ({
         style={{ height: currentSize.containerHeight }}
         className="justify-center"
         onLayout={onLayout}>
-        <TapGestureHandler onHandlerStateChange={handleTapGesture}>
+        <GestureDetector gesture={tapGesture}>
           <Animated.View className="h-full w-full justify-center">
             {/* Background Track */}
             <View
@@ -277,7 +251,7 @@ const Slider = ({
             />
 
             {/* Thumb */}
-            <PanGestureHandler onGestureEvent={panHandler}>
+            <GestureDetector gesture={panGesture}>
               <Animated.View
                 style={[
                   {
@@ -298,9 +272,9 @@ const Slider = ({
                   thumbStyle,
                 ]}
               />
-            </PanGestureHandler>
+            </GestureDetector>
           </Animated.View>
-        </TapGestureHandler>
+        </GestureDetector>
       </View>
     </View>
   );

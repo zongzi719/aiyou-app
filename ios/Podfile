@@ -21,6 +21,10 @@ platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
 prepare_react_native_project!
 
 target 'Luna' do
+  # lottie-react-native 依赖 lottie-ios 4.5.0；弱网直连 GitHub 易断流，改用 HTTP 归档经公共加速域名拉取
+  pod 'lottie-ios',
+      :http => 'https://ghfast.top/https://github.com/airbnb/lottie-ios/archive/refs/tags/4.5.0.tar.gz'
+
   use_expo_modules!
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'

@@ -1,12 +1,11 @@
 import { useFonts, Outfit_400Regular, Outfit_700Bold } from '@expo-google-fonts/outfit';
 import { router } from 'expo-router';
-import { Drawer } from 'expo-router/drawer';
+import { Stack } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
 import { useThemeColors } from '../contexts/ThemeColors';
 
-import CustomDrawerContent from '@/components/CustomDrawerContent';
 import { getAuthSession, hasPrivateChatBackendSession } from '@/lib/authSession';
 import {
   clearProfileCache,
@@ -44,29 +43,12 @@ export default function DrawerLayout() {
   }
 
   return (
-    <Drawer
+    <Stack
       screenOptions={{
         headerShown: false,
-        drawerType: 'slide',
-        drawerPosition: 'left',
-        drawerStyle: {
-          backgroundColor: colors.bg,
-          //backgroundColor: 'red',
-          width: '85%',
-          flex: 1,
-        },
-        overlayColor: 'rgba(0,0,0, 0.4)',
-        swipeEdgeWidth: 100,
-      }}
-      drawerContent={(props) => <CustomDrawerContent drawerNavigation={props.navigation} />}>
-      <Drawer.Screen
-        name="index"
-        options={{
-          title: 'Menu',
-          drawerLabel: 'Menu',
-        }}
-        //redirect={true}
-      />
-    </Drawer>
+        contentStyle: { backgroundColor: colors.bg },
+      }}>
+      <Stack.Screen name="index" />
+    </Stack>
   );
 }

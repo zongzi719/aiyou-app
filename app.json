@@ -1,6 +1,5 @@
 {
   "expo": {
-    "newArchEnabled": true,
     "name": "Luna",
     "slug": "luna",
     "version": "1.0.0",
@@ -9,8 +8,28 @@
     "experiments": {
       "tsconfigPaths": true
     },
-    "platforms": ["ios", "android", "web"],
-    "plugins": ["expo-router", "expo-font", "expo-audio", "expo-stream-audio"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-audio",
+      "expo-stream-audio",
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -19,7 +38,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "bundleIdentifier": "com.thomino.luna",
       "supportsTablet": true,
@@ -45,14 +66,10 @@
       },
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
-      "config": {
-        "enableOnBackInvokedCallback": false
-      },
-      "navigationBarColor": "transparent",
-      "navigationBarHidden": true,
       "package": "com.thomino.luna",
-      "permissions": ["android.permission.RECORD_AUDIO"],
-      "usesCleartextTraffic": true
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "extra": {
       "router": {

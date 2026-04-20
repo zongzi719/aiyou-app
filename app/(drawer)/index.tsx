@@ -13,7 +13,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColors } from '@/app/contexts/ThemeColors';
-import { ChatInput, SelectedFile } from '@/components/ChatInput';
 import { Conversation, Message, type MessageFile } from '@/components/Conversation';
 import DecisionCoachPickerModal, {
   type DecisionCoachProfile,
@@ -50,6 +49,26 @@ import { streamMessage, isConfigured, AIMessage } from '@/services/ai';
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
 import { consumePendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 import DecisionConversation, { type DecisionTurn } from '@/components/DecisionConversation';
+
+type SelectedFile = {
+  uri: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  knowledgeFileId?: string;
+};
+
+type SafeChatInputProps = {
+  onSendMessage?: (text: string, images?: string[], files?: SelectedFile[]) => void;
+  variant?: 'default' | 'home';
+};
+
+let SafeChatInput: React.ComponentType<SafeChatInputProps> | null = null;
+try {
+  SafeChatInput = require('@/components/ChatInput').ChatInput;
+} catch (error) {
+  console.error('[home] failed to load ChatInput, fallback enabled', error);
+}
 
 /** 将英文后端错误转为中文友好提示 */
 function friendlyError(raw: string): string {
@@ -754,7 +773,17 @@ const HomeScreen = () => {
                 />
               )}
               {shouldShowChatInput ? (
-                <ChatInput onSendMessage={handleSendMessage} variant="home" />
+                SafeChatInput ? (
+                  <SafeChatInput onSendMessage={handleSendMessage} variant="home" />
+                ) : (
+                  <View className="px-5 pb-6">
+                    <View className="rounded-2xl bg-black/25 px-4 py-3">
+                      <ThemedText className="text-sm text-white/85">
+                        输入框组件加载失败，请先返回上页再进入，或重启 App。
+                      </ThemedText>
+                    </View>
+                  </View>
+                )
               ) : null}
             </View>
           </KeyboardAvoidingView>

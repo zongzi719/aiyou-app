@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { Audio } from '@/lib/expoAvCompat';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';

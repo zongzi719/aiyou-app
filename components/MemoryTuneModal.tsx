@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { Audio } from '@/lib/expoAvCompat';
 import { BlurView } from 'expo-blur';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';

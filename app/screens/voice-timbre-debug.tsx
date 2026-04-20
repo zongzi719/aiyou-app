@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { Audio } from '@/lib/expoAvCompat';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
