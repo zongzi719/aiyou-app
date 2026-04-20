@@ -56,8 +56,10 @@ const cloneIntro = '学习你的语气、思维。和我说话，我会越来越
 
 /** 专家通话：说完话后静音多久自动截断并发送（毫秒） */
 const EXPERT_SILENCE_MS = 1000;
-/** expo-stream-audio 音量 0–1，略高于底噪视为在说话 */
+/** expo-stream-audio 音量 0–1，略高于底噪视为在说话；与专家噪声门 open 一致 */
 const EXPERT_SPEECH_LEVEL_THRESHOLD = 0.08;
+/** 低于此 meter 关噪声门（须小于 EXPERT_SPEECH_LEVEL_THRESHOLD，形成滞回） */
+const EXPERT_NOISE_GATE_CLOSE_THRESHOLD = 0.045;
 
 function inferCategory(input: string): { category: string; dimensionLabel: string } {
   if (/决策|判断|取舍|选择|优先级/.test(input))
@@ -421,6 +423,10 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   } = useStreamingAsr({
     mode: 'chat',
     backend: 'aliyun',
+    noiseGate: {
+      openThreshold: EXPERT_SPEECH_LEVEL_THRESHOLD,
+      closeThreshold: EXPERT_NOISE_GATE_CLOSE_THRESHOLD,
+    },
     onPartialTranscript: () => {},
     onTranscript: (text) => {
       const flush = expertFlushResolversRef.current.shift();
@@ -659,15 +665,28 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         Alert.alert('无法开麦', '请检查麦克风权限后重试。');
       }
     } else {
-      await cancelExpertStreaming();
+      expertCallMutedRef.current = true;
       setExpertCallMuted(true);
+      expertRoundHasSpeechRef.current = false;
+      expertSilenceStartRef.current = null;
+      try {
+        if (expertIsStreaming) {
+          await stopExpertStreaming();
+        } else {
+          await cancelExpertStreaming();
+        }
+      } catch {
+        await cancelExpertStreaming().catch(() => {});
+      }
     }
   }, [
     cancelExpertStreaming,
     expertCallMuted,
     expertCallOpen,
+    expertIsStreaming,
     expertWorkflowLoading,
     startExpertStreaming,
+    stopExpertStreaming,
   ]);
 
   useEffect(() => {

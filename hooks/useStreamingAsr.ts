@@ -5,7 +5,7 @@ import {
   start as streamAudioStart,
   stop as streamAudioStop,
 } from 'expo-stream-audio';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type MutableRefObject } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
 
 import {
@@ -57,10 +57,36 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
+/** 客户端噪声门：低音量帧改发静音，减轻远场声进入 ASR；需 openThreshold > closeThreshold */
+export type StreamingAsrNoiseGate = {
+  openThreshold: number;
+  closeThreshold: number;
+};
+
+function applyNoiseGateToPcm16k(
+  pcm16k: Int16Array,
+  level: number | undefined,
+  gate: StreamingAsrNoiseGate | undefined,
+  gateOpenRef: MutableRefObject<boolean>
+): void {
+  if (!gate) return;
+  if (typeof level !== 'number') return;
+  if (gateOpenRef.current) {
+    if (level < gate.closeThreshold) gateOpenRef.current = false;
+  } else {
+    if (level > gate.openThreshold) gateOpenRef.current = true;
+  }
+  if (!gateOpenRef.current) {
+    pcm16k.fill(0);
+  }
+}
+
 export type StreamingAsrOptions = {
   mode: AsrWsMode;
   /** 覆盖 EXPO_PUBLIC_ASR_BACKEND；分身优化等场景可强制走阿里云实时识别 */
   backend?: StreamingAsrBackend;
+  /** 低 meter 帧发静音；仅对需要抑制远场的场景开启 */
+  noiseGate?: StreamingAsrNoiseGate;
   /** 句内/句末实时展示：accumulated + partial */
   onPartialTranscript: (displayText: string) => void;
   /** 会话落定（chat：close 兜底；notes：done 或 close 兜底） */
@@ -105,6 +131,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   const sessionActiveRef = useRef(false);
   /** expo-stream-audio 每帧带实际采样率；与网关约定 16k 不一致时必须重采样 */
   const micSampleRateRef = useRef<number | null>(null);
+  const noiseGateOpenRef = useRef(false);
 
   if (nlsTokenGetterRef.current === null) {
     nlsTokenGetterRef.current = createCachedNlsTokenGetter();
@@ -310,6 +337,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
 
     sessionActiveRef.current = true;
     micSampleRateRef.current = null;
+    noiseGateOpenRef.current = false;
     resetSessionText();
     nlsCleanupOnceRef.current = false;
     setIsStreaming(true);
@@ -420,6 +448,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
           }
           const srcRate = micSampleRateRef.current ?? rate;
           const pcm16k = resampleInt16MonoTo16k(pcm, srcRate);
+          applyNoiseGateToPcm16k(pcm16k, ev.level, optsRef.current.noiseGate, noiseGateOpenRef);
           const outBytes = int16ArrayToLeUint8(pcm16k);
           const chunks = pcmAcc.appendPcmInt16LE(outBytes);
           const tr = nlsTranscriberRef.current;
@@ -502,6 +531,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
         }
         const srcRate = micSampleRateRef.current ?? rate;
         const pcm16k = resampleInt16MonoTo16k(pcm, srcRate);
+        applyNoiseGateToPcm16k(pcm16k, ev.level, optsRef.current.noiseGate, noiseGateOpenRef);
         const outBytes = int16ArrayToLeUint8(pcm16k);
         const chunks = pcmAcc.appendPcmInt16LE(outBytes);
         for (const c of chunks) {
