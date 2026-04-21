@@ -31,7 +31,9 @@ type ThreadGroup = {
   sortTs: number;
 };
 
-const DEFAULT_ALIGNMENT_RATE = 78;
+/** 侧边栏对齐率进度（0–100），与 UI 稿一致 */
+const DEFAULT_ALIGNMENT_RATE = 75;
+const SIDEBAR_ALIGNMENT_LEVEL = 1;
 
 function toDateLabel(value?: string): string {
   if (!value) return '更早';
@@ -79,8 +81,10 @@ function groupThreadsByDate(threads: ThreadSummary[]): ThreadGroup[] {
     .sort((a, b) => b.sortTs - a.sortTs);
 }
 
-/** 侧边栏「音色调试 / 实时语音调试 / 专家通话调试」总开关；需要时再改为 true */
-const SHOW_SIDEBAR_DEBUG_ENTRIES = false;
+/** 侧边栏「音色调试 / 专家通话调试」等；生产包可设 EXPO_PUBLIC_ENABLE_SIDEBAR_DEBUG=true */
+const SHOW_SIDEBAR_DEBUG_ENTRIES =
+  (typeof __DEV__ !== 'undefined' && __DEV__) ||
+  process.env.EXPO_PUBLIC_ENABLE_SIDEBAR_DEBUG === 'true';
 
 const SHOW_NLS_RT_DEBUG =
   (typeof __DEV__ !== 'undefined' && __DEV__) ||
@@ -213,22 +217,20 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
                 name={profile.display_name || profile.username}
                 size="md"
               />
-              <View className="ml-3 flex-1">
-                <View className="flex-row items-end justify-between">
-                  <ThemedText className="text-[26px] font-semibold tracking-[0.4px] text-primary">
-                    {profileName}
-                  </ThemedText>
-                  <ThemedText
-                    className="mb-[2px] text-base font-semibold"
-                    style={{ color: colors.text, opacity: 0.88 }}>
-                    Lv.1
-                  </ThemedText>
+              <View className="ml-3 flex-1 justify-center">
+                <ThemedText className="text-[26px] font-semibold tracking-[0.4px] text-primary">
+                  {profileName}
+                </ThemedText>
+                <View className="mt-1 flex-row items-center justify-between">
+                  <ThemedText className="text-sm text-subtext">对齐率</ThemedText>
+                  <ThemedText className="text-sm text-subtext">Lv.{SIDEBAR_ALIGNMENT_LEVEL}</ThemedText>
                 </View>
-                <ThemedText className="-mt-1 text-sm text-subtext">对齐率</ThemedText>
                 <View className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/25">
                   <View
                     className="h-full rounded-full bg-[#F2C94C]"
-                    style={{ width: `${Math.max(0, Math.min(100, DEFAULT_ALIGNMENT_RATE))}%` }}
+                    style={{
+                      width: `${Math.max(0, Math.min(100, DEFAULT_ALIGNMENT_RATE))}%`,
+                    }}
                   />
                 </View>
               </View>
@@ -263,39 +265,38 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
               <Icon name="ChevronRight" size={16} color="rgba(233,214,164,0.9)" />
             </TouchableOpacity>
 
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                drawerNavigation.closeDrawer();
+                router.push('/screens/expert-call-workflow-debug');
+              }}
+              className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+              <View className="flex-row items-center gap-2">
+                <Icon name="Phone" size={16} color="#A8C8E8" />
+                <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                  专家通话调试
+                </ThemedText>
+              </View>
+              <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+            </TouchableOpacity>
+
             {SHOW_NLS_RT_DEBUG ? (
-              <>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    drawerNavigation.closeDrawer();
-                    router.push('/screens/aliyun-realtime-asr-debug');
-                  }}
-                  className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
-                  <View className="flex-row items-center gap-2">
-                    <Icon name="AudioLines" size={16} color="#A8C8E8" />
-                    <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
-                      实时语音调试
-                    </ThemedText>
-                  </View>
-                  <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    drawerNavigation.closeDrawer();
-                    router.push('/screens/expert-call-workflow-debug');
-                  }}
-                  className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
-                  <View className="flex-row items-center gap-2">
-                    <Icon name="Phone" size={16} color="#A8C8E8" />
-                    <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
-                      专家通话调试
-                    </ThemedText>
-                  </View>
-                  <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
-                </TouchableOpacity>
-              </>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => {
+                  drawerNavigation.closeDrawer();
+                  router.push('/screens/aliyun-realtime-asr-debug');
+                }}
+                className="border-[#4A90D9]/35 mb-3 flex-row items-center justify-between rounded-2xl border bg-[#1A2635] px-4 py-3">
+                <View className="flex-row items-center gap-2">
+                  <Icon name="AudioLines" size={16} color="#A8C8E8" />
+                  <ThemedText className="text-sm font-semibold text-[#A8C8E8]">
+                    实时语音调试
+                  </ThemedText>
+                </View>
+                <Icon name="ChevronRight" size={16} color="rgba(168,200,232,0.9)" />
+              </TouchableOpacity>
             ) : null}
           </>
         ) : null}

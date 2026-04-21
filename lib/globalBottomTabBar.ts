@@ -48,6 +48,18 @@ export function getGlobalBottomTabKey(
     return 'memory';
   }
   if (
+    pathname === '/screens/memory-inspiration-detail' ||
+    pathname.startsWith('/screens/memory-inspiration-detail/') ||
+    pathname === '/screens/memory-schedule-detail' ||
+    pathname.startsWith('/screens/memory-schedule-detail/') ||
+    pathname === '/screens/memory-user-detail' ||
+    pathname.startsWith('/screens/memory-user-detail/') ||
+    pathname === '/screens/notes' ||
+    pathname.startsWith('/screens/notes/')
+  ) {
+    return 'memory';
+  }
+  if (
     pathname === '/screens/knowledge-base' ||
     pathname.startsWith('/screens/knowledge-base/') ||
     pathname === '/screens/knowledge-file-detail' ||
@@ -59,7 +71,13 @@ export function getGlobalBottomTabKey(
     pathname === '/screens/profile' ||
     pathname.startsWith('/screens/profile/') ||
     pathname === '/screens/edit-profile' ||
-    pathname.startsWith('/screens/edit-profile/')
+    pathname.startsWith('/screens/edit-profile/') ||
+    pathname === '/screens/subscription' ||
+    pathname.startsWith('/screens/subscription/') ||
+    pathname === '/screens/help' ||
+    pathname.startsWith('/screens/help/') ||
+    pathname === '/screens/ai-voice' ||
+    pathname.startsWith('/screens/ai-voice/')
   ) {
     return 'profile';
   }

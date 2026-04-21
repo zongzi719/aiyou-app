@@ -102,6 +102,12 @@ interface AddMemoryFactPayload {
   confidence?: number;
 }
 
+export interface UpdateMemoryFactPayload {
+  content?: string;
+  category?: string;
+  confidence?: number;
+}
+
 function blockTime(block: MemorySummaryBlock): string | undefined {
   return (
     block.updatedAt ?? block.updated_at ?? block.created_at ?? block.created_time ?? block.timestamp
@@ -177,6 +183,16 @@ export const memoryApi = {
     const list = normalizeMemoriesPayload(data);
     return list[0] ?? null;
   },
+
+  /**
+   * PATCH /api/memory/facts/{fact_id}
+   * 至少传 content / category / confidence 之一（与后端约定一致）
+   */
+  updateMemoryFact: (id: string, payload: UpdateMemoryFactPayload) =>
+    request<unknown>(`/facts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 
   getDocuments: (q?: string) => {
     const qs = q ? `?q=${encodeURIComponent(q)}` : '';

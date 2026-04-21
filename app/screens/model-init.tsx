@@ -38,6 +38,8 @@ import {
   waitForVoiceCloneResult,
 } from '@/lib/tencentMaasVoiceApi';
 import { getVoiceCloneProvider } from '@/lib/voiceCloneProvider';
+import { peekMemoryMemories, putMemoryMemories } from '@/lib/listDataCache';
+import { memoryApi } from '@/services/memoryApi';
 import { bustAvatarCache, fetchProfile, updateProfile, uploadAvatar } from '@/services/profileApi';
 
 const voiceCloneProvider = getVoiceCloneProvider();
@@ -343,6 +345,20 @@ type ChatRow =
   | { id: string; kind: 'ai'; text: string }
   | { id: string; kind: 'user'; text: string }
   | { id: string; kind: 'memory'; title: string; tag: string; body: string };
+
+/** 与 MemoryTuneModal 一致：写入后端并更新本地记忆列表缓存，便于「用户记忆」页立即展示 */
+async function persistOnboardingInterviewFact(content: string, category: string): Promise<void> {
+  const created = await memoryApi.addMemoryFact({
+    content,
+    category,
+    confidence: 0.86,
+  });
+  if (created) {
+    const current = peekMemoryMemories() ?? [];
+    const next = [created, ...current.filter((m) => m.id !== created.id)];
+    putMemoryMemories(next);
+  }
+}
 
 export default function ModelInitScreen() {
   const { postLogin } = useLocalSearchParams<{ postLogin?: string }>();
@@ -862,13 +878,10 @@ export default function ModelInitScreen() {
 
       // 4) 下载生成结果到本地，再走现有 uploadAvatar() 作为最终头像
       const destination = new Directory(Paths.cache, 'generated-avatars', String(Date.now()));
-      try {
-        // Directory.exists 不是实时刷新的；这里用幂等创建避免 “Destination already exists”
-        destination.create();
-      } catch {
-        /* ignore */
-      }
-      const downloaded = await File.downloadFileAsync(lastUrl, destination);
+      // 必须带 intermediates：否则父目录 generated-avatars 不存在时 create 会失败；
+      // 若静默忽略，后续 download 会把临时文件移到不存在的路径，触发 CFNetwork “couldn’t be moved” 报错。
+      destination.create({ intermediates: true, idempotent: true });
+      const downloaded = await File.downloadFileAsync(lastUrl, destination, { idempotent: true });
 
       const finalProfile = await uploadAvatarWithRetry(downloaded.uri, {
         onAttemptStart: (attempt, total) => {
@@ -914,6 +927,7 @@ export default function ModelInitScreen() {
     setChatRows((rows) => [...rows, { id: userId, kind: 'user', text }]);
 
     if (interviewRound === 0) {
+      const memoryBody = `商业哲学 - 你相信，企业的长期生命力与「${text.slice(0, 24)}${text.length > 24 ? '…' : ''}」密切相关。`;
       setTimeout(() => {
         setChatRows((rows) => [
           ...rows,
@@ -930,7 +944,7 @@ export default function ModelInitScreen() {
             kind: 'memory',
             title: '记忆已生成',
             tag: '决策风格',
-            body: `商业哲学 - 你相信，企业的长期生命力与「${text.slice(0, 24)}${text.length > 24 ? '…' : ''}」密切相关。`,
+            body: memoryBody,
           },
           {
             id: `q2-${Date.now()}`,
@@ -939,10 +953,17 @@ export default function ModelInitScreen() {
           },
         ]);
         setInterviewRound(1);
+        void persistOnboardingInterviewFact(memoryBody, 'style').catch((err) =>
+          Alert.alert(
+            '提示',
+            err instanceof Error ? err.message : '记忆未能同步到记忆库，可稍后在记忆库中手动补充。'
+          )
+        );
       }, 400);
       return;
     }
 
+    const secondMemoryBody = `决策风格 - 面对重要决定时，你的回答是：「${text.slice(0, 40)}${text.length > 40 ? '…' : ''}」。`;
     setTimeout(() => {
       setChatRows((rows) => [
         ...rows,
@@ -953,6 +974,12 @@ export default function ModelInitScreen() {
         },
       ]);
       setInterviewRound(2);
+      void persistOnboardingInterviewFact(secondMemoryBody, 'style').catch((err) =>
+        Alert.alert(
+          '提示',
+          err instanceof Error ? err.message : '记忆未能同步到记忆库，可稍后在记忆库中手动补充。'
+        )
+      );
     }, 400);
   }, [interviewInput, interviewRound]);
 

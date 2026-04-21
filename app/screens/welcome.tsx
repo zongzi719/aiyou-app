@@ -13,9 +13,7 @@ export default function OnboardingScreen() {
     <SafeAreaView className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
       <View className="flex-1 bg-black">
         <ImageBackground
-          source={{
-            uri: 'file:///Users/ZHOU/.cursor/projects/Users-ZHOU-Desktop-project-luna-main/assets/image-4bddf3a2-33fa-4565-9b38-8e6f8b02b5a4.png',
-          }}
+          source={require('@/assets/images/login-bg.png')}
           resizeMode="cover"
           className="flex-1">
           <View className="bg-black/15 flex-1 px-8">
@@ -35,8 +33,8 @@ export default function OnboardingScreen() {
                 if (!agreed) return;
                 router.push('/screens/login');
               }}
-              className={`items-center rounded-full border border-white/35 py-4 ${agreed ? 'bg-white/15' : 'bg-white/10'}`}>
-              <ThemedText className="text-xl font-medium text-white">
+              className={`items-center rounded-full border border-white/35 py-4 ${agreed ? 'bg-white' : 'bg-white/70'}`}>
+              <ThemedText className={`text-xl font-medium ${agreed ? 'text-black' : 'text-black/60'}`}>
                 账号登录
               </ThemedText>
             </Pressable>

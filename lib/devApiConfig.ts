@@ -7,7 +7,7 @@ const KEY_USER = 'dev_user_id';
 const KEY_GLOBAL_MOCK = 'dev_global_mock';
 
 /** AIYOU 线上网关（与 MOBILE_CHAT_API 文档一致） */
-export const PRODUCTION_API_BASE_URL = 'http://47.242.248.240:2026';
+export const PRODUCTION_API_BASE_URL = 'https://aiyou.ontuotu.com';
 
 /** 补全 `http(s)://`，避免仅保存 `host:port` 时 fetch 变成非法相对 URL导致 Network request failed */
 export function normalizeApiBaseUrl(raw: string): string {

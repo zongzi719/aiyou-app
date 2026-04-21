@@ -22,6 +22,7 @@ import { useTheme } from '@/app/contexts/ThemeContext';
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
 import { themes } from '@/utils/color-theme';
+import { formatScheduleTimeForDisplay } from '@/utils/date';
 import { useStreamingAsr } from '@/hooks/useStreamingAsr';
 import {
   analyzeNoteInput,
@@ -98,6 +99,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   /** 历次流式 session 已落定文本之和 */
   const voiceAccumulatedRef = useRef('');
   const wasVoiceStreamingRef = useRef(false);
+  const isVoiceStreamingRef = useRef(false);
 
   const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
   /** 区分采集中与已点结束、等待 done/OSS */
@@ -107,6 +109,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     isStreaming: isVoiceStreaming,
     startStreaming,
     stopStreaming,
+    cancelStreaming,
   } = useStreamingAsr({
     mode: 'notes',
     onPartialTranscript: (sessionText) => {
@@ -158,9 +161,30 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     }
   }, [visible]);
 
+  /** 正在聆听时关闭弹窗：强制中断识别并清空输入与语音缓存 */
+  const abortVoiceIfListeningAndClearDraft = useCallback(async () => {
+    if (!isVoiceStreamingRef.current) return;
+    await cancelStreaming().catch(() => {});
+    preVoiceTextRef.current = '';
+    voiceAccumulatedRef.current = '';
+    setPendingAudioUrl(null);
+    setVoicePhase('idle');
+    wasVoiceStreamingRef.current = false;
+    setDraft('');
+  }, [cancelStreaming]);
+
+  useEffect(() => {
+    if (visible) return;
+    abortVoiceIfListeningAndClearDraft().catch(() => {});
+  }, [visible, abortVoiceIfListeningAndClearDraft]);
+
   const closeAll = useCallback(() => {
-    onRequestClose();
-  }, [onRequestClose]);
+    abortVoiceIfListeningAndClearDraft()
+      .catch(() => {})
+      .finally(() => {
+        onRequestClose();
+      });
+  }, [abortVoiceIfListeningAndClearDraft, onRequestClose]);
 
   const handleMicPress = useCallback(async () => {
     try {
@@ -215,8 +239,14 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   );
 
   const mapScheduleToModal = useCallback((analysis: AnalyzeScheduleResult): ModalScheduleResult => {
-    const timeRange = analysis.start_time
-      ? `${analysis.start_time}${analysis.end_time ? ` - ${analysis.end_time}` : ''}`
+    const startShown = analysis.start_time
+      ? formatScheduleTimeForDisplay(analysis.start_time)
+      : '';
+    const endShown = analysis.end_time ? formatScheduleTimeForDisplay(analysis.end_time) : '';
+    const timeRange = startShown
+      ? endShown
+        ? `${startShown} - ${endShown}`
+        : startShown
       : '待定';
     return {
       kind: 'schedule',
@@ -272,6 +302,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setVoicePhase('idle');
     }
     wasVoiceStreamingRef.current = isVoiceStreaming;
+    isVoiceStreamingRef.current = isVoiceStreaming;
   }, [isVoiceStreaming]);
 
   const onSave = useCallback(async () => {

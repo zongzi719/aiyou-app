@@ -2,15 +2,24 @@
   "expo": {
     "newArchEnabled": true,
     "name": "Luna",
-    "slug": "luna",
-    "version": "1.0.0",
-    "runtimeVersion": "1.0.0",
+    "slug": "luna-zhouyz719",
+    "version": "1.2.0",
+    "runtimeVersion": "1.2.0",
     "scheme": "luna",
     "experiments": {
       "tsconfigPaths": true
     },
-    "platforms": ["ios", "android", "web"],
-    "plugins": ["expo-router", "expo-font", "expo-audio", "expo-stream-audio"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-audio",
+      "expo-stream-audio"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -19,22 +28,18 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "bundleIdentifier": "com.thomino.luna",
+      "bundleIdentifier": "com.lm.lmaiyou",
+      "buildNumber": "4",
       "supportsTablet": true,
       "infoPlist": {
         "NSMicrophoneUsageDescription": "This app uses the microphone for speech-to-text functionality.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
-          "NSAllowsLocalNetworking": true,
-          "NSExceptionDomains": {
-            "47.242.248.240": {
-              "NSExceptionAllowsInsecureHTTPLoads": true,
-              "NSIncludesSubdomains": true,
-              "NSExceptionRequiresForwardSecrecy": false
-            }
-          }
+          "NSAllowsLocalNetworking": true
         }
       }
     },
@@ -50,8 +55,11 @@
       },
       "navigationBarColor": "transparent",
       "navigationBarHidden": true,
-      "package": "com.thomino.luna",
-      "permissions": ["android.permission.RECORD_AUDIO"],
+      "package": "com.lm.lmaiyou",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
       "usesCleartextTraffic": true
     },
     "extra": {
@@ -59,12 +67,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "a0a0f625-0457-4ab7-a22f-509a24238a11"
+        "projectId": "38b487fc-380f-4e72-8d4a-6c9e85bb8100"
       }
     },
-    "owner": "thomino",
-    "updates": {
-      "url": "https://u.expo.dev/a0a0f625-0457-4ab7-a22f-509a24238a11"
-    }
+    "owner": "zhouyz719"
   }
 }

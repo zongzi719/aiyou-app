@@ -31,7 +31,7 @@ export default function LoginScreen() {
   const validateAccount = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
-      setAccountError('请输入手机号');
+      setAccountError('请输入账号');
       return false;
     }
     setAccountError('');
@@ -137,13 +137,13 @@ export default function LoginScreen() {
                     if (apiError) setApiError('');
                   }}
                   className="h-12 text-base text-white"
-                  placeholder="手机号"
+                  placeholder="账号"
                   placeholderTextColor="rgba(255,255,255,0.72)"
-                  keyboardType="phone-pad"
+                  keyboardType={Platform.OS === 'ios' ? 'ascii-capable' : 'visible-password'}
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoComplete="username"
-                  textContentType="telephoneNumber"
+                  textContentType="username"
                 />
               </View>
               {!!accountError && (
@@ -187,11 +187,11 @@ export default function LoginScreen() {
                       <View className="h-2 w-2 rounded-full bg-white/90" />
                     ) : null}
                   </View>
-                  <ThemedText className="text-white/65 text-base">记住密码</ThemedText>
+                  <ThemedText className="text-[#989898] text-base">记住密码</ThemedText>
                 </Pressable>
                 <Link href="/screens/forgot-password" asChild>
                   <Pressable hitSlop={8}>
-                    <ThemedText className="text-white/65 text-base">忘记密码？</ThemedText>
+                    <ThemedText className="text-[#989898] text-base">忘记密码？</ThemedText>
                   </Pressable>
                 </Link>
               </View>
@@ -199,8 +199,8 @@ export default function LoginScreen() {
               <Pressable
                 onPress={handleLogin}
                 disabled={isLoading}
-                className={`h-12 items-center justify-center rounded-full border border-white/35 bg-white/15 ${isLoading ? 'opacity-70' : ''}`}>
-                <ThemedText className="text-sm font-normal text-white">
+                className={`h-12 items-center justify-center rounded-full border border-white bg-white ${isLoading ? 'opacity-70' : ''}`}>
+                <ThemedText className="text-sm font-normal text-black">
                   {isLoading ? '登录中...' : '登录'}
                 </ThemedText>
               </Pressable>

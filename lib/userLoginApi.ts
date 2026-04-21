@@ -230,7 +230,7 @@ export async function postUserLogin(
           '【你在 Mac 上可先试】打开「终端」粘贴回车，看最后一行是否是 401（能通）还是报错/一直卡住：',
           `curl -sS -o /dev/null -w "%{http_code}\\n" -X POST "${url}" -H "Content-Type: application/json" -d '{"username":"test","password":"test"}'`,
           '',
-          '【默认】根目录 .env 设置 EXPO_PUBLIC_DEV_API_BASE_URL=http://47.242.248.240:2026 后重新编译 App。',
+          '【默认】根目录 .env 设置 EXPO_PUBLIC_DEV_API_BASE_URL=https://aiyou.ontuotu.com 后重新编译 App。',
           '【备选】若仅模拟器不通而 Mac 上 curl 能通，可试 npm run dev:api-proxy，并把 API 改为 Mac 局域网 IP:端口（勿用 127.0.0.1）。',
         ].join('\n'),
       };

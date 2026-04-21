@@ -1,11 +1,5 @@
-import {
-  addErrorListener,
-  addFrameListener,
-  requestPermission,
-  start as streamAudioStart,
-  stop as streamAudioStop,
-} from 'expo-stream-audio';
 import { useCallback, useRef, useState, type MutableRefObject } from 'react';
+import { Audio } from 'expo-av';
 import { PermissionsAndroid, Platform } from 'react-native';
 
 import {
@@ -25,6 +19,45 @@ import { connectAsrWebSocket, wsSendBinary, wsSendJson } from '@/lib/asrWebSocke
 import type { AsrWsMode } from '@/lib/asrWsUrl';
 import { getGlobalMock } from '@/lib/devApiConfig';
 
+type StreamAudioFrameEvent = {
+  pcmBase64?: string;
+  sampleRate?: number;
+  level?: number;
+};
+
+type StreamAudioErrorEvent = {
+  message?: string;
+};
+
+type StreamAudioSub = {
+  remove: () => void;
+};
+
+type StreamAudioPermission = 'granted' | 'denied' | 'undetermined';
+
+type ExpoStreamAudioModule = {
+  addFrameListener: (listener: (ev: StreamAudioFrameEvent) => void) => StreamAudioSub;
+  addErrorListener: (listener: (ev: StreamAudioErrorEvent) => void) => StreamAudioSub;
+  requestPermission: () => Promise<StreamAudioPermission>;
+  start: (options: {
+    sampleRate: number;
+    channels: number;
+    enableLevelMeter: boolean;
+    frameDurationMs: number;
+  }) => Promise<void>;
+  stop: () => Promise<void>;
+};
+
+const expoStreamAudio: ExpoStreamAudioModule | null = (() => {
+  try {
+    return require('expo-stream-audio') as ExpoStreamAudioModule;
+  } catch {
+    return null;
+  }
+})();
+
+const isStreamAudioAvailable = expoStreamAudio !== null;
+
 /** 避免同一片段被多次 final 重复拼到 accumulated（如「今天去」连发三遍） */
 function shouldSkipDuplicateFinalAppend(accumulated: string, piece: string): boolean {
   const p = piece.trim();
@@ -43,6 +76,25 @@ function stripAccumulatedPrefixFromPartial(accumulated: string, partial: string)
     return p.slice(a.length).replace(/^\s+/, '');
   }
   return p;
+}
+
+/** Android：调用 stop() 后 capture 线程仍可能读到 0 字节，expo-stream-audio 会误报，结束流程中应忽略 */
+function isBenignStreamAudioTeardownError(message: string | undefined): boolean {
+  const m = (message ?? '').toLowerCase();
+  return m.includes('0 byte') && (m.includes('audiorecord') || m.includes('read'));
+}
+
+/**
+ * 阿里云网关在任务已进入 stopping 时再次收到 StopTranscription，会返回 TASK_STATE_ERROR。
+ * 这是重复 stop 的竞态，属于可忽略噪声错误。
+ */
+function isBenignAliyunStopRaceError(message: string | undefined): boolean {
+  const m = (message ?? '').toLowerCase();
+  return (
+    m.includes('task_state_error') &&
+    m.includes('got stop directive') &&
+    m.includes('task is stopping')
+  );
 }
 
 function base64ToUint8Array(b64: string): Uint8Array {
@@ -216,7 +268,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     pcmAccRef.current?.clear();
     pcmAccRef.current = null;
     micSampleRateRef.current = null;
-    await streamAudioStop().catch(() => {});
+    await expoStreamAudio?.stop().catch(() => {});
   };
 
   const cleanupWs = () => {
@@ -329,6 +381,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       optsRef.current.onError?.('语音输入仅在 iOS / Android 客户端可用');
       return;
     }
+    if (!isStreamAudioAvailable) {
+      optsRef.current.onError?.('Expo Go 不支持当前语音原生模块，请使用 Development Build');
+      return;
+    }
 
     if (sessionActiveRef.current) {
       optsRef.current.onError?.('请等待当前语音识别结束后再试');
@@ -351,7 +407,12 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       return;
     }
 
-    const perm = await requestPermission();
+    // expo-stream-audio 的 requestPermission 在 iOS 上只读状态，不会在 undetermined 时调起系统授权框。
+    let perm = await expoStreamAudio.requestPermission();
+    if (Platform.OS === 'ios' && perm === 'undetermined') {
+      await Audio.requestPermissionsAsync();
+      perm = await expoStreamAudio.requestPermission();
+    }
     if (perm !== 'granted') {
       sessionActiveRef.current = false;
       setIsStreaming(false);
@@ -402,7 +463,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
             runAliyunCleanup().catch(() => {});
           },
           onTaskFailed: (msg) => {
-            optsRef.current.onError?.(msg || '语音识别失败');
+            const normalized = msg || '语音识别失败';
+            if (!isBenignAliyunStopRaceError(normalized)) {
+              optsRef.current.onError?.(normalized);
+            }
             runAliyunCleanup().catch(() => {});
           },
         },
@@ -412,7 +476,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
 
       try {
         await client.connectAndStart();
-      } catch {
+      } catch (e) {
+        if (__DEV__) {
+          console.error('[ASR] Aliyun connectAndStart 失败（详见下方 Error）', e);
+        }
         nlsTranscriberRef.current = null;
         sessionActiveRef.current = false;
         setIsStreaming(false);
@@ -425,7 +492,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
         return;
       }
 
-      frameSubRef.current = addFrameListener((ev) => {
+      frameSubRef.current = expoStreamAudio.addFrameListener((ev) => {
         try {
           if (!ev.pcmBase64?.trim()) return;
           const bytes = base64ToUint8Array(ev.pcmBase64);
@@ -463,12 +530,15 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
         }
       });
 
-      errorSubRef.current = addErrorListener((ev) => {
-        optsRef.current.onError?.(ev.message || '录音流错误');
+      errorSubRef.current = expoStreamAudio.addErrorListener((ev) => {
+        const msg = ev.message || '录音流错误';
+        const s = sessionRef.current;
+        if ((s.endSent || s.cancelled) && isBenignStreamAudioTeardownError(msg)) return;
+        optsRef.current.onError?.(msg);
       });
 
       try {
-        await streamAudioStart({
+        await expoStreamAudio.start({
           sampleRate: 16000,
           channels: 1,
           enableLevelMeter: true,
@@ -496,11 +566,17 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
           setIsStreaming(false);
           setMeterLevel(0);
         },
-        onError: () => {
+        onError: (wsErr) => {
+          if (__DEV__) {
+            console.error('[ASR] Gateway WebSocket onError', wsErr);
+          }
           optsRef.current.onError?.('语音识别连接失败');
         },
       });
-    } catch {
+    } catch (e) {
+      if (__DEV__) {
+        console.error('[ASR] Gateway WebSocket 建连失败', e);
+      }
       sessionActiveRef.current = false;
       setIsStreaming(false);
       optsRef.current.onError?.('语音识别连接失败');
@@ -509,7 +585,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
 
     wsRef.current = ws;
 
-    frameSubRef.current = addFrameListener((ev) => {
+    frameSubRef.current = expoStreamAudio.addFrameListener((ev) => {
       try {
         if (!ev.pcmBase64?.trim()) return;
         const bytes = base64ToUint8Array(ev.pcmBase64);
@@ -545,12 +621,15 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       }
     });
 
-    errorSubRef.current = addErrorListener((ev) => {
-      optsRef.current.onError?.(ev.message || '录音流错误');
+    errorSubRef.current = expoStreamAudio.addErrorListener((ev) => {
+      const msg = ev.message || '录音流错误';
+      const s = sessionRef.current;
+      if ((s.endSent || s.cancelled) && isBenignStreamAudioTeardownError(msg)) return;
+      optsRef.current.onError?.(msg);
     });
 
     try {
-      await streamAudioStart({
+      await expoStreamAudio.start({
         sampleRate: 16000,
         channels: 1,
         enableLevelMeter: true,
@@ -576,7 +655,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     }
 
     sessionRef.current.endSent = true;
-    await streamAudioStop().catch(() => {});
+    await expoStreamAudio?.stop().catch(() => {});
 
     const pad = pcmAccRef.current?.flushPadWithZeros();
 

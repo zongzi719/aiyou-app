@@ -53,6 +53,7 @@ import {
   confidenceLabel,
   resolveMemoryTime,
 } from '@/services/memoryApi';
+import { formatScheduleTimeForDisplay } from '@/utils/date';
 import {
   fetchProfile,
   bustAvatarCache,
@@ -60,6 +61,7 @@ import {
   formatAiLearningDataLine,
 } from '@/services/profileApi';
 import { knowledgeApi, type KnowledgeFile } from '@/services/knowledgeApi';
+import { AI_CEO_PROFILE } from '@/lib/aiCeoProfile';
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
@@ -69,22 +71,6 @@ type NotesTabKey = '灵感笔记' | '日程安排';
 type TopPageKey = 'aiCeo' | 'memory';
 
 const NOTES_TABS: NotesTabKey[] = ['灵感笔记', '日程安排'];
-
-const AI_CEO_PROFILE = {
-  level: 3,
-  nextLevelMins: 30,
-  match: 65,
-  mbti: 'ENTJ',
-  strengths: ['产品经验', '数据导向', '战略型思维'],
-  dimensions: [
-    { label: '认知模型', value: 70 },
-    { label: '语言风格', value: 76 },
-    { label: '决策逻辑', value: 69 },
-    { label: '战略方法', value: 85 },
-  ],
-  insight:
-    '以提高组织执行力。我会优先考虑核心岗位的能力匹配和关键流程的效率。我比较关注跨部门协作与信息共享，以保证战略目标能够顺利落实。',
-};
 
 interface TopSwitchProps {
   activePage: TopPageKey;
@@ -237,7 +223,10 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
             </ThemedText>
           </View>
           <View className="mb-2 h-2 overflow-hidden rounded-full bg-white/20">
-            <View className="h-full rounded-full bg-[#B98C44]" style={{ width: '65%' }} />
+            <View
+              className="h-full rounded-full bg-[#B98C44]"
+              style={{ width: `${AI_CEO_PROFILE.alignmentBarPercent}%` }}
+            />
           </View>
           <View className="mb-2 flex-row items-center justify-between">
             <ThemedText className="text-xs text-[#D4D9E5]">
@@ -384,6 +373,10 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
   const timeIso = resolveMemoryTime(memory);
   const timeLabel = timeIso ? formatMemoryDate(timeIso) : '';
 
+  const openDetail = () => {
+    router.push(`/screens/memory-user-detail?id=${encodeURIComponent(memory.id)}`);
+  };
+
   const handleLongPress = () => {
     if (memory.deletable === false) return;
     Alert.alert(translateCategory(memory.category), undefined, [
@@ -398,6 +391,7 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
 
   return (
     <TouchableOpacity
+      onPress={openDetail}
       onLongPress={handleLongPress}
       activeOpacity={0.75}
       className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
@@ -753,6 +747,9 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
           return (
             <TouchableOpacity
               activeOpacity={0.75}
+              onPress={() =>
+                router.push(`/screens/memory-inspiration-detail?id=${encodeURIComponent(note.id)}`)
+              }
               className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
               <View className="flex-row items-start gap-2">
                 <View className="flex-1">
@@ -783,17 +780,22 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
           );
         }
         const schedule = item as Schedule;
+        const startShown = schedule.start_time
+          ? formatScheduleTimeForDisplay(schedule.start_time)
+          : '时间待定';
+        const endShown = schedule.end_time ? formatScheduleTimeForDisplay(schedule.end_time) : '';
+        const scheduleTimeLabel = endShown ? `${startShown} - ${endShown}` : startShown;
         return (
           <TouchableOpacity
             activeOpacity={0.75}
+            onPress={() =>
+              router.push(`/screens/memory-schedule-detail?id=${encodeURIComponent(schedule.id)}`)
+            }
             className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
             <View className="flex-row items-start gap-2">
               <View className="flex-1">
                 <ThemedText className="text-sm font-bold text-primary">{schedule.title}</ThemedText>
-                <ThemedText className="mt-1 text-xs text-subtext">
-                  {schedule.start_time || '时间待定'}
-                  {schedule.end_time ? ` - ${schedule.end_time}` : ''}
-                </ThemedText>
+                <ThemedText className="mt-1 text-xs text-subtext">{scheduleTimeLabel}</ThemedText>
               </View>
               <TouchableOpacity onPress={() => handleDeleteSchedule(schedule)}>
                 <Icon name="Trash2" size={16} />

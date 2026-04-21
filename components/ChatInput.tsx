@@ -8,6 +8,7 @@ import {
   Image,
   View,
   Alert,
+  Linking,
   Text,
   TextInput,
   TouchableOpacity,
@@ -132,6 +133,20 @@ export const ChatInput = (props: ChatInputProps) => {
     return `${prefix} ${session}`;
   };
 
+  const showMicPermissionGuide = () => {
+    Alert.alert('语音识别', '需要麦克风权限才能使用语音输入', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '去开启',
+        onPress: () => {
+          Linking.openSettings().catch(() => {
+            Alert.alert('无法打开设置', '请手动前往系统设置开启麦克风权限');
+          });
+        },
+      },
+    ]);
+  };
+
   const {
     isStreaming: isRecordingUI,
     meterLevel: streamMeterLevel,
@@ -147,6 +162,10 @@ export const ChatInput = (props: ChatInputProps) => {
       setInputText(combineAsrPrefix(asrPrefixRef.current, sessionText));
     },
     onError: (msg) => {
+      if (msg.includes('麦克风权限')) {
+        showMicPermissionGuide();
+        return;
+      }
       Alert.alert('语音识别', msg);
     },
   });
@@ -505,6 +524,7 @@ export const ChatInput = (props: ChatInputProps) => {
   };
 
   const handleSendMessage = () => {
+    if (isRecordingUI) return;
     const hasContent = inputText.trim() || selectedImages.length > 0 || selectedFiles.length > 0;
     if (props.onSendMessage && hasContent) {
       props.onSendMessage(
@@ -599,11 +619,13 @@ export const ChatInput = (props: ChatInputProps) => {
 
   return (
     <>
-      {isHomeVariant && showHomeRecordPanel && !isRecordingUI ? (
+      {isHomeVariant && homeRecordPanelOpen ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="关闭录音面板"
-          onPress={() => setShowHomeRecordPanel(false)}
+          onPress={() => {
+            handleCancelRecording().catch(() => {});
+          }}
           className="absolute left-0 right-0 top-0 z-[998] bg-black/40"
           style={{ bottom: homeRecordDimmerBottom }}
         />
@@ -676,7 +698,7 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className="h-[60px] flex-1 flex-row items-center rounded-full pl-5 pr-3">
+                      className="h-[60px] flex-1 flex-row items-center rounded-full bg-[#1A1F28]/95 pl-5 pr-3">
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -690,14 +712,18 @@ export const ChatInput = (props: ChatInputProps) => {
                       />
                       <Pressable
                         onPress={handleSendMessage}
-                        disabled={inputText.trim().length === 0}
+                        disabled={inputText.trim().length === 0 || isRecordingUI}
                         className="bg-white/18 h-[36px] w-[36px] items-center justify-center rounded-full"
                         accessibilityRole="button"
                         accessibilityLabel="发送">
                         <Icon
                           name="ArrowUp"
                           size={20}
-                          color={inputText.trim().length > 0 ? 'white' : 'rgba(255,255,255,0.65)'}
+                          color={
+                            inputText.trim().length > 0 && !isRecordingUI
+                              ? 'white'
+                              : 'rgba(255,255,255,0.65)'
+                          }
                         />
                       </Pressable>
                     </ImageBackground>
@@ -718,7 +744,7 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className="h-[60px] flex-1 flex-row items-center rounded-full pl-5 pr-3">
+                      className="h-[60px] flex-1 flex-row items-center rounded-full bg-[#1A1F28]/95 pl-5 pr-3">
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -895,7 +921,7 @@ export const ChatInput = (props: ChatInputProps) => {
             <ImageBackground
               source={require('@/assets/images/record-panel-bg.png')}
               resizeMode="stretch"
-              className="w-full overflow-hidden rounded-t-[34px] border-t border-white/20"
+              className="w-full overflow-hidden rounded-t-[34px] border-t border-white/20 bg-[#12161F]/95"
               style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
               <View
                 className="w-full flex-col"

@@ -1,12 +1,17 @@
 {
   "cli": {
     "version": ">= 16.0.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_DEV_API_BASE_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_NLS_TOKEN_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_ALIYUN_NLS_APPKEY": "b99xFyuTgyFB8cOy"
+      },
       "android": {
         "buildType": "apk"
       }
@@ -14,18 +19,33 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_DEV_API_BASE_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_NLS_TOKEN_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_ALIYUN_NLS_APPKEY": "b99xFyuTgyFB8cOy"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_DEV_API_BASE_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_NLS_TOKEN_URL": "https://aiyou.ontuotu.com",
+        "EXPO_PUBLIC_ALIYUN_NLS_APPKEY": "b99xFyuTgyFB8cOy"
+      },
       "android": {
         "buildType": "app-bundle"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6762730206",
+        "appleTeamId": "34793MWAZ2"
+      }
+    }
   }
 }

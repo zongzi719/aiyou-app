@@ -103,7 +103,12 @@ function tryReplyTextFromJsonString(s: string): string | null {
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
   try {
     const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    const rt = parsed.reply_text ?? parsed.replyText;
+    const rt =
+      parsed.reply_text ??
+      parsed.replyText ??
+      parsed.answer ??
+      (typeof parsed.text === 'string' ? parsed.text : undefined) ??
+      (typeof parsed.content === 'string' ? parsed.content : undefined);
     if (typeof rt === 'string' && rt.trim()) return rt.trim();
   } catch {
     /* not JSON */
@@ -112,9 +117,18 @@ function tryReplyTextFromJsonString(s: string): string | null {
 }
 
 /** 工作流结束节点常见：output.text 为正文，或结构化字段 reply_text + audio_url，或 text 内嵌 JSON。 */
-function pickOutputText(output: Record<string, unknown> | undefined): string {
-  if (!output) return '';
-  for (const key of ['reply_text', 'replyText', 'answer', 'content'] as const) {
+function pickOutputText(output: Record<string, unknown> | undefined, depth = 0): string {
+  if (!output || depth > 5) return '';
+  for (const key of [
+    'reply_text',
+    'replyText',
+    'answer',
+    'content',
+    'message',
+    'response',
+    'final_text',
+    'finalText',
+  ] as const) {
     const v = output[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
   }
@@ -122,7 +136,23 @@ function pickOutputText(output: Record<string, unknown> | undefined): string {
   if (typeof t === 'string' && t.trim()) {
     const fromJson = tryReplyTextFromJsonString(t);
     if (fromJson) return fromJson;
-    return t;
+    return t.trim();
+  }
+  for (const nestKey of ['result', 'data', 'output', 'payload', 'choices'] as const) {
+    const nest = output[nestKey];
+    if (nest && typeof nest === 'object') {
+      if (Array.isArray(nest)) {
+        for (const item of nest) {
+          if (item && typeof item === 'object') {
+            const got = pickOutputText(item as Record<string, unknown>, depth + 1);
+            if (got) return got;
+          }
+        }
+      } else {
+        const got = pickOutputText(nest as Record<string, unknown>, depth + 1);
+        if (got) return got;
+      }
+    }
   }
   return '';
 }

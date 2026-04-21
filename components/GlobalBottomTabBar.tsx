@@ -133,7 +133,7 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="聊天"
         hitSlop={8}
-        style={styles.tabSlot}>
+        style={[styles.tabSlot, active === 'chat' ? styles.tabSlotActive : undefined]}>
         <Image
           source={active === 'chat' ? CHAT_ACTIVE : CHAT_INACTIVE}
           style={[styles.sideImg, active === 'chat' ? styles.chatActiveShadow : undefined]}
@@ -146,7 +146,7 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="记忆库"
         hitSlop={8}
-        style={styles.tabSlot}>
+        style={[styles.tabSlot, active === 'memory' ? styles.tabSlotActive : undefined]}>
         {active === 'memory' ? (
           <Image
             source={MEMORY_ACTIVE}
@@ -176,7 +176,7 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="知识库"
         hitSlop={8}
-        style={styles.tabSlot}>
+        style={[styles.tabSlot, active === 'knowledge' ? styles.tabSlotActive : undefined]}>
         {active === 'knowledge' ? (
           <Image
             source={KNOWLEDGE_ACTIVE}
@@ -193,7 +193,7 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="个人资料"
         hitSlop={8}
-        style={styles.tabSlot}>
+        style={[styles.tabSlot, active === 'profile' ? styles.tabSlotActive : undefined]}>
         <Image
           source={active === 'profile' ? PROFILE_ACTIVE : PROFILE_INACTIVE}
           style={[styles.sideImg, active === 'profile' ? styles.activeGlow : undefined]}
@@ -228,6 +228,10 @@ const styles = StyleSheet.create({
     height: BAR_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 22,
+  },
+  tabSlotActive: {
+    backgroundColor: 'rgba(245, 211, 79, 0.12)',
   },
   centerSlot: {
     width: CENTER_SIZE,

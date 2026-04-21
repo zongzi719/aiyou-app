@@ -54,12 +54,8 @@ type Props = {
 
 const cloneIntro = '学习你的语气、思维。和我说话，我会越来越像你。';
 
-/** 专家通话：说完话后静音多久自动截断并发送（毫秒） */
-const EXPERT_SILENCE_MS = 1000;
-/** expo-stream-audio 音量 0–1，略高于底噪视为在说话；与专家噪声门 open 一致 */
-const EXPERT_SPEECH_LEVEL_THRESHOLD = 0.08;
-/** 低于此 meter 关噪声门（须小于 EXPERT_SPEECH_LEVEL_THRESHOLD，形成滞回） */
-const EXPERT_NOISE_GATE_CLOSE_THRESHOLD = 0.045;
+/** 专家通话：转写超过该时长无更新时，自动截断并发送（毫秒） */
+const EXPERT_ASR_IDLE_MS = 1000;
 
 function inferCategory(input: string): { category: string; dimensionLabel: string } {
   if (/决策|判断|取舍|选择|优先级/.test(input))
@@ -110,6 +106,9 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const expertFlushResolversRef = useRef<((t: string) => void)[]>([]);
   const expertWorkflowAbortRef = useRef<AbortController | null>(null);
   const expertWorkflowLoadingRef = useRef(false);
+  const expertCallScrollRef = useRef<ScrollView | null>(null);
+  /** 防止上一轮工作流 abort 后 finally 与新一轮竞态，错误清空 loading / 抢重启 ASR */
+  const expertSegmentGenRef = useRef(0);
   const handleExpertSegmentTextRef = useRef<(raw: string) => Promise<void>>(async () => {});
   const soundRef = useRef<Audio.Sound | null>(null);
 
@@ -133,8 +132,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const [expertWorkflowLoading, setExpertWorkflowLoading] = useState(false);
 
   const expertLinesRef = useRef<ExpertCallLine[]>([]);
-  const expertRoundHasSpeechRef = useRef(false);
-  const expertSilenceStartRef = useRef<number | null>(null);
+  const expertHasTranscriptThisRoundRef = useRef(false);
+  const expertLastTranscriptAtRef = useRef<number | null>(null);
   const expertAutoTruncatingRef = useRef(false);
   const expertRestartAfterWorkflowRef = useRef(true);
   const pendingMemoryMessageIdRef = useRef<string | null>(null);
@@ -154,6 +153,17 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   useEffect(() => {
     expertWorkflowLoadingRef.current = expertWorkflowLoading;
   }, [expertWorkflowLoading]);
+
+  const setExpertWorkflowLoadingSync = useCallback((v: boolean) => {
+    expertWorkflowLoadingRef.current = v;
+    setExpertWorkflowLoading(v);
+  }, []);
+
+  const scrollExpertCallToBottom = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      expertCallScrollRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
 
   useEffect(() => {
     expertLinesRef.current = expertCallLines;
@@ -188,11 +198,13 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setExpertCallSeconds(0);
     setExpertCallLines([]);
     setExpertVoiceId('');
+    expertWorkflowLoadingRef.current = false;
     setExpertWorkflowLoading(false);
     setEditingPendingMemory(false);
     setMemoryEditDraft('');
     pendingMemoryMessageIdRef.current = null;
     expertLinesRef.current = [];
+    expertSegmentGenRef.current = 0;
     expertWorkflowAbortRef.current?.abort();
     expertWorkflowAbortRef.current = null;
     setMessages([{ id: 'intro', role: 'clone', text: cloneIntro }]);
@@ -410,6 +422,14 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
           console.warn('[MemoryTuneModal] expert TTS play failed', e);
         }
       }
+      if (!replyText.trim() && audioUrl) {
+        setExpertCallLines((prev) =>
+          prev.map((l) => {
+            if (l.id !== cloneLineId) return l;
+            return { ...l, text: l.text.trim() || '（已生成语音回复，请收听）' };
+          })
+        );
+      }
     },
     [playRemoteAudio]
   );
@@ -423,19 +443,34 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   } = useStreamingAsr({
     mode: 'chat',
     backend: 'aliyun',
-    noiseGate: {
-      openThreshold: EXPERT_SPEECH_LEVEL_THRESHOLD,
-      closeThreshold: EXPERT_NOISE_GATE_CLOSE_THRESHOLD,
+    onPartialTranscript: (text) => {
+      if (!text.trim()) return;
+      expertHasTranscriptThisRoundRef.current = true;
+      expertLastTranscriptAtRef.current = Date.now();
     },
-    onPartialTranscript: () => {},
     onTranscript: (text) => {
+      if (text.trim()) {
+        expertHasTranscriptThisRoundRef.current = true;
+        expertLastTranscriptAtRef.current = Date.now();
+      }
       const flush = expertFlushResolversRef.current.shift();
       if (flush) {
         flush(text);
         return;
       }
-      if (!expertCallOpenRef.current || expertWorkflowLoadingRef.current) return;
-      Promise.resolve(handleExpertSegmentTextRef.current(text)).catch(() => {});
+      if (!expertCallOpenRef.current || expertWorkflowLoadingRef.current) {
+        if (__DEV__) {
+          console.warn('[MemoryTuneModal] expert onTranscript dropped', {
+            callOpen: expertCallOpenRef.current,
+            workflowLoading: expertWorkflowLoadingRef.current,
+            preview: String(text).slice(0, 80),
+          });
+        }
+        return;
+      }
+      Promise.resolve(handleExpertSegmentTextRef.current(text)).catch((err) => {
+        if (__DEV__) console.warn('[MemoryTuneModal] handleExpertSegmentText', err);
+      });
     },
     onError: (msg) => {
       Alert.alert('语音识别', msg);
@@ -448,6 +483,9 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       expertRestartAfterWorkflowRef.current = true;
 
       if (!t) {
+        if (__DEV__) {
+          console.warn('[MemoryTuneModal] expert segment empty after ASR finalize');
+        }
         if (
           expertCallOpenRef.current &&
           !expertCallMutedRef.current &&
@@ -462,54 +500,63 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         return;
       }
 
-      const uid = `ec-u-${Date.now()}`;
-      const userLine: ExpertCallLine = { id: uid, role: 'user', text: t };
-      setExpertCallLines((prev) => {
-        const next = [...prev, userLine];
-        expertLinesRef.current = next;
-        return next;
-      });
+      const myGen = ++expertSegmentGenRef.current;
+      setExpertWorkflowLoadingSync(true);
 
-      const cloneLineId = `ec-a-${Date.now()}`;
-      setExpertCallLines((prev) => {
-        const next = [...prev, { id: cloneLineId, role: 'clone' as const, text: '' }];
-        expertLinesRef.current = next;
-        return next;
-      });
-
-      setExpertWorkflowLoading(true);
-      expertWorkflowAbortRef.current?.abort();
-      const ac = new AbortController();
-      expertWorkflowAbortRef.current = ac;
-
+      let ac: AbortController | null = null;
+      let cloneLineId = '';
       try {
-        await runExpertWorkflowForUserText(t, cloneLineId, ac);
-      } catch (e) {
-        if (ac.signal.aborted) return;
-        const msg = formatWorkflowError(e);
+        const uid = `ec-u-${Date.now()}`;
+        const userLine: ExpertCallLine = { id: uid, role: 'user', text: t };
         setExpertCallLines((prev) => {
-          const next = prev.map((l) =>
-            l.id === cloneLineId ? { ...l, text: `工作流失败：${msg.slice(0, 600)}` } : l
-          );
+          const next = [...prev, userLine];
           expertLinesRef.current = next;
           return next;
         });
+
+        cloneLineId = `ec-a-${Date.now()}`;
+        setExpertCallLines((prev) => {
+          const next = [...prev, { id: cloneLineId, role: 'clone' as const, text: '' }];
+          expertLinesRef.current = next;
+          return next;
+        });
+
+        expertWorkflowAbortRef.current?.abort();
+        ac = new AbortController();
+        expertWorkflowAbortRef.current = ac;
+
+        await runExpertWorkflowForUserText(t, cloneLineId, ac);
+      } catch (e) {
+        if (ac?.signal.aborted) {
+          /* hangup / 新一轮已替换 */
+        } else if (cloneLineId) {
+          const msg = formatWorkflowError(e);
+          setExpertCallLines((prev) => {
+            const next = prev.map((l) =>
+              l.id === cloneLineId ? { ...l, text: `工作流失败：${msg.slice(0, 600)}` } : l
+            );
+            expertLinesRef.current = next;
+            return next;
+          });
+        }
       } finally {
-        setExpertWorkflowLoading(false);
-        if (
-          expertRestartAfterWorkflowRef.current &&
-          expertCallOpenRef.current &&
-          !expertCallMutedRef.current
-        ) {
-          try {
-            await startExpertStreaming();
-          } catch {
-            /* ignore */
+        if (expertSegmentGenRef.current === myGen) {
+          setExpertWorkflowLoadingSync(false);
+          if (
+            expertRestartAfterWorkflowRef.current &&
+            expertCallOpenRef.current &&
+            !expertCallMutedRef.current
+          ) {
+            try {
+              await startExpertStreaming();
+            } catch {
+              /* ignore */
+            }
           }
         }
       }
     },
-    [runExpertWorkflowForUserText, startExpertStreaming]
+    [runExpertWorkflowForUserText, setExpertWorkflowLoadingSync, startExpertStreaming]
   );
 
   handleExpertSegmentTextRef.current = handleExpertSegmentText;
@@ -616,10 +663,11 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     if (pendingMemory || saving || sending || holdIsStreaming || expertWorkflowLoading) return;
     Keyboard.dismiss();
     setAttachMenuVisible(false);
+    expertSegmentGenRef.current = 0;
     setExpertCallLines([]);
     expertLinesRef.current = [];
-    expertRoundHasSpeechRef.current = false;
-    expertSilenceStartRef.current = null;
+    expertHasTranscriptThisRoundRef.current = false;
+    expertLastTranscriptAtRef.current = null;
     expertFlushResolversRef.current = [];
     setExpertCallOpen(true);
     setExpertCallMuted(false);
@@ -656,8 +704,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         return;
       }
       setExpertCallMuted(false);
-      expertRoundHasSpeechRef.current = false;
-      expertSilenceStartRef.current = null;
+      expertHasTranscriptThisRoundRef.current = false;
+      expertLastTranscriptAtRef.current = null;
       try {
         await startExpertStreaming();
       } catch {
@@ -667,14 +715,11 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     } else {
       expertCallMutedRef.current = true;
       setExpertCallMuted(true);
-      expertRoundHasSpeechRef.current = false;
-      expertSilenceStartRef.current = null;
+      expertHasTranscriptThisRoundRef.current = false;
+      expertLastTranscriptAtRef.current = null;
       try {
-        if (expertIsStreaming) {
-          await stopExpertStreaming();
-        } else {
-          await cancelExpertStreaming();
-        }
+        /** 优先 stop：向 NLS 发 StopTranscription，才能收到定稿并触发 onTranscript；cancel 会直接丢结果 */
+        await stopExpertStreaming();
       } catch {
         await cancelExpertStreaming().catch(() => {});
       }
@@ -683,7 +728,6 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     cancelExpertStreaming,
     expertCallMuted,
     expertCallOpen,
-    expertIsStreaming,
     expertWorkflowLoading,
     startExpertStreaming,
     stopExpertStreaming,
@@ -691,45 +735,41 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   useEffect(() => {
     if (!expertCallOpen || expertCallMuted || !expertIsStreaming || expertWorkflowLoading) {
-      expertRoundHasSpeechRef.current = false;
-      expertSilenceStartRef.current = null;
+      expertHasTranscriptThisRoundRef.current = false;
+      expertLastTranscriptAtRef.current = null;
       return;
     }
-    const isSpeakingNow = expertMeterLevel > EXPERT_SPEECH_LEVEL_THRESHOLD;
-    if (isSpeakingNow) {
-      expertRoundHasSpeechRef.current = true;
-      expertSilenceStartRef.current = null;
-      return;
-    }
-    if (!expertRoundHasSpeechRef.current) return;
-    if (expertSilenceStartRef.current == null) {
-      expertSilenceStartRef.current = Date.now();
-      return;
-    }
-    if (
-      Date.now() - expertSilenceStartRef.current >= EXPERT_SILENCE_MS &&
-      !expertAutoTruncatingRef.current
-    ) {
+    const timer = setInterval(() => {
+      if (expertAutoTruncatingRef.current) return;
+      if (!expertHasTranscriptThisRoundRef.current) return;
+      const lastTs = expertLastTranscriptAtRef.current;
+      if (lastTs == null) return;
+      if (Date.now() - lastTs < EXPERT_ASR_IDLE_MS) return;
       expertAutoTruncatingRef.current = true;
-      (async () => {
-        try {
-          await stopExpertStreaming();
-        } finally {
+      stopExpertStreaming()
+        .catch(() => {})
+        .finally(() => {
           expertAutoTruncatingRef.current = false;
-        }
-      })().catch(() => {});
-    }
+        });
+    }, 200);
+    return () => clearInterval(timer);
   }, [
     expertCallMuted,
     expertCallOpen,
     expertIsStreaming,
-    expertMeterLevel,
     expertWorkflowLoading,
     stopExpertStreaming,
   ]);
 
+  useEffect(() => {
+    if (!expertCallOpen) return;
+    scrollExpertCallToBottom(false);
+  }, [expertCallOpen, scrollExpertCallToBottom]);
+
   const hangUpExpertCall = useCallback(async () => {
     expertRestartAfterWorkflowRef.current = false;
+    expertSegmentGenRef.current += 1;
+    setExpertWorkflowLoadingSync(false);
     expertWorkflowAbortRef.current?.abort();
     expertWorkflowAbortRef.current = null;
 
@@ -754,8 +794,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
     setExpertCallOpen(false);
     setExpertCallMuted(true);
-    expertRoundHasSpeechRef.current = false;
-    expertSilenceStartRef.current = null;
+    expertHasTranscriptThisRoundRef.current = false;
+    expertLastTranscriptAtRef.current = null;
     expertFlushResolversRef.current = [];
 
     setExpertCallLines([]);
@@ -798,7 +838,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       { id: `done-${Date.now()}`, role: 'clone', text: '记住啦。' },
     ]);
     setPendingMemory(memoryPayload);
-  }, [cancelExpertStreaming, expertIsStreaming, stopExpertStreaming]);
+  }, [cancelExpertStreaming, expertIsStreaming, setExpertWorkflowLoadingSync, stopExpertStreaming]);
 
   const handleAccept = useCallback(async () => {
     if (!pendingMemory || saving) return;
@@ -1160,15 +1200,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                   </ThemedText>
 
                   <ScrollView
+                    ref={expertCallScrollRef}
                     className="mt-2 flex-1 px-4"
                     contentContainerStyle={{ paddingBottom: 24 }}
                     keyboardShouldPersistTaps="handled"
+                    onContentSizeChange={() => {
+                      scrollExpertCallToBottom(true);
+                    }}
                     showsVerticalScrollIndicator={false}>
                     {expertCallLines.length === 0 ? (
                       <View className="mt-8 px-4">
                         <ThemedText className="text-center text-[14px] leading-6 text-white/60">
-                          开麦后可直接说话；停顿约 {Math.round(EXPERT_SILENCE_MS / 1000)}{' '}
-                          秒无语音将自动发送并由百炼工作流生成回答。可点麦克风静音；挂断后为本轮对话生成记忆，确认后写入记忆库。
+                          开麦后可直接说话；转写超过 {Math.round(EXPERT_ASR_IDLE_MS / 1000)}{' '}
+                          秒无更新将自动发送并由百炼工作流生成回答。可点麦克风静音；挂断后为本轮对话生成记忆，确认后写入记忆库。
                         </ThemedText>
                       </View>
                     ) : null}

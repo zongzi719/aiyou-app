@@ -4,11 +4,20 @@ export type NlsDevTokenResponse = {
   appkey?: string;
 };
 
+/** 支持 `https://host` 或已带路径的 `https://host/nls/token`（避免重复拼接） */
+function resolveNlsTokenEndpoint(baseOrFull: string): string {
+  const s = baseOrFull.trim().replace(/\/$/, '');
+  if (s.endsWith('/nls/token')) {
+    return s;
+  }
+  return `${s}/nls/token`;
+}
+
 /**
- * 拉取开发机 Token 服务（dev-servers/aliyun-nls-token）返回的 JSON。
+ * 拉取 Token 服务（本地 dev-servers 或线上网关）返回的 JSON。
  */
 export async function fetchNlsDevToken(baseUrl: string): Promise<NlsDevTokenResponse> {
-  const url = `${baseUrl.replace(/\/$/, '')}/nls/token`;
+  const url = resolveNlsTokenEndpoint(baseUrl);
   const r = await fetch(url);
   const text = await r.text();
   let j: unknown;
