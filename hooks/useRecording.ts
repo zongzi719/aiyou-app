@@ -33,7 +33,7 @@ export function useRecording() {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) {
-        throw new Error('Microphone permission not granted');
+        throw new Error('未授予麦克风权限');
       }
 
       await setAudioModeAsync({
@@ -81,9 +81,7 @@ export function useRecording() {
 
       // Check if uri is valid (not null, not "null" string, not empty)
       if (!uri || uri === 'null' || uri === '') {
-        throw new Error(
-          'Recording failed - no audio file created. Make sure microphone is working.'
-        );
+        throw new Error('录音失败：未生成音频文件，请检查麦克风是否可用。');
       }
 
       return uri;

@@ -193,7 +193,7 @@ export async function updateAliyunVoiceFromUrl(params: {
   const voiceId = params.voiceId.trim();
   const audioUrl = params.audioUrl.trim();
   if (!voiceId) {
-    throw new Error('voice_id 不能为空。');
+    throw new Error('音色 ID 不能为空。');
   }
   if (!audioUrl) {
     throw new Error('请输入公网可访问的录音 URL。');
@@ -228,7 +228,7 @@ export async function synthesizeAliyunCosyVoiceToAudioUrl(params: {
   const model = params.targetModel?.trim() || defaultTargetModel;
   const voice = params.voiceId.trim();
   if (!voice) {
-    throw new Error('voice_id 不能为空。');
+    throw new Error('音色 ID 不能为空。');
   }
   const text = (params.text?.trim() || DEFAULT_PREVIEW_LINE).slice(0, 600);
   const url = `${baseUrl}${ALIYUN_SPEECH_SYNTHESIZER_PATH}`;
@@ -277,7 +277,7 @@ export async function synthesizeAliyunCosyVoiceToAudioUrl(params: {
 export async function queryAliyunVoice(voiceId: string): Promise<AliyunVoiceDetails> {
   const normalizedVoiceId = voiceId.trim();
   if (!normalizedVoiceId) {
-    throw new Error('voice_id 不能为空。');
+    throw new Error('音色 ID 不能为空。');
   }
   const result = await postCustomization<QueryVoiceResponse>({
     model: 'voice-enrollment',

@@ -12,7 +12,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
   const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
   if (!apiKey || apiKey === 'your-openai-key-here') {
     throw new Error(
-      'OpenAI API key not configured. Add EXPO_PUBLIC_OPENAI_API_KEY to your .env file.'
+      '未配置 OpenAI API Key，请在 .env 中添加 EXPO_PUBLIC_OPENAI_API_KEY。'
     );
   }
 
@@ -35,7 +35,7 @@ export async function transcribeAudio(audioUri: string): Promise<string> {
 
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error?.message || 'Transcription failed');
+    throw new Error(error.error?.message || '语音转写失败');
   }
 
   const data = await response.json();

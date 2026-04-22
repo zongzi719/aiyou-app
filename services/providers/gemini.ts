@@ -10,7 +10,7 @@ export const geminiProvider: AIProvider = {
     const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
     if (!apiKey || apiKey === 'your-gemini-key-here') {
       throw new Error(
-        'Gemini API key not configured. Add EXPO_PUBLIC_GEMINI_API_KEY to your .env file.'
+        '未配置 Gemini API Key，请在 .env 中添加 EXPO_PUBLIC_GEMINI_API_KEY。'
       );
     }
 
@@ -33,7 +33,7 @@ export const geminiProvider: AIProvider = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Gemini API error');
+      throw new Error(error.error?.message || 'Gemini 接口请求失败');
     }
 
     const data = await response.json();

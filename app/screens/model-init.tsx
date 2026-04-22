@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
+import StarFloatingLoader from '@/components/StarFloatingLoader';
 import ThemedText from '@/components/ThemedText';
 import { useRecording } from '@/hooks/useRecording';
 import { putProfileCache } from '@/lib/profileCache';
@@ -352,6 +353,7 @@ function phaseTitle(phase: Phase): { n: string; label: string } | null {
 type ChatRow =
   | { id: string; kind: 'ai'; text: string }
   | { id: string; kind: 'user'; text: string }
+  | { id: string; kind: 'loading'; text: string }
   | { id: string; kind: 'memory'; title: string; tag: string; body: string };
 
 /** 与 MemoryTuneModal 一致：写入后端并更新本地记忆列表缓存，便于「用户记忆」页立即展示 */
@@ -947,9 +949,11 @@ export default function ModelInitScreen() {
 
     if (interviewRound === 0) {
       const memoryBody = `商业哲学 - 你相信，企业的长期生命力与「${text.slice(0, 24)}${text.length > 24 ? '…' : ''}」密切相关。`;
+      const loadingId = `l1-${Date.now()}`;
+      setChatRows((rows) => [...rows, { id: loadingId, kind: 'loading', text: '我正在了解学习...' }]);
       setTimeout(() => {
         setChatRows((rows) => [
-          ...rows,
+          ...rows.filter((r) => r.id !== loadingId),
           {
             id: `a1-${Date.now()}`,
             kind: 'ai',
@@ -983,9 +987,11 @@ export default function ModelInitScreen() {
     }
 
     const secondMemoryBody = `决策风格 - 面对重要决定时，你的回答是：「${text.slice(0, 40)}${text.length > 40 ? '…' : ''}」。`;
+    const loadingId = `l2-${Date.now()}`;
+    setChatRows((rows) => [...rows, { id: loadingId, kind: 'loading', text: '我正在了解学习...' }]);
     setTimeout(() => {
       setChatRows((rows) => [
-        ...rows,
+        ...rows.filter((r) => r.id !== loadingId),
         {
           id: `a2-${Date.now()}`,
           kind: 'ai',
@@ -1307,6 +1313,15 @@ export default function ModelInitScreen() {
                         key={row.id}
                         className="bg-white/12 mb-4 self-end rounded-2xl px-4 py-3">
                         <ThemedText className="text-sm text-white/90">{row.text}</ThemedText>
+                      </View>
+                    );
+                  }
+                  if (row.kind === 'loading') {
+                    return (
+                      <View
+                        key={row.id}
+                        className="mb-4 self-start rounded-2xl border border-white/10 bg-white/8 px-4 py-3">
+                        <StarFloatingLoader text={row.text} textClassName="text-white/80" />
                       </View>
                     );
                   }

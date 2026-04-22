@@ -9,7 +9,7 @@ export const claudeProvider: AIProvider = {
     const apiKey = process.env.EXPO_PUBLIC_CLAUDE_API_KEY;
     if (!apiKey || apiKey === 'your-claude-key-here') {
       throw new Error(
-        'Claude API key not configured. Add EXPO_PUBLIC_CLAUDE_API_KEY to your .env file.'
+        '未配置 Claude API Key，请在 .env 中添加 EXPO_PUBLIC_CLAUDE_API_KEY。'
       );
     }
 
@@ -33,7 +33,7 @@ export const claudeProvider: AIProvider = {
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Claude API error');
+      throw new Error(error.error?.message || 'Claude 接口请求失败');
     }
 
     const data = await response.json();

@@ -46,7 +46,7 @@ const TOKENHUB_BASE_URL = 'https://tokenhub.tencentmaas.com/v1/api/image';
 function getTokenHubApiKey(): string {
   const key = process.env.EXPO_PUBLIC_TENCENT_MAAS_API_KEY;
   if (!key?.trim() || key.includes('your-tokenhub-key-here')) {
-    throw new Error('TokenHub API Key 未配置，请在 .env 设置 EXPO_PUBLIC_TENCENT_MAAS_API_KEY');
+    throw new Error('未配置 TokenHub API Key，请在 .env 设置 EXPO_PUBLIC_TENCENT_MAAS_API_KEY');
   }
   const trimmed = key.trim().replace(/^["']|["']$/g, '');
   if (!trimmed.startsWith('sk-')) {

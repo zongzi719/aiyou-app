@@ -18,6 +18,16 @@ import { putProfileCache } from '@/lib/profileCache';
 import { postUserLogin } from '@/lib/userLoginApi';
 import { fetchProfile, needsAiBossModelOnboarding } from '@/services/profileApi';
 
+function normalizeLoginErrorMessage(message: string): string {
+  const raw = message.trim();
+  if (!raw) return '登录失败，请稍后重试';
+  const lower = raw.toLowerCase();
+  if (lower.includes('invalid username or password')) return '用户名或密码错误';
+  if (lower.includes('invalid credentials')) return '账号或密码不正确';
+  if (lower.includes('network request failed')) return '网络连接失败，请检查网络后重试';
+  return raw;
+}
+
 export default function LoginScreen() {
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
@@ -66,8 +76,9 @@ export default function LoginScreen() {
     setIsLoading(false);
 
     if (!result.ok) {
-      setApiError(result.message);
-      Alert.alert('登录未成功', result.message, [{ text: '知道了' }]);
+      const normalizedMessage = normalizeLoginErrorMessage(result.message);
+      setApiError(normalizedMessage);
+      Alert.alert('登录未成功', normalizedMessage, [{ text: '知道了' }]);
       return;
     }
 

@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AnimatedView from './AnimatedView';
 import Icon from './Icon';
-import { ShimmerText } from './ShimmerText';
+import StarFloatingLoader from './StarFloatingLoader';
 import ThemedText from './ThemedText';
 
 import { useThemeColors } from '@/app/contexts/ThemeColors';
@@ -698,7 +698,9 @@ function CombinedChatTurn({
               <ThemedText className="text-base italic text-subtext">（未收到正文）</ThemedText>
             )}
             {isStreaming ? (
-              <ShimmerText text={assistantMessage.thinkingStep ?? '正在回复…'} />
+              <View className="mt-2">
+                <StarFloatingLoader text={assistantMessage.thinkingStep ?? '正在为您搜索历史资料...'} />
+              </View>
             ) : null}
             {!isStreaming && documents.length > 0
               ? documents.map((d, idx) => (
@@ -795,7 +797,11 @@ const AssistantMessage = ({
           ) : !isStreaming ? (
             <ThemedText className="text-base italic text-subtext">（未收到回复）</ThemedText>
           ) : null}
-          {isStreaming ? <ShimmerText text={thinkingStep ?? '正在回复…'} /> : null}
+          {isStreaming ? (
+            <View className="mt-2">
+              <StarFloatingLoader text={thinkingStep ?? '正在为您搜索历史资料...'} />
+            </View>
+          ) : null}
           {!isStreaming && documents.length > 0
             ? documents.map((d, idx) => (
                 <GeneratedDocumentCard
@@ -824,19 +830,8 @@ const AssistantMessage = ({
 };
 
 const TypingIndicator = () => (
-  <View className="flex-row items-center py-4">
-    <View className="flex-row gap-2">
-      {[0, 1, 2].map((i) => (
-        <AnimatedView
-          key={i}
-          animation="scaleIn"
-          duration={400}
-          delay={i * 150}
-          className="h-1 w-1 rounded-full bg-primary"
-        />
-      ))}
-    </View>
-    <ThemedText className="ml-3 text-sm text-subtext">Luna is thinking...</ThemedText>
+  <View className="py-4">
+    <StarFloatingLoader text="正在为您搜索历史资料..." />
   </View>
 );
 

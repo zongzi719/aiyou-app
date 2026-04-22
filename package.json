@@ -1,6 +1,6 @@
 {
   "name": "luna",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "scripts": {
     "android": "expo run:android",
     "android:device": "expo run:android --device",
@@ -19,6 +19,14 @@
     "eas:build:android:dev": "NPM_CONFIG_CACHE=.npm-cache-eas npx --yes eas-cli@18.7.0 build --platform android --profile development",
     "eas:build:ios:prod": "npx eas-cli build --platform ios --profile production",
     "eas:build:ios:testflight": "npx --yes eas-cli build --platform ios --profile production --auto-submit",
+    "version:bump:patch": "node scripts/bump-version.mjs patch",
+    "version:bump:minor": "node scripts/bump-version.mjs minor",
+    "release:ios:testflight:patch": "npm run version:bump:patch && npx --yes eas-cli build -p ios --profile production --auto-submit --freeze-credentials --non-interactive",
+    "release:ios:testflight:minor": "npm run version:bump:minor && npx --yes eas-cli build -p ios --profile production --auto-submit --freeze-credentials --non-interactive",
+    "build:ios:testflight": "npx --yes eas-cli build -p ios --profile production --auto-submit --freeze-credentials --non-interactive",
+    "release:android:prod:patch": "npm run version:bump:patch && npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
+    "release:android:prod:minor": "npm run version:bump:minor && npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
+    "build:android:prod": "npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
     "eas:submit:ios": "npx eas-cli submit --platform ios --latest",
     "postinstall": "patch-package"
   },

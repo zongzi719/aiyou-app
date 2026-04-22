@@ -176,6 +176,21 @@ function serializeUnknownError(e: unknown): string {
   return String(e);
 }
 
+function isTransientNetworkError(detail: string): boolean {
+  const d = detail.toLowerCase();
+  return (
+    d.includes('network request failed') ||
+    d.includes('network') ||
+    d.includes('timed out') ||
+    d.includes('timeout') ||
+    d.includes('xhr')
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** 走 RN 原生 Networking，与 Expo Winter fetch 不同栈；fetch 报 Network request failed 时常能救 */
 function postLoginWithXHR(
   url: string,
@@ -219,6 +234,20 @@ export async function postUserLogin(
       return await finalizeLogin(base, xhrResult.status, xhrResult.text);
     } catch (xhrErr) {
       const xhrDetail = serializeUnknownError(xhrErr);
+      if (isTransientNetworkError(fetchErrorDetail) || isTransientNetworkError(xhrDetail)) {
+        await sleep(350);
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(jsonBody),
+          });
+          const retryText = await res.text();
+          return await finalizeLogin(base, res.status, retryText);
+        } catch {
+          // ignore and keep original diagnostic message below
+        }
+      }
       return {
         ok: false,
         message: [
@@ -259,7 +288,7 @@ async function finalizeLogin(
 
   let data = extractLoginSuccess(parsed);
   if (!data) {
-    return { ok: false, message: 'Invalid response: missing token' };
+    return { ok: false, message: '登录响应无效：缺少 token' };
   }
 
   if (!sessionComplete(data)) {

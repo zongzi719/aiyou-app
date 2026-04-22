@@ -748,6 +748,7 @@ const HomeScreen = () => {
                   defaultCoach={
                     DECISION_COACHES.find((c) => c.id === 'strategy') ?? DECISION_COACHES[0]
                   }
+                  coaches={DECISION_COACHES}
                   onStart={() => setDecisionStarted(true)}
                   bottomOffset={floatingTabExtra}
                   reserveInputSpace={false}

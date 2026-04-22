@@ -326,7 +326,7 @@ export const ChatInput = (props: ChatInputProps) => {
         lottieVisible.value = withTiming(1, fadeConfig);
       }, 100);
     } catch {
-      Alert.alert('Error', 'Could not start recording. Please check microphone permissions.');
+      Alert.alert('录音失败', '无法开始录音，请检查麦克风权限。');
     }
   };
 
@@ -351,6 +351,28 @@ export const ChatInput = (props: ChatInputProps) => {
       setHomeVoiceSheetDismissed(false);
     }
   }, [isRecordingUI]);
+
+  useEffect(() => {
+    if (!isHomeVariant) return;
+    if (!homeVoiceSheetDismissed || !isRecordingUI || isStoppingHomeRecording) return;
+    setIsStoppingHomeRecording(true);
+    cancelStreaming()
+      .then(() => {
+        setInputText(asrPrefixRef.current);
+      })
+      .catch(() => {
+        // 面板已关闭：兜底静默取消，避免用户感知到“窗口关了还在录音”
+      })
+      .finally(() => {
+        setIsStoppingHomeRecording(false);
+      });
+  }, [
+    cancelStreaming,
+    homeVoiceSheetDismissed,
+    isHomeVariant,
+    isRecordingUI,
+    isStoppingHomeRecording,
+  ]);
 
   // Stop streaming：发送 end，等待 WS 关闭后由 effect 复位 UI
   const handleStopRecording = async () => {
@@ -851,7 +873,7 @@ export const ChatInput = (props: ChatInputProps) => {
                   <Animated.View style={inputStyle} pointerEvents={isRecordingUI ? 'none' : 'auto'}>
                     <TextInput
                       ref={inputRef}
-                      placeholder={isHomeVariant ? '问一问AI YOU' : 'Ask me anything...'}
+                      placeholder={isHomeVariant ? '问一问AI YOU' : '请输入你的问题...'}
                       placeholderTextColor={isHomeVariant ? 'rgba(255,255,255,0.65)' : colors.text}
                       className={`px-6 py-5 ${isHomeVariant ? 'text-white' : 'text-text'}`}
                       value={inputText}
@@ -938,7 +960,7 @@ export const ChatInput = (props: ChatInputProps) => {
                           onPress={handleStopRecording}
                           className="h-10 flex-row items-center justify-center gap-2 rounded-full bg-sky-500 px-4">
                           <Icon name="Check" size={12} color="white" />
-                          <Text className="text-sm font-semibold text-white">Done</Text>
+                          <Text className="text-sm font-semibold text-white">完成</Text>
                         </Pressable>
                       </Animated.View>
                     )}

@@ -60,12 +60,12 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
     const trimmedValues = currentOption.values.filter((v) => v.trim());
 
     if (!currentOption.name.trim()) {
-      Alert.alert('Missing Option Name', 'Please enter an option name before saving.');
+      Alert.alert('缺少选项名称', '请先输入选项名称再保存。');
       return;
     }
 
     if (trimmedValues.length === 0) {
-      Alert.alert('Missing Values', 'Please enter at least one value before saving.');
+      Alert.alert('缺少选项值', '请至少输入一个选项值再保存。');
       return;
     }
 
@@ -145,17 +145,17 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
           onPress={addOption} // Calls addValue to add a new empty input
           className=" relative z-50 flex-row items-center justify-center rounded-lg border border-neutral-400 px-4 py-3">
           <Icon name="Plus" size={20} />
-          <Text className="ml-2 text-primary">Add option </Text>
+          <Text className="ml-2 text-primary">添加选项</Text>
         </Pressable>
       ) : (
         <View className=" relative z-50 flex-row items-center justify-center rounded-lg bg-neutral-100 px-4 py-3">
-          <Text className="text-neutral-400 text-primary">You've reached 3 options limit </Text>
+          <Text className="text-neutral-400 text-primary">最多只能添加 3 个选项</Text>
         </View>
       )}
 
       {variants.length > 0 && (
         <View className="mt-4">
-          <Text className="mb-2 mt-0 text-xl font-medium text-primary">Variants</Text>
+          <Text className="mb-2 mt-0 text-xl font-medium text-primary">规格组合</Text>
           {variants.map((variant, index) => (
             <View key={index} className="mb-2 rounded-lg border border-neutral-400 p-2">
               <View className="flex-row items-center justify-start">
@@ -163,7 +163,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                 <View className="ml-auto flex-row">
                   <View className="w-[80px]">
                     <Input
-                      label="Price"
+                      label="价格"
                       //className="h-[55px]"
                       containerClassName="mb-0"
                       //placeholder="Price"
@@ -178,7 +178,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                   </View>
                   {hasStock && (
                     <Input
-                      label="Stock"
+                      label="库存"
                       containerClassName="mb-0 w-20 ml-2"
                       className="h-[55px]"
                       //placeholder="Stock"
@@ -211,9 +211,9 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
               <View className="flex-row">
                 <Pressable
                   onPress={() => {
-                    Alert.alert('Delete Option', 'Are you sure you want to delete this option?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteOption() },
+                    Alert.alert('删除选项', '确定要删除这个选项吗？', [
+                      { text: '取消', style: 'cancel' },
+                      { text: '删除', style: 'destructive', onPress: () => deleteOption() },
                     ]);
                   }}
                   className="h-12 w-12  items-center justify-center rounded-full">
@@ -221,7 +221,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                 </Pressable>
                 <Button
                   onPress={handleSaveOption}
-                  title="Save"
+                  title="保存"
                   size="medium"
                   className="ml-2 items-center justify-center px-6"
                 />
@@ -229,16 +229,16 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
             </View>
             <View className="mt-8 flex-1">
               <View className="w-full  px-4">
-                <ThemedText className=" text-xl font-medium">Option name</ThemedText>
-                <ThemedText className="mb-4 w-full text-sm">Sizes, colors, duration</ThemedText>
+                <ThemedText className=" text-xl font-medium">选项名称</ThemedText>
+                <ThemedText className="mb-4 w-full text-sm">例如：尺码、颜色、时长</ThemedText>
                 <Input
-                  label="Name"
+                  label="名称"
                   value={currentOption.name}
                   onChangeText={(text) => setCurrentOption({ ...currentOption, name: text })}
                 />
-                <ThemedText className="mt-8 text-xl font-medium">Values</ThemedText>
+                <ThemedText className="mt-8 text-xl font-medium">选项值</ThemedText>
                 <ThemedText className="w-full text-sm text-subtext">
-                  Black, large, hours, etc
+                  例如：黑色、大号、小时等
                 </ThemedText>
                 <FlatList
                   className="relative mt-4 rounded-lg border border-neutral-500"
@@ -248,7 +248,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                     <View className="flex-row items-center border-b border-neutral-500">
                       <TextInput
                         className="flex-1 px-4 py-3 text-primary placeholder:text-primary"
-                        placeholder="Enter value"
+                        placeholder="请输入选项值"
                         placeholderTextColor={colors.placeholder}
                         value={item}
                         onChangeText={(text) => {
@@ -278,7 +278,7 @@ const ProductVariantCreator: React.FC<ProductVariantCreatorProps> = ({ hasStock 
                       onPress={addValue}
                       className="flex-row items-center justify-center rounded-lg px-4 py-3">
                       <Icon name="Plus" size={20} />
-                      <ThemedText className="ml-2">Add value</ThemedText>
+                      <ThemedText className="ml-2">添加选项值</ThemedText>
                     </Pressable>
                   }
                 />

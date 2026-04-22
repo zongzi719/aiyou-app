@@ -3,8 +3,8 @@
     "newArchEnabled": true,
     "name": "AIYOU",
     "slug": "luna-zhouyz719",
-    "version": "1.2.0",
-    "runtimeVersion": "1.2.0",
+    "version": "1.2.3",
+    "runtimeVersion": "1.2.3",
     "scheme": "luna",
     "experiments": {
       "tsconfigPaths": true
@@ -33,10 +33,13 @@
     ],
     "ios": {
       "bundleIdentifier": "com.lmrj.lmaiyou",
-      "buildNumber": "5",
+      "buildNumber": "8",
       "supportsTablet": true,
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["weixin", "weixinULAPI"],
+        "LSApplicationQueriesSchemes": [
+          "weixin",
+          "weixinULAPI"
+        ],
         "NSMicrophoneUsageDescription": "This app uses the microphone for speech-to-text functionality.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -61,7 +64,8 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "versionCode": 3
     },
     "extra": {
       "router": {

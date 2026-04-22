@@ -36,7 +36,7 @@ export function useDrawer() {
   const context = useContext(DrawerContext);
 
   if (context === undefined) {
-    throw new Error('useDrawer must be used within a DrawerProvider');
+    throw new Error('useDrawer 必须在 DrawerProvider 内使用');
   }
 
   return context;

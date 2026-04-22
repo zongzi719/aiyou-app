@@ -28,7 +28,7 @@ export function AiRecordModalProvider({ children }: { children: React.ReactNode 
 export function useAiRecordModal(): AiRecordModalContextValue {
   const ctx = useContext(AiRecordModalContext);
   if (!ctx) {
-    throw new Error('useAiRecordModal must be used within AiRecordModalProvider');
+    throw new Error('useAiRecordModal 必须在 AiRecordModalProvider 内使用');
   }
   return ctx;
 }

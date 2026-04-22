@@ -3,7 +3,7 @@ import { Linking, Platform, Pressable, StyleSheet, Switch, View } from 'react-na
 import Markdown from 'react-native-markdown-display';
 
 import Icon from '@/components/Icon';
-import ShimmerText from '@/components/ShimmerText';
+import StarFloatingLoader from '@/components/StarFloatingLoader';
 import ThemedText from '@/components/ThemedText';
 import { shadowPresets } from '@/utils/useShadow';
 
@@ -201,22 +201,22 @@ export default function DecisionCoachCard({ model, onToggleEnabled }: Props) {
         {model.loading ? (
           <View className="gap-3">
             <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <ShimmerText text="正在分析…" className="text-white/70" />
+              <StarFloatingLoader text="正在分析..." textClassName="text-white/75 text-[14px]" />
             </View>
             <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <ShimmerText text="正在生成关键问题…" className="text-white/70" />
+              <StarFloatingLoader text="正在生成关键问题..." textClassName="text-white/75 text-[14px]" />
             </View>
             <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <ShimmerText text="正在扫描风险…" className="text-white/70" />
+              <StarFloatingLoader text="正在扫描风险..." textClassName="text-white/75 text-[14px]" />
             </View>
           </View>
         ) : model.errorText ? (
           <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
             <View className="flex-row items-center gap-2">
               <Icon name="TriangleAlert" size={16} color="rgba(255,255,255,0.85)" />
-              <ThemedText className="text-white/85 text-[14px] font-semibold">出错了</ThemedText>
+              <ThemedText className="text-[14px] font-semibold text-[#F5F5F5]">出错了</ThemedText>
             </View>
-            <ThemedText className="mt-2 text-[13px] leading-[19px] text-white/70">
+            <ThemedText className="mt-2 text-[13px] leading-[19px] text-[#D4D4D8]">
               {model.errorText}
             </ThemedText>
           </View>

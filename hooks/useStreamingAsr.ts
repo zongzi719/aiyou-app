@@ -109,6 +109,19 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
+async function configureAudioSessionForRecording(): Promise<void> {
+  if (Platform.OS !== 'ios') return;
+  await Audio.setAudioModeAsync({
+    allowsRecordingIOS: true,
+    playsInSilentModeIOS: true,
+    staysActiveInBackground: false,
+    shouldDuckAndroid: true,
+    playThroughEarpieceAndroid: false,
+    interruptionModeIOS: 1,
+    interruptionModeAndroid: 1,
+  });
+}
+
 /** 客户端噪声门：低音量帧改发静音，减轻远场声进入 ASR；需 openThreshold > closeThreshold */
 export type StreamingAsrNoiseGate = {
   openThreshold: number;
@@ -184,6 +197,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   /** expo-stream-audio 每帧带实际采样率；与网关约定 16k 不一致时必须重采样 */
   const micSampleRateRef = useRef<number | null>(null);
   const noiseGateOpenRef = useRef(false);
+  const stopGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (nlsTokenGetterRef.current === null) {
     nlsTokenGetterRef.current = createCachedNlsTokenGetter();
@@ -198,6 +212,13 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       completedEmitted: false,
       cancelled: false,
     };
+  };
+
+  const clearStopGraceTimer = () => {
+    if (stopGraceTimerRef.current) {
+      clearTimeout(stopGraceTimerRef.current);
+      stopGraceTimerRef.current = null;
+    }
   };
 
   const emitPartial = () => {
@@ -281,6 +302,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   };
 
   const runAliyunCleanup = useCallback(async () => {
+    clearStopGraceTimer();
     if (nlsCleanupOnceRef.current) return;
     nlsCleanupOnceRef.current = true;
     try {
@@ -370,6 +392,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   };
 
   const startStreaming = useCallback(async () => {
+    clearStopGraceTimer();
     mockTimersRef.current.forEach(clearTimeout);
     mockTimersRef.current = [];
     if (await getGlobalMock()) {
@@ -420,6 +443,17 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       return;
     }
 
+    try {
+      await configureAudioSessionForRecording();
+    } catch (e) {
+      sessionActiveRef.current = false;
+      setIsStreaming(false);
+      optsRef.current.onError?.(
+        e instanceof Error ? `语音初始化失败：${e.message}` : '语音初始化失败，请稍后重试'
+      );
+      return;
+    }
+
     const mode = optsRef.current.mode;
     const pcmAcc = new PcmInt16FrameAccumulator();
     pcmAccRef.current = pcmAcc;
@@ -446,6 +480,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
         getToken,
         payload: nlsStartTranscriptionPayloadFromEnv(),
         onConnectionClosed: () => {
+          clearStopGraceTimer();
           if (!sessionRef.current.cancelled && !sessionRef.current.completedEmitted) {
             finalizeOnClose();
           }
@@ -560,6 +595,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       ws = await connectAsrWebSocket(mode, {
         onMessage: applyMessage,
         onClose: () => {
+          clearStopGraceTimer();
           sessionActiveRef.current = false;
           cleanupNative().catch(() => {});
           finalizeOnClose();
@@ -645,7 +681,29 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   }, [runAliyunCleanup]);
 
   const stopStreaming = useCallback(async () => {
+    const startStopGraceTimer = () => {
+      clearStopGraceTimer();
+      stopGraceTimerRef.current = setTimeout(() => {
+        if (!sessionActiveRef.current) return;
+        // 兜底：部分机型/网络下 stop 后服务端未及时 close，避免会话卡死在“仍在录音”状态。
+        finalizeOnClose();
+        cleanupNative().catch(() => {});
+        cleanupWs();
+        nlsCleanupOnceRef.current = false;
+        try {
+          nlsTranscriberRef.current?.close();
+        } catch {
+          /* noop */
+        }
+        nlsTranscriberRef.current = null;
+        sessionActiveRef.current = false;
+        setIsStreaming(false);
+        setMeterLevel(0);
+      }, 2500);
+    };
+
     if (await getGlobalMock()) {
+      clearStopGraceTimer();
       mockTimersRef.current.forEach(clearTimeout);
       mockTimersRef.current = [];
       sessionActiveRef.current = false;
@@ -664,6 +722,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       if (pad) {
         tr.sendPcmChunk(new Uint8Array(pad));
       }
+      startStopGraceTimer();
       tr.stop();
       return;
     }
@@ -673,8 +732,10 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       if (pad) {
         wsSendBinary(ws, pad);
       }
+      startStopGraceTimer();
       wsSendJson(ws, { type: 'end' });
     } else {
+      clearStopGraceTimer();
       await cleanupNative();
       cleanupWs();
       sessionActiveRef.current = false;
@@ -684,6 +745,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
   }, []);
 
   const cancelStreaming = useCallback(async () => {
+    clearStopGraceTimer();
     mockTimersRef.current.forEach(clearTimeout);
     mockTimersRef.current = [];
     sessionRef.current.cancelled = true;

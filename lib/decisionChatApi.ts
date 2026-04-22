@@ -109,11 +109,24 @@ async function postJson(
   const base = await getApiBaseUrl();
   const headers = await getPrivateChatAuthHeaders();
   const url = joinUrl(base, path);
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { ...headers, Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, Accept: 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string })?.name === 'AbortError') {
+      throw new Error('请求超时，请稍后重试');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await res.text();
   let json: unknown = null;
   try {
@@ -142,6 +155,35 @@ function normalizeAiContent(content: unknown): string {
       return '';
     })
     .join('');
+}
+
+function formatDecisionHttpError(status: number, json: unknown, text: string): string {
+  const detail =
+    (asRecord(json)?.detail as string | undefined) ??
+    (asRecord(json)?.message as string | undefined) ??
+    '';
+  const combined = `${detail}\n${text}`.trim();
+  const lower = combined.toLowerCase();
+  const isHtmlError = lower.includes('<html') || lower.includes('<!doctype html');
+  const isGatewayTimeout =
+    status === 504 ||
+    lower.includes('504 gateway time-out') ||
+    lower.includes('gateway timeout') ||
+    lower.includes('upstream timed out');
+  const isGatewayUnavailable = status === 502 || status === 503;
+
+  if (isGatewayTimeout) {
+    return '网关超时，服务暂时不可用，请稍后重试。';
+  }
+  if (isGatewayUnavailable) {
+    return '网关异常，服务暂时不可用，请稍后重试。';
+  }
+  if (isHtmlError) {
+    return `服务异常（HTTP ${status}），请稍后重试。`;
+  }
+  if (detail.trim()) return detail.trim().slice(0, 240);
+  if (text.trim()) return text.trim().slice(0, 240);
+  return `HTTP ${status}`;
 }
 
 function extractLastAiTextFromMessages(messages: unknown): string {
@@ -293,11 +335,7 @@ async function runDecisionCoachWait(args: {
   );
 
   if (status < 200 || status >= 300) {
-    const detail =
-      (asRecord(json)?.detail as string | undefined) ??
-      (asRecord(json)?.message as string | undefined) ??
-      text.slice(0, 200) ??
-      `HTTP ${status}`;
+    const detail = formatDecisionHttpError(status, json, text);
     return { ok: false, errorText: `请求失败：${detail}` };
   }
 

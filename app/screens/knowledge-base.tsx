@@ -5,7 +5,6 @@ import * as Sharing from 'expo-sharing';
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   FlatList,
@@ -38,6 +37,7 @@ import {
   getMimeLabel,
   getMimeColor,
 } from '@/services/knowledgeApi';
+import { MeetingFolder, MeetingRecord, meetingApi } from '@/services/meetingApi';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -60,7 +60,7 @@ const FileBadge = ({ mimeType }: FileBadgeProps) => {
 };
 
 interface FolderCardProps {
-  folder: KnowledgeFolder;
+  folder: KnowledgeFolder & { source?: 'knowledge' | 'meeting' | 'both' };
   onPress: () => void;
   onLongPress: () => void;
 }
@@ -218,7 +218,7 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}
-              className="flex-1 items-center rounded-xl border border-white/30 bg-white/15 py-3">
+              className="bg-white/15 flex-1 items-center rounded-xl border border-white/30 py-3">
               <ThemedText className="text-base font-semibold text-primary">创建</ThemedText>
             </TouchableOpacity>
           </View>
@@ -321,6 +321,9 @@ export default function KnowledgeBaseScreen() {
   const [folders, setFolders] = useState<KnowledgeFolder[]>(() => initialKb?.folders ?? []);
   const [files, setFiles] = useState<KnowledgeFile[]>(() => initialKb?.files ?? []);
   const [searchQuery, setSearchQuery] = useState('');
+  const [fileTypeFilter, setFileTypeFilter] = useState<'all' | 'knowledge' | 'meeting_record'>(
+    'all'
+  );
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [newFolderVisible, setNewFolderVisible] = useState(false);
   const [uploadSheetVisible, setUploadSheetVisible] = useState(false);
@@ -329,12 +332,87 @@ export default function KnowledgeBaseScreen() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
 
+  const normalizeMeetingStatus = (status: MeetingRecord['asrStatus']): KnowledgeFile['status'] => {
+    if (status === 'done') return 'done';
+    if (status === 'failed') return 'error';
+    return 'processing';
+  };
+
+  const mapMeetingToKnowledgeFile = (meeting: MeetingRecord): KnowledgeFile => ({
+    id: meeting.id,
+    filename: meeting.title || '未命名会议',
+    mime_type: 'application/x-meeting-record',
+    file_size: 0,
+    folder_id: meeting.folder || null,
+    status: normalizeMeetingStatus(meeting.asrStatus),
+    chunk_count: meeting.transcript?.length ?? 0,
+    created_at: meeting.createdAt || new Date().toISOString(),
+    progress: meeting.asrStatus === 'done' ? 1 : null,
+    source: 'meeting',
+    file_type: 'meeting_record',
+    meeting_id: meeting.id,
+    meeting_audio_url: meeting.audioUrl ?? null,
+    meeting_duration: meeting.audioDuration || meeting.duration || null,
+    meeting_participants: meeting.participants ?? null,
+    meeting_asr_status: meeting.asrStatus ?? null,
+  });
+
+  const mergeFolders = (
+    kbFolders: KnowledgeFolder[],
+    mtFolders: MeetingFolder[]
+  ): (KnowledgeFolder & { source?: 'knowledge' | 'meeting' | 'both' })[] => {
+    const mapById = new Map<
+      string,
+      KnowledgeFolder & { source?: 'knowledge' | 'meeting' | 'both' }
+    >();
+    for (const f of kbFolders) {
+      mapById.set(f.id, { ...f, source: 'knowledge' });
+    }
+    for (const f of mtFolders) {
+      const exists = mapById.get(f.id);
+      if (exists) {
+        mapById.set(f.id, {
+          ...exists,
+          count: (exists.count ?? 0) + (f.count ?? 0),
+          source: 'both',
+        });
+      } else {
+        mapById.set(f.id, { id: f.id, name: f.name, count: f.count ?? 0, source: 'meeting' });
+      }
+    }
+    const merged = Array.from(mapById.values());
+    const byName = new Map<
+      string,
+      KnowledgeFolder & { source?: 'knowledge' | 'meeting' | 'both' }
+    >();
+    for (const f of merged) {
+      const key = (f.name || '').trim().toLowerCase();
+      if (!key) continue;
+      const exist = byName.get(key);
+      if (!exist) {
+        byName.set(key, f);
+      } else if (exist.id !== f.id) {
+        byName.set(key, {
+          ...exist,
+          count: (exist.count ?? 0) + (f.count ?? 0),
+          source:
+            exist.source === f.source || f.source == null || exist.source == null
+              ? exist.source
+              : 'both',
+        });
+      }
+    }
+    return Array.from(byName.values());
+  };
+
   const filteredFiles = files.filter((f) => {
     const matchFolder = selectedFolderId ? f.folder_id === selectedFolderId : true;
     const matchSearch = searchQuery
       ? f.filename.toLowerCase().includes(searchQuery.toLowerCase())
       : true;
-    return matchFolder && matchSearch;
+    const currentType = f.file_type ?? (f.source === 'meeting' ? 'meeting_record' : 'knowledge');
+    const matchType = fileTypeFilter === 'all' ? true : currentType === fileTypeFilter;
+    return matchFolder && matchSearch && matchType;
   });
 
   const loadData = useCallback(async (opts?: { force?: boolean }) => {
@@ -346,8 +424,23 @@ export default function KnowledgeBaseScreen() {
         knowledgeApi.getFolders().catch(() => [] as KnowledgeFolder[]),
         knowledgeApi.getFiles().catch(() => ({ files: [] as KnowledgeFile[], total: 0 })),
       ]);
-      setFolders(folderList);
-      setFiles(fileList.files);
+      const [meetingFolders, meetingList] = await Promise.all([
+        meetingApi.getFolders().catch(() => [] as MeetingFolder[]),
+        meetingApi.getMeetings({ limit: 100 }).catch(() => ({ meetings: [] as MeetingRecord[] })),
+      ]);
+      const mergedFolders = mergeFolders(folderList, meetingFolders);
+      const kbFiles = fileList.files.map((f) => ({
+        ...f,
+        source: 'knowledge' as const,
+        file_type: 'knowledge' as const,
+      }));
+      const meetingFiles = (meetingList.meetings ?? []).map(mapMeetingToKnowledgeFile);
+      setFolders(mergedFolders);
+      setFiles(
+        [...meetingFiles, ...kbFiles].sort(
+          (a, b) => +new Date(b.created_at) - +new Date(a.created_at)
+        )
+      );
     } finally {
       if (force) setRefreshing(false);
     }
@@ -487,6 +580,13 @@ export default function KnowledgeBaseScreen() {
   };
 
   const handleFolderLongPress = (folder: KnowledgeFolder) => {
+    if (
+      (folder as { source?: string }).source === 'meeting' ||
+      (folder as { source?: string }).source === 'both'
+    ) {
+      Alert.alert('提示', '该文件夹来自会议记录，不支持在此重命名或删除');
+      return;
+    }
     Alert.alert(folder.name, undefined, [
       { text: '重命名', onPress: () => promptRenameFolder(folder) },
       {
@@ -518,6 +618,8 @@ export default function KnowledgeBaseScreen() {
   };
 
   const toggleFileSelected = (fileId: string) => {
+    const file = files.find((f) => f.id === fileId);
+    if (!file || (file.source ?? 'knowledge') !== 'knowledge') return;
     setSelectedIds((prev) =>
       prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
     );
@@ -553,7 +655,9 @@ export default function KnowledgeBaseScreen() {
 
   const handleBatchDownload = async () => {
     if (selectedIds.length === 0) return;
-    const list = files.filter((f) => selectedIds.includes(f.id));
+    const list = files.filter(
+      (f) => selectedIds.includes(f.id) && (f.source ?? 'knowledge') === 'knowledge'
+    );
     setBatchBusy(true);
     try {
       const canShare = await Sharing.isAvailableAsync();
@@ -685,7 +789,13 @@ export default function KnowledgeBaseScreen() {
 
   const rightHeaderComponent = (
     <TouchableOpacity
-      onPress={() => setUploadSheetVisible(true)}
+      onPress={() => {
+        if (fileTypeFilter === 'meeting_record') {
+          Alert.alert('提示', '会议记录不支持移动端上传，请通过会议接口自动同步');
+          return;
+        }
+        setUploadSheetVisible(true);
+      }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       className="flex-row items-center">
       <Icon name="Plus" size={16} />
@@ -726,6 +836,26 @@ export default function KnowledgeBaseScreen() {
           ))}
         </View>
       )}
+
+      <View className="mb-3 mt-1 flex-row gap-2">
+        {[
+          { key: 'all', label: '全部' },
+          { key: 'knowledge', label: '文档' },
+          { key: 'meeting_record', label: '会议记录' },
+        ].map((item) => {
+          const active = fileTypeFilter === item.key;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              onPress={() => setFileTypeFilter(item.key as 'all' | 'knowledge' | 'meeting_record')}
+              className={`rounded-full px-3 py-1.5 ${active ? 'bg-white/15' : 'bg-secondary'}`}>
+              <ThemedText className={`text-sm ${active ? 'text-primary' : 'text-subtext'}`}>
+                {item.label}
+              </ThemedText>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {/* 文件列表标题行 */}
       <View className="mb-2 mt-1 flex-row items-center justify-between">
@@ -790,6 +920,14 @@ export default function KnowledgeBaseScreen() {
                   chunk_count: String(item.chunk_count ?? 0),
                   progress: item.progress != null ? String(item.progress) : '',
                   folder_id: item.folder_id ?? '',
+                  source: item.source ?? 'knowledge',
+                  file_type: item.file_type ?? 'knowledge',
+                  meeting_id: item.meeting_id ?? '',
+                  meeting_audio_url: item.meeting_audio_url ?? '',
+                  meeting_duration: item.meeting_duration ?? '',
+                  meeting_participants:
+                    item.meeting_participants != null ? String(item.meeting_participants) : '',
+                  meeting_asr_status: item.meeting_asr_status ?? '',
                 },
               })
             }
@@ -798,7 +936,9 @@ export default function KnowledgeBaseScreen() {
         ListEmptyComponent={
           <View className="items-center py-16">
             <Icon name="FolderOpen" size={48} />
-            <ThemedText className="mt-3 text-subtext">暂无文件</ThemedText>
+            <ThemedText className="mt-3 text-subtext">
+              {fileTypeFilter === 'meeting_record' ? '暂无会议记录' : '暂无文件'}
+            </ThemedText>
           </View>
         }
       />

@@ -292,6 +292,13 @@ export interface KnowledgeFile {
   chunk_count: number;
   created_at: string;
   progress: number | null;
+  source?: 'knowledge' | 'meeting';
+  file_type?: 'knowledge' | 'meeting_record';
+  meeting_id?: string;
+  meeting_audio_url?: string | null;
+  meeting_duration?: string | null;
+  meeting_participants?: number | null;
+  meeting_asr_status?: 'pending' | 'processing' | 'done' | 'failed' | null;
 }
 
 export interface FileListResponse {
@@ -589,6 +596,7 @@ export function formatDate(iso: string): string {
 }
 
 export function getMimeLabel(mimeType: string): string {
+  if (mimeType.includes('meeting-record')) return '会议';
   if (mimeType.includes('pdf')) return 'PDF';
   if (mimeType.includes('word') || mimeType.includes('docx') || mimeType.includes('doc'))
     return 'Word';
@@ -604,6 +612,7 @@ export function getMimeLabel(mimeType: string): string {
 }
 
 export function getMimeColor(mimeType: string): string {
+  if (mimeType.includes('meeting-record')) return '#F4B400';
   if (mimeType.includes('pdf')) return '#E53935';
   if (mimeType.includes('word') || mimeType.includes('doc')) return '#1E88E5';
   if (mimeType.includes('excel') || mimeType.includes('xls')) return '#43A047';
