@@ -578,6 +578,49 @@ export const ChatInput = (props: ChatInputProps) => {
     await pickDocument();
   };
 
+  /** 微信不向第三方开放聊天内文件浏览器；仅能跳转微信 + 用系统文件选择器选「已保存」文件 */
+  const openWeChatApp = async () => {
+    const url = 'weixin://';
+    try {
+      if (Platform.OS === 'ios') {
+        const can = await Linking.canOpenURL(url);
+        if (!can) {
+          Alert.alert('未检测到微信', '请先安装微信，或在微信内将文件保存到「文件」后再回本应用选择。');
+          return;
+        }
+      }
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('无法打开微信', '请确认已安装微信；也可在微信中长按文件 →「存储到文件」或「用其他应用打开」，再点「选择已保存的文件」。');
+    }
+  };
+
+  const handleSelectWeChatFile = () => {
+    setShowSourceMenu(false);
+    Alert.alert(
+      '微信文件',
+      '微信不提供从第三方 App 直接进入某聊天并列出文件的接口。请按下面方式操作：\n\n' +
+        '1）点「打开微信」，在会话里找到文件；\n' +
+        '2）长按文件 →「用其他应用打开」或「存储到文件」/ 保存到「下载」等；\n' +
+        '3）返回本应用，点「选择已保存的文件」加入当前聊天。',
+      [
+        {
+          text: '打开微信',
+          onPress: () => {
+            openWeChatApp().catch(() => {});
+          },
+        },
+        {
+          text: '选择已保存的文件',
+          onPress: () => {
+            pickDocument().catch(() => {});
+          },
+        },
+        { text: '取消', style: 'cancel' },
+      ]
+    );
+  };
+
   const handleSelectKnowledgeBase = async () => {
     setShowSourceMenu(false);
     setShowKnowledgePicker(true);
@@ -1004,7 +1047,7 @@ export const ChatInput = (props: ChatInputProps) => {
             </Pressable>
             <Pressable
               className="border-white/8 flex-row items-center border-b py-3"
-              onPress={() => Alert.alert('暂未接入', '微信文件能力后续接入')}>
+              onPress={handleSelectWeChatFile}>
               <Icon name="MessageCircleMore" size={20} color="white" />
               <ThemedText className="ml-3 text-[16px] text-white">微信文件</ThemedText>
             </Pressable>

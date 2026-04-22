@@ -212,6 +212,9 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - expo-react-native-wechat-v2 (2.0.1):
+    - React
+    - WechatOpenSDK-XCFramework
   - ExpoAsset (12.0.12):
     - ExpoModulesCore
   - ExpoAudio (1.1.1):
@@ -2420,6 +2423,7 @@ PODS:
   - SDWebImageWebPCoder (0.15.0):
     - libwebp (~> 1.0)
     - SDWebImage/Core (~> 5.17)
+  - WechatOpenSDK-XCFramework (2.0.5)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -2436,6 +2440,7 @@ DEPENDENCIES:
   - expo-dev-launcher (from `../node_modules/expo-dev-launcher`)
   - expo-dev-menu (from `../node_modules/expo-dev-menu`)
   - expo-dev-menu-interface (from `../node_modules/expo-dev-menu-interface/ios`)
+  - expo-react-native-wechat-v2 (from `../node_modules/expo-react-native-wechat-v2`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
@@ -2546,6 +2551,7 @@ SPEC REPOS:
     - libwebp
     - ReachabilitySwift
     - SDWebImage
+    - WechatOpenSDK-XCFramework
 
 EXTERNAL SOURCES:
   EASClient:
@@ -2574,6 +2580,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-dev-menu"
   expo-dev-menu-interface:
     :path: "../node_modules/expo-dev-menu-interface/ios"
+  expo-react-native-wechat-v2:
+    :path: "../node_modules/expo-react-native-wechat-v2"
   ExpoAsset:
     :path: "../node_modules/expo-asset/ios"
   ExpoAudio:
@@ -2802,6 +2810,7 @@ SPEC CHECKSUMS:
   expo-dev-launcher: be2313ec1943375fe70846b9b014c0a116536425
   expo-dev-menu: 05b18812110c175814c6af0d09dd658abcc5e00d
   expo-dev-menu-interface: 600df12ea01efecdd822daaf13cc0ac091775533
+  expo-react-native-wechat-v2: b7664e89e3a7a0f56337fa1bea232371a1daae26
   ExpoAsset: f867e55ceb428aab99e1e8c082b5aee7c159ea18
   ExpoAudio: e4cfe3a2f3317b8487460685385a9867a07fb4fb
   ExpoBlur: b90747a3f22a8b6ceffd9cb0dc41a4184efdc656
@@ -2907,6 +2916,7 @@ SPEC CHECKSUMS:
   RNWorklets: 76fce72926e28e304afb44f0da23b2d24f2c1fa0
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   SDWebImageWebPCoder: 0e06e365080397465cc73a7a9b472d8a3bd0f377
+  WechatOpenSDK-XCFramework: ff342ae616bb86df3d236aca38059dfd4bc4a949
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
 
 PODFILE CHECKSUM: 20909c807c02455886997beb544d40e3fcab4e9c

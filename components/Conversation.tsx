@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Image,
   Linking,
-  Share,
   Alert,
 } from 'react-native';
 import Markdown from 'react-native-markdown-display';
@@ -25,6 +24,7 @@ import ThemedText from './ThemedText';
 import { useThemeColors } from '@/app/contexts/ThemeColors';
 import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
 import { stripGeneratedDocumentRefs, type ParsedChatDocument } from '@/lib/chatGeneratedDocuments';
+import { shareChatConversation } from '@/lib/shareChatConversation';
 import { knowledgeApi } from '@/services/knowledgeApi';
 import { shadowPresets } from '@/utils/useShadow';
 
@@ -542,14 +542,6 @@ async function copyPlain(text: string) {
   Alert.alert('已复制', '正文已复制到剪贴板（不含文件）');
 }
 
-async function sharePlain(title: string, text: string) {
-  try {
-    await Share.share({ title, message: text.trim() });
-  } catch {
-    /* 用户取消 */
-  }
-}
-
 function normalizeTitleHintForFilename(raw: string): string {
   let s = raw.trim() || '对话摘录';
   if (/%[0-9A-Fa-f]{2}/.test(s)) {
@@ -583,7 +575,6 @@ async function saveMarkdownToKnowledge(markdown: string, titleHint: string) {
 
 function MessageActionToolbar({
   copyText,
-  shareTitle,
   shareBody,
   savedToKnowledge,
   onSaveKnowledge,
@@ -591,7 +582,6 @@ function MessageActionToolbar({
   colors,
 }: {
   copyText: string;
-  shareTitle: string;
   shareBody: string;
   savedToKnowledge: boolean;
   onSaveKnowledge: () => void;
@@ -621,7 +611,7 @@ function MessageActionToolbar({
             />
           </Pressable>
           <Pressable
-            onPress={() => void sharePlain(shareTitle, shareBody)}
+            onPress={() => void shareChatConversation(shareBody)}
             accessibilityRole="button"
             accessibilityLabel="分享">
             <Icon name="Share2" size={20} color={colors.text} strokeWidth={1.75} />
@@ -707,7 +697,9 @@ function CombinedChatTurn({
             ) : isStreaming ? null : (
               <ThemedText className="text-base italic text-subtext">（未收到正文）</ThemedText>
             )}
-            {isStreaming ? <ShimmerText text={assistantMessage.thinkingStep ?? '正在回复…'} /> : null}
+            {isStreaming ? (
+              <ShimmerText text={assistantMessage.thinkingStep ?? '正在回复…'} />
+            ) : null}
             {!isStreaming && documents.length > 0
               ? documents.map((d, idx) => (
                   <GeneratedDocumentCard
@@ -721,7 +713,6 @@ function CombinedChatTurn({
               <View className="mt-4">
                 <MessageActionToolbar
                   copyText={copyText}
-                  shareTitle={userMessage.content.trim().slice(0, 40) || 'AI YOU 对话'}
                   shareBody={copyText}
                   savedToKnowledge={savedToKnowledge}
                   onSaveKnowledge={handleSave}
@@ -818,7 +809,6 @@ const AssistantMessage = ({
         {!isStreaming && content.trim().length > 0 && (
           <MessageActionToolbar
             copyText={copyText}
-            shareTitle="AI YOU 对话"
             shareBody={copyText}
             savedToKnowledge={savedToKnowledge}
             onSaveKnowledge={handleSave}

@@ -28,7 +28,7 @@ const CHECK_ITEMS: EnvCheckItem[] = [
   {
     name: 'EXPO_PUBLIC_AI_PROVIDER',
     required: () => false,
-    reason: '仅在使用直连模型时设为 openai/gemini/claude；不设则不校验第三方 Key（私聊可走已登录网关）',
+    reason: '仅在使用直连模型时设为 openai/gemini/claude；设为 none 或不设则不校验第三方 Key（私聊可走已登录网关）',
   },
   {
     name: 'EXPO_PUBLIC_OPENAI_API_KEY',
