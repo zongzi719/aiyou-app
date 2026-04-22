@@ -277,7 +277,7 @@ function IntroAmbience() {
   );
 }
 
-/** Figma Group 379「AI YOU」：细字重 + 金渐变 */
+/** Figma Group 379「AIYOU」：细字重 + 金渐变 */
 function IntroBrandMark() {
   return (
     <MaskedView className="self-start" maskElement={<BrandMarkMask />}>
@@ -286,7 +286,7 @@ function IntroBrandMark() {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         className="py-0.5">
-        <Text className="text-[28px] font-light tracking-[0.2em] text-white opacity-0">AI YOU</Text>
+        <Text className="text-[28px] font-light tracking-[0.16em] text-white opacity-0">AIYOU</Text>
       </LinearGradient>
     </MaskedView>
   );
@@ -297,7 +297,7 @@ function BrandMarkMask() {
     <Text
       className="text-[28px] font-light tracking-[0.2em] text-white"
       style={{ fontWeight: '300' }}>
-      AI YOU
+      AIYOU
     </Text>
   );
 }
@@ -320,6 +320,14 @@ function phaseToFilledSegments(phase: Phase): number {
     default:
       return 0;
   }
+}
+
+function isAliyunOssEnvMissing(message: string): boolean {
+  return (
+    message.includes('EXPO_PUBLIC_ALIYUN_OSS_ACCESS_KEY_ID') ||
+    message.includes('EXPO_PUBLIC_ALIYUN_OSS_ACCESS_KEY_SECRET') ||
+    message.includes('EXPO_PUBLIC_ALIYUN_OSS_BUCKET')
+  );
 }
 
 function phaseTitle(phase: Phase): { n: string; label: string } | null {
@@ -747,6 +755,17 @@ export default function ModelInitScreen() {
           detailLines.push('已自动刷新朗读文本，请按新文本重新录音。');
         }
         Alert.alert('提示', detailLines.join('\n'));
+        return;
+      }
+      if (voiceCloneProvider === 'aliyun' && isAliyunOssEnvMissing(msg)) {
+        Alert.alert(
+          '提示',
+          '当前环境未配置阿里云 OSS 密钥，暂时无法完成声音复刻。你可以先继续后续步骤，稍后补齐 .env 后再回来采集声音。',
+          [
+            { text: '我去配置', style: 'cancel' },
+            { text: '继续下一步', onPress: () => setPhase('image') },
+          ]
+        );
         return;
       }
       Alert.alert('提示', msg);
@@ -1178,7 +1197,7 @@ export default function ModelInitScreen() {
             {phase === 'avatarLoading' ? (
               <View className="items-center pt-6">
                 <View className="h-48 w-48 items-center justify-center rounded-full border border-[#B98C44]/40">
-                  <ThemedText className="text-xl font-bold text-white">AI YOU</ThemedText>
+                  <ThemedText className="text-xl font-bold text-white">AIYOU</ThemedText>
                   <ThemedText className="mt-2 px-6 text-center text-xs text-white/60">
                     正在创建您的数字分身
                   </ThemedText>

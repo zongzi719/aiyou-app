@@ -113,9 +113,7 @@ export default function LoginScreen() {
           keyboardVerticalOffset={16}>
           <View className="flex-1">
             <View className="items-center pt-36">
-              <ThemedText className="text-[42px] font-light tracking-[6px] text-white">
-                AI YOU
-              </ThemedText>
+              <ThemedText className="text-[42px] font-light tracking-[4px] text-white">AIYOU</ThemedText>
               <ThemedText className="mt-2 text-base text-white/70">
                 你的思维，从此多一个你
               </ThemedText>

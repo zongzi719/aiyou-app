@@ -165,6 +165,8 @@ export const Conversation = ({
     : internalStarredIds;
 
   useEffect(() => {
+    // 首轮对话保留在顶部，避免被强制滚到底部后落在屏幕中间。
+    if (messages.length <= 2 && !isTyping) return;
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
@@ -294,7 +296,7 @@ function renderMessageList(ctx: RenderListCtx): React.ReactNode[] {
     const message = messages[i]!;
     if (message.type === 'user') {
       const next = messages[i + 1];
-      if (next?.type === 'assistant' && !next.isStreaming) {
+      if (next?.type === 'assistant') {
         const { main } = parseThinkingBlocks(next.content);
         const { documents } = stripGeneratedDocumentRefs(main);
         const useCombinedFrame = combineTurnsInFrame || documents.length > 0;
@@ -656,7 +658,10 @@ function CombinedChatTurn({
   onRegenerateAssistant?: (id: string) => void;
 }) {
   const { thinking, main } = parseThinkingBlocks(assistantMessage.content);
-  const { displayMarkdown, documents } = stripGeneratedDocumentRefs(main);
+  const isStreaming = assistantMessage.isStreaming === true;
+  const { displayMarkdown, documents } = !isStreaming
+    ? stripGeneratedDocumentRefs(main)
+    : { displayMarkdown: main, documents: [] as ParsedChatDocument[] };
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
 
   const copyText = `${userMessage.content.trim()}\n\n${displayMarkdown}`.trim();
@@ -699,33 +704,36 @@ function CombinedChatTurn({
                 }}>
                 {displayMarkdown}
               </Markdown>
-            ) : (
+            ) : isStreaming ? null : (
               <ThemedText className="text-base italic text-subtext">（未收到正文）</ThemedText>
             )}
-
-            {documents.map((d, idx) => (
-              <GeneratedDocumentCard
-                key={`${d.rawRef}-${idx}`}
-                doc={d}
-                assistantAt={assistantMessage.timestamp}
-              />
-            ))}
-
-            <View className="mt-4">
-              <MessageActionToolbar
-                copyText={copyText}
-                shareTitle={userMessage.content.trim().slice(0, 40) || 'AI YOU 对话'}
-                shareBody={copyText}
-                savedToKnowledge={savedToKnowledge}
-                onSaveKnowledge={handleSave}
-                onRegenerate={
-                  onRegenerateAssistant
-                    ? () => onRegenerateAssistant(assistantMessage.id)
-                    : undefined
-                }
-                colors={colors}
-              />
-            </View>
+            {isStreaming ? <ShimmerText text={assistantMessage.thinkingStep ?? '正在回复…'} /> : null}
+            {!isStreaming && documents.length > 0
+              ? documents.map((d, idx) => (
+                  <GeneratedDocumentCard
+                    key={`${d.rawRef}-${idx}`}
+                    doc={d}
+                    assistantAt={assistantMessage.timestamp}
+                  />
+                ))
+              : null}
+            {!isStreaming ? (
+              <View className="mt-4">
+                <MessageActionToolbar
+                  copyText={copyText}
+                  shareTitle={userMessage.content.trim().slice(0, 40) || 'AI YOU 对话'}
+                  shareBody={copyText}
+                  savedToKnowledge={savedToKnowledge}
+                  onSaveKnowledge={handleSave}
+                  onRegenerate={
+                    onRegenerateAssistant
+                      ? () => onRegenerateAssistant(assistantMessage.id)
+                      : undefined
+                  }
+                  colors={colors}
+                />
+              </View>
+            ) : null}
           </View>
         </View>
       </AnimatedView>

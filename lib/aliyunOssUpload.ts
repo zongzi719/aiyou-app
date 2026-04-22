@@ -19,6 +19,15 @@ function getOssConfig(): OssConfig {
     process.env.EXPO_PUBLIC_ALIYUN_OSS_ENDPOINT?.trim() || 'oss-cn-hangzhou.aliyuncs.com';
   endpointHost = endpointHost.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
+  if (__DEV__) {
+    console.info('[OSS ENV CHECK]', {
+      hasAccessKeyId: Boolean(accessKeyId && !accessKeyId.includes('your-')),
+      hasAccessKeySecret: Boolean(accessKeySecret && !accessKeySecret.includes('your-')),
+      hasBucket: Boolean(bucket && !bucket.includes('your-')),
+      endpointHost,
+    });
+  }
+
   if (!accessKeyId || accessKeyId.includes('your-')) {
     throw new Error('请在 .env 配置 EXPO_PUBLIC_ALIYUN_OSS_ACCESS_KEY_ID');
   }

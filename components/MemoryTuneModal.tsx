@@ -28,6 +28,7 @@ import { useStreamingAsr } from '@/hooks/useStreamingAsr';
 import {
   completeBailianWorkflowStream,
   completeBailianWorkflowSync,
+  getBailianAppConfigStatus,
   isBailianWorkflowIncrementalOutputEnabled,
   runTypewriter,
 } from '@/lib/bailianAppCompletion';
@@ -92,6 +93,20 @@ function formatWorkflowError(e: unknown): string {
   } catch {
     return '工作流调用失败';
   }
+}
+
+function sanitizeWorkflowErrorMessage(message: string): string {
+  const m = message.trim();
+  if (!m) return '专家通话暂时不可用，请稍后再试。';
+  if (
+    m.includes('EXPO_PUBLIC_') ||
+    m.includes('未配置') ||
+    m.includes('API Key') ||
+    m.includes('百炼应用 ID')
+  ) {
+    return '专家通话暂未配置完成，请联系管理员在构建环境中补齐配置后再试。';
+  }
+  return m;
 }
 
 export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
@@ -530,7 +545,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         if (ac?.signal.aborted) {
           /* hangup / 新一轮已替换 */
         } else if (cloneLineId) {
-          const msg = formatWorkflowError(e);
+          const msg = sanitizeWorkflowErrorMessage(formatWorkflowError(e));
           setExpertCallLines((prev) => {
             const next = prev.map((l) =>
               l.id === cloneLineId ? { ...l, text: `工作流失败：${msg.slice(0, 600)}` } : l
@@ -661,6 +676,14 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   const openExpertCall = useCallback(async () => {
     if (pendingMemory || saving || sending || holdIsStreaming || expertWorkflowLoading) return;
+    const workflowConfig = getBailianAppConfigStatus();
+    if (!workflowConfig.ok) {
+      if (__DEV__) {
+        console.warn('[MemoryTuneModal] workflow config unavailable', workflowConfig.message);
+      }
+      Alert.alert('提示', '专家通话暂未配置完成，请稍后再试。');
+      return;
+    }
     Keyboard.dismiss();
     setAttachMenuVisible(false);
     expertSegmentGenRef.current = 0;

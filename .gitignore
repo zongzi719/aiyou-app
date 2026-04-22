@@ -32,3 +32,6 @@ android/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local npm cache used by tooling (e.g. isolated npx / eas-cli)
+.npm-cache-eas/

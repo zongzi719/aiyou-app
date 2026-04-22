@@ -22,13 +22,21 @@ export type BailianAppConfig = {
   baseUrl: string;
 };
 
+export type BailianAppConfigStatus = {
+  ok: boolean;
+  message?: string;
+};
+
 export function getBailianAppConfig(): BailianAppConfig {
   const appId = process.env.EXPO_PUBLIC_BAILIAN_APP_ID?.trim();
   const apiKey =
     process.env.EXPO_PUBLIC_BAILIAN_API_KEY?.trim() ||
     process.env.EXPO_PUBLIC_ALIYUN_DASHSCOPE_API_KEY?.trim() ||
     '';
-  const baseUrl = process.env.EXPO_PUBLIC_BAILIAN_BASE_URL?.trim() || DEFAULT_BASE;
+  const baseUrl =
+    process.env.EXPO_PUBLIC_BAILIAN_BASE_URL?.trim() ||
+    process.env.EXPO_PUBLIC_ALIYUN_DASHSCOPE_BASE_URL?.trim() ||
+    DEFAULT_BASE;
   if (!appId) {
     throw new Error('未配置 EXPO_PUBLIC_BAILIAN_APP_ID（百炼应用 ID）');
   }
@@ -41,6 +49,16 @@ export function getBailianAppConfig(): BailianAppConfig {
     throw new Error('百炼 API Key 格式须为 sk- 开头');
   }
   return { appId, apiKey, baseUrl: baseUrl.replace(/\/+$/, '') };
+}
+
+export function getBailianAppConfigStatus(): BailianAppConfigStatus {
+  try {
+    getBailianAppConfig();
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '百炼工作流配置不可用';
+    return { ok: false, message };
+  }
 }
 
 /**

@@ -1,7 +1,7 @@
 import '../global.css';
 import { Stack } from 'expo-router';
-import React from 'react';
-import { Platform, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { Alert, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -10,9 +10,31 @@ import useThemedNavigation from './hooks/useThemedNavigation';
 import { AiRecordModalProvider } from '@/app/contexts/AiRecordModalContext';
 import { DrawerProvider } from '@/app/contexts/DrawerContext';
 import GlobalBottomTabBar from '@/components/GlobalBottomTabBar';
+import { buildEnvHealthReport } from '@/lib/envHealth';
 
 function ThemedLayout() {
   const { ThemedStatusBar, screenOptions } = useThemedNavigation();
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    console.info('[DEV CLIENT] Metro connected; save any file to verify Fast Refresh.');
+    const report = buildEnvHealthReport();
+    const { missingRequired, snapshot } = report;
+    if (missingRequired.length === 0) {
+      console.info('[ENV CHECK] ok', snapshot);
+      return;
+    }
+    console.warn('[ENV CHECK] missing required envs', {
+      snapshot,
+      missingRequired,
+      optionalMissingCount: report.optionalMissing.length,
+    });
+    const lines = missingRequired.map((x) => `- ${x.name}（${x.reason}）`).join('\n');
+    Alert.alert(
+      '环境变量检查未通过',
+      `当前配置：AI=${snapshot.aiProvider}，Voice=${snapshot.voiceCloneProvider}\n\n缺失项：\n${lines}\n\n请补齐后重启 Expo（建议 npx expo start -c）`
+    );
+  }, []);
 
   return (
     <View className="flex-1 bg-background">

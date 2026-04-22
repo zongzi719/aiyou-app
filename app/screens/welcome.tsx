@@ -18,9 +18,7 @@ export default function OnboardingScreen() {
           className="flex-1">
           <View className="bg-black/15 flex-1 px-8">
             <View className="items-center" style={{ marginTop: 96 }}>
-              <ThemedText className="font-outfit text-3xl tracking-widest text-white">
-                AI YOU
-              </ThemedText>
+              <ThemedText className="text-4xl font-light tracking-[4px] text-white">AIYOU</ThemedText>
               <ThemedText className="mt-3 text-base text-white">
                 “你的思维，从此多一个你”
               </ThemedText>

@@ -5,6 +5,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "start": "expo start --dev-client",
+    "start:dev-client": "CHOKIDAR_USEPOLLING=1 expo start --dev-client --tunnel",
     "prebuild": "expo prebuild",
     "sync-api-usage": "node scripts/sync-api-usage.mjs",
     "dev:api-proxy": "node scripts/dev-api-proxy.mjs",
@@ -12,6 +13,7 @@
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\" && prettier -c \"**/*.{js,jsx,ts,tsx,json}\"",
     "format": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix && prettier \"**/*.{js,jsx,ts,tsx,json}\" --write",
     "eas:build:prod": "npx eas-cli build --profile production",
+    "eas:build:android:dev": "NPM_CONFIG_CACHE=.npm-cache-eas npx --yes eas-cli@18.7.0 build --platform android --profile development",
     "eas:build:ios:prod": "npx eas-cli build --platform ios --profile production",
     "eas:submit:ios": "npx eas-cli submit --platform ios --latest"
   },
