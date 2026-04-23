@@ -13,7 +13,7 @@ export default function OnboardingScreen() {
     <SafeAreaView className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
       <View className="flex-1 bg-black">
         <ImageBackground
-          source={require('@/assets/images/login-bg.png')}
+          source={require('@/assets/images/backgrounds/welcome-bg.jpg')}
           resizeMode="cover"
           className="flex-1">
           <View className="bg-black/15 flex-1 px-8">

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type MutableRefObject } from 'react';
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { setAudioModeAsync as setExpoAudioModeAsync } from 'expo-audio';
 import { PermissionsAndroid, Platform } from 'react-native';
 
 import {
@@ -109,17 +110,26 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
-async function configureAudioSessionForRecording(): Promise<void> {
+/**
+ * 真机：expo-av / expo-audio 若已激活 PlayAndRecord，expo-stream-audio 再 setCategory(.record) 易报 -50。
+ * 在 start 前把两套栈的「录音」模式都关掉；另见 patches/expo-stream-audio（setActive false 再 setCategory）。
+ */
+async function releaseSharedAudioModesBeforeExpoStreamAudioIOS(): Promise<void> {
   if (Platform.OS !== 'ios') return;
   await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
+    allowsRecordingIOS: false,
     playsInSilentModeIOS: true,
     staysActiveInBackground: false,
     shouldDuckAndroid: true,
     playThroughEarpieceAndroid: false,
-    interruptionModeIOS: 1,
-    interruptionModeAndroid: 1,
+    interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
   });
+  try {
+    await setExpoAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+  } catch {
+    /* noop */
+  }
 }
 
 /** 客户端噪声门：低音量帧改发静音，减轻远场声进入 ASR；需 openThreshold > closeThreshold */
@@ -443,17 +453,6 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       return;
     }
 
-    try {
-      await configureAudioSessionForRecording();
-    } catch (e) {
-      sessionActiveRef.current = false;
-      setIsStreaming(false);
-      optsRef.current.onError?.(
-        e instanceof Error ? `语音初始化失败：${e.message}` : '语音初始化失败，请稍后重试'
-      );
-      return;
-    }
-
     const mode = optsRef.current.mode;
     const pcmAcc = new PcmInt16FrameAccumulator();
     pcmAccRef.current = pcmAcc;
@@ -573,6 +572,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
       });
 
       try {
+        await releaseSharedAudioModesBeforeExpoStreamAudioIOS();
         await expoStreamAudio.start({
           sampleRate: 16000,
           channels: 1,
@@ -665,6 +665,7 @@ export function useStreamingAsr(options: StreamingAsrOptions) {
     });
 
     try {
+      await releaseSharedAudioModesBeforeExpoStreamAudioIOS();
       await expoStreamAudio.start({
         sampleRate: 16000,
         channels: 1,

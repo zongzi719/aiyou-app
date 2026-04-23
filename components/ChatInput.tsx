@@ -52,6 +52,8 @@ const imageExitAnimation = new Keyframe({
   0: { opacity: 1, transform: [{ scale: 1 }] },
   100: { opacity: 0, transform: [{ scale: 0.8 }] },
 }).duration(120);
+const HOME_RECORD_MIC_ICON = require('@/assets/images/record-mic-custom.png');
+const HOME_RECORD_PAUSE_ICON = require('@/assets/images/record-pause-custom.png');
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -86,6 +88,7 @@ export const ChatInput = (props: ChatInputProps) => {
   const [homeVoiceSheetDismissed, setHomeVoiceSheetDismissed] = useState(false);
   const [isStoppingHomeRecording, setIsStoppingHomeRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [iosKeyboardHeight, setIosKeyboardHeight] = useState(0);
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   const [showKnowledgePicker, setShowKnowledgePicker] = useState(false);
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([]);
@@ -95,6 +98,8 @@ export const ChatInput = (props: ChatInputProps) => {
   /** 本次流式识别开始前的输入框内容 */
   const asrPrefixRef = useRef('');
   const wasStreamingRef = useRef(false);
+  /** 首页语音面板点击✅后，ASR 完成即自动发送一次 */
+  const homePendingAutoSendRef = useRef(false);
   // Android focus animation values
   const androidFocusProgress = useSharedValue(0);
   const overlayOpacity = useSharedValue(0);
@@ -124,6 +129,29 @@ export const ChatInput = (props: ChatInputProps) => {
     return () => {
       keyboardShowListener.remove();
       keyboardHideListener.remove();
+    };
+  }, []);
+
+  // Keep iOS home input close to keyboard
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const onWillShow = Keyboard.addListener('keyboardWillShow', (event) => {
+      setIosKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const onDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setIosKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const onWillHide = Keyboard.addListener('keyboardWillHide', () => {
+      setIosKeyboardHeight(0);
+    });
+    const onDidHide = Keyboard.addListener('keyboardDidHide', () => {
+      setIosKeyboardHeight(0);
+    });
+    return () => {
+      onWillShow.remove();
+      onDidShow.remove();
+      onWillHide.remove();
+      onDidHide.remove();
     };
   }, []);
 
@@ -159,7 +187,22 @@ export const ChatInput = (props: ChatInputProps) => {
       setInputText(combineAsrPrefix(asrPrefixRef.current, sessionText));
     },
     onTranscript: (sessionText) => {
-      setInputText(combineAsrPrefix(asrPrefixRef.current, sessionText));
+      const finalText = combineAsrPrefix(asrPrefixRef.current, sessionText);
+      setInputText(finalText);
+      if (isHomeVariant && homePendingAutoSendRef.current) {
+        const normalized = finalText.trim();
+        homePendingAutoSendRef.current = false;
+        if (normalized.length > 0) {
+          props.onSendMessage?.(
+            normalized,
+            selectedImages.length > 0 ? selectedImages : undefined,
+            selectedFiles.length > 0 ? selectedFiles : undefined
+          );
+          setInputText('');
+          setSelectedImages([]);
+          setSelectedFiles([]);
+        }
+      }
     },
     onError: (msg) => {
       if (msg.includes('麦克风权限')) {
@@ -401,9 +444,11 @@ export const ChatInput = (props: ChatInputProps) => {
     setHomeVoiceSheetDismissed(true);
     setShowHomeRecordPanel(false);
     setIsStoppingHomeRecording(true);
+    homePendingAutoSendRef.current = true;
     try {
       await stopStreaming();
     } catch (error) {
+      homePendingAutoSendRef.current = false;
       setHomeVoiceSheetDismissed(false);
       setIsStoppingHomeRecording(false);
       Alert.alert(
@@ -424,6 +469,7 @@ export const ChatInput = (props: ChatInputProps) => {
     setHomeVoiceSheetDismissed(true);
     setShowHomeRecordPanel(false);
     if (!isRecordingUI) return;
+    homePendingAutoSendRef.current = false;
     setIsStoppingHomeRecording(true);
     try {
       await cancelStreaming();
@@ -549,6 +595,7 @@ export const ChatInput = (props: ChatInputProps) => {
     if (isRecordingUI) return;
     const hasContent = inputText.trim() || selectedImages.length > 0 || selectedFiles.length > 0;
     if (props.onSendMessage && hasContent) {
+      homePendingAutoSendRef.current = false;
       props.onSendMessage(
         inputText,
         selectedImages.length > 0 ? selectedImages : undefined,
@@ -569,6 +616,11 @@ export const ChatInput = (props: ChatInputProps) => {
   /** 遮罩高度：输入条 + 间距 + 录音面板 + 安全区（与布局大致对齐，避免挡住面板） */
   const homeRecordPanelBodyPx = 200;
   const homeRecordDimmerBottom = 60 + 8 + homeRecordPanelBodyPx + Math.max(insets.bottom, 12);
+  const iosBottomBase = iosKeyboardHeight > 0 ? 0 : insets.bottom + floatingTabExtra;
+  const iosKeyboardLift =
+    Platform.OS === 'ios' && !homeRecordPanelOpen
+      ? Math.max(0, iosKeyboardHeight)
+      : 0;
   const homeRecordingTime = `${Math.floor(recordingSeconds / 60)
     .toString()
     .padStart(2, '0')} : ${(recordingSeconds % 60).toString().padStart(2, '0')}`;
@@ -717,7 +769,10 @@ export const ChatInput = (props: ChatInputProps) => {
       <Animated.View
         style={[
           {
-            paddingBottom: homeRecordPanelOpen ? 0 : insets.bottom + floatingTabExtra,
+            paddingBottom:
+              homeRecordPanelOpen
+                ? 0
+                : iosBottomBase + iosKeyboardLift,
             zIndex: 999,
           },
           Platform.OS === 'android' ? androidInputStyle : {},
@@ -1016,12 +1071,11 @@ export const ChatInput = (props: ChatInputProps) => {
                     onPress={() => {
                       handleHomePanelCenterPress().catch(() => {});
                     }}
-                    className="h-[72px] w-[72px] items-center justify-center rounded-[36px] border border-[#F5C65A]/80 bg-[#2E3440]">
-                    <Icon
-                      name={isRecordingUI ? 'Pause' : 'Mic'}
-                      size={30}
-                      color="#FFFFFF"
-                      strokeWidth={isRecordingUI ? 2.4 : 2}
+                    className="h-[88px] w-[88px] items-center justify-center rounded-[44px]">
+                    <Image
+                      source={isRecordingUI ? HOME_RECORD_PAUSE_ICON : HOME_RECORD_MIC_ICON}
+                      resizeMode="contain"
+                      className="h-[88px] w-[88px]"
                     />
                   </Pressable>
                   {isRecordingUI ? (

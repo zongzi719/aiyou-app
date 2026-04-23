@@ -55,6 +55,12 @@ const VOICE_CLONE_RECOVER_TIMEOUT_MS = 90_000;
 
 const IMAGE_STEP_BG_URI =
   'file:///Users/ZHOU/.cursor/projects/Users-ZHOU-Desktop-project-luna-main/assets/Group_561-bf5ddc81-f815-4ed3-a55b-885ba80e2cff.png';
+const MODEL_INIT_HOME_BG = require('@/assets/images/backgrounds/model-init-home-bg.jpg');
+const MODEL_INIT_INTERVIEW_BG = require('@/assets/images/backgrounds/model-init-interview-bg.jpg');
+const MODEL_INIT_VOICE_BG = require('@/assets/images/backgrounds/model-init-voice-bg.jpg');
+const MODEL_INIT_IMAGE_BG = require('@/assets/images/backgrounds/model-init-image-bg.jpg');
+const MODEL_INIT_AVATAR_LOADING_BG = require('@/assets/images/backgrounds/model-init-avatar-loading-bg.jpg');
+const MODEL_INIT_AVATAR_DONE_BG = require('@/assets/images/backgrounds/model-init-avatar-done-bg.jpg');
 
 const VOICE_SCRIPT = `“Hello，我来了。
 
@@ -406,6 +412,26 @@ export default function ModelInitScreen() {
 
   const filled = phaseToFilledSegments(phase);
   const title = phaseTitle(phase);
+  const modelInitBackground = (() => {
+    switch (phase) {
+      case 'voice':
+        return MODEL_INIT_VOICE_BG;
+      case 'image':
+        return MODEL_INIT_IMAGE_BG;
+      case 'avatarLoading':
+        return MODEL_INIT_AVATAR_LOADING_BG;
+      case 'avatarDone':
+        return MODEL_INIT_AVATAR_DONE_BG;
+      case 'interviewPreamble':
+      case 'interview':
+        return MODEL_INIT_INTERVIEW_BG;
+      case 'complete':
+        return MODEL_INIT_HOME_BG;
+      case 'intro':
+      default:
+        return MODEL_INIT_HOME_BG;
+    }
+  })();
 
   const persistVoiceIdAndContinue = useCallback(async (voiceId: string) => {
     const normalizedVoiceId = voiceId.trim();
@@ -1011,16 +1037,21 @@ export default function ModelInitScreen() {
   const sampleAvatar = require('@/assets/img/thomino.jpg');
 
   return (
-    <LinearGradient
-      colors={['#0B1B28', '#000000', '#071018']}
-      locations={[0, 0.52, 1]}
-      start={{ x: 0.22, y: 1 }}
-      end={{ x: 0.78, y: 0 }}
+    <ImageBackground
+      source={modelInitBackground}
+      resizeMode="cover"
+      imageStyle={styles.bgImage}
       style={styles.screenFill}>
-      {phase === 'intro' ? <IntroAmbience /> : null}
-      <KeyboardAvoidingView
-        style={styles.screenFill}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <LinearGradient
+        colors={['rgba(11,27,40,0.72)', 'rgba(0,0,0,0.62)', 'rgba(7,16,24,0.72)']}
+        locations={[0, 0.52, 1]}
+        start={{ x: 0.22, y: 1 }}
+        end={{ x: 0.78, y: 0 }}
+        style={styles.screenFill}>
+        {phase === 'intro' ? <IntroAmbience /> : null}
+        <KeyboardAvoidingView
+          style={styles.screenFill}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View
           className="flex-1"
           style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }}>
@@ -1398,14 +1429,18 @@ export default function ModelInitScreen() {
             </View>
           ) : null}
         </View>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+        </KeyboardAvoidingView>
+      </LinearGradient>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   screenFill: {
     flex: 1,
+  },
+  bgImage: {
+    alignSelf: 'center',
   },
   micInnerGradient: {
     ...StyleSheet.absoluteFillObject,

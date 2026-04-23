@@ -34,6 +34,7 @@ import {
 } from '@/lib/bailianAppCompletion';
 import { peekMemoryMemories, putMemoryMemories } from '@/lib/listDataCache';
 import { preferHttpsMediaUrl } from '@/lib/preferHttpsMediaUrl';
+import { synthesizeAliyunCosyVoiceToAudioUrl } from '@/lib/aliyunVoiceApi';
 import { translateCategory, type UserMemory, memoryApi } from '@/services/memoryApi';
 import { fetchProfile } from '@/services/profileApi';
 
@@ -57,6 +58,14 @@ const cloneIntro = '学习你的语气、思维。和我说话，我会越来越
 
 /** 专家通话：转写超过该时长无更新时，自动截断并发送（毫秒） */
 const EXPERT_ASR_IDLE_MS = 1000;
+const DEFAULT_TTS_PLAYBACK_VOLUME = 1;
+
+function resolveTtsPlaybackVolume(): number {
+  const raw = process.env.EXPO_PUBLIC_TTS_PLAYBACK_VOLUME?.trim();
+  const n = raw ? Number(raw) : DEFAULT_TTS_PLAYBACK_VOLUME;
+  if (!Number.isFinite(n)) return DEFAULT_TTS_PLAYBACK_VOLUME;
+  return Math.max(0, Math.min(1, n));
+}
 
 function inferCategory(input: string): { category: string; dimensionLabel: string } {
   if (/决策|判断|取舍|选择|优先级/.test(input))
@@ -126,6 +135,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const expertSegmentGenRef = useRef(0);
   const handleExpertSegmentTextRef = useRef<(raw: string) => Promise<void>>(async () => {});
   const soundRef = useRef<Audio.Sound | null>(null);
+  const playQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -145,6 +155,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const [expertCallLines, setExpertCallLines] = useState<ExpertCallLine[]>([]);
   const [expertVoiceId, setExpertVoiceId] = useState('');
   const [expertWorkflowLoading, setExpertWorkflowLoading] = useState(false);
+  const ttsPlaybackVolume = useMemo(() => resolveTtsPlaybackVolume(), []);
 
   const expertLinesRef = useRef<ExpertCallLine[]>([]);
   const expertHasTranscriptThisRoundRef = useRef(false);
@@ -313,7 +324,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     soundRef.current = null;
     const { sound, status } = await Audio.Sound.createAsync(
       { uri: playbackUri },
-      { shouldPlay: true, volume: 1 }
+      { shouldPlay: true, volume: ttsPlaybackVolume }
     );
     if (!status.isLoaded) {
       const err =
@@ -352,7 +363,21 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
     }).catch(() => {});
-  }, []);
+  }, [ttsPlaybackVolume]);
+
+  const queueRemoteAudioPlayback = useCallback(
+    (uri: string) => {
+      playQueueRef.current = playQueueRef.current
+        .catch(() => {
+          /* keep queue alive */
+        })
+        .then(async () => {
+          await playRemoteAudio(uri);
+        });
+      return playQueueRef.current;
+    },
+    [playRemoteAudio]
+  );
 
   const {
     isStreaming: holdIsStreaming,
@@ -431,8 +456,28 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       }
 
       if (audioUrl) {
+        // keep for fallback branch
+      }
+      if (replyText.trim() && vid) {
         try {
-          await playRemoteAudio(audioUrl);
+          const synth = await synthesizeAliyunCosyVoiceToAudioUrl({
+            voiceId: vid,
+            text: replyText,
+          });
+          await queueRemoteAudioPlayback(synth.audioUrl);
+        } catch (e) {
+          console.warn('[MemoryTuneModal] expert TTS synth failed', e);
+          if (audioUrl) {
+            try {
+              await queueRemoteAudioPlayback(audioUrl);
+            } catch (fallbackError) {
+              console.warn('[MemoryTuneModal] expert TTS fallback play failed', fallbackError);
+            }
+          }
+        }
+      } else if (audioUrl) {
+        try {
+          await queueRemoteAudioPlayback(audioUrl);
         } catch (e) {
           console.warn('[MemoryTuneModal] expert TTS play failed', e);
         }
@@ -446,7 +491,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         );
       }
     },
-    [playRemoteAudio]
+    [queueRemoteAudioPlayback]
   );
 
   const {

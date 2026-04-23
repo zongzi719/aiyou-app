@@ -1,0 +1,52 @@
+diff --git a/node_modules/expo-stream-audio/ios/ExpoStreamAudioModule.swift b/node_modules/expo-stream-audio/ios/ExpoStreamAudioModule.swift
+index 50753e4..1f8bdf2 100644
+--- a/node_modules/expo-stream-audio/ios/ExpoStreamAudioModule.swift
++++ b/node_modules/expo-stream-audio/ios/ExpoStreamAudioModule.swift
+@@ -265,15 +265,41 @@ public class ExpoStreamAudioModule: Module {
+ 
+   // MARK: - Internal helpers
+ 
+-  private func startRecordingInternal(options: [String: Any]) async throws {
+-    do {
+-      try audioSession.setCategory(.record, mode: .voiceChat, options: [])
++  private func configureAudioSessionForRecording(startOptions: [String: Any]) throws {
++    // Avoid stale active sessions from other modules (expo-av / expo-audio).
++    try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
++
++    // Some real devices reject `.record + .voiceChat` with OSStatus -50.
++    // Try robust combinations in order and stop at the first success.
++    let categoryAttempts: [(AVAudioSession.Category, AVAudioSession.Mode, AVAudioSession.CategoryOptions)] = [
++      (.playAndRecord, .voiceChat, [.allowBluetooth]),
++      (.record, .measurement, []),
++      (.record, .default, []),
++    ]
+ 
+-      if let requestedSampleRate = options["sampleRate"] as? Double {
+-        try? audioSession.setPreferredSampleRate(requestedSampleRate)
++    var lastError: Error?
++    for (category, mode, categoryOptions) in categoryAttempts {
++      do {
++        try audioSession.setCategory(category, mode: mode, options: categoryOptions)
++        if let requestedSampleRate = startOptions["sampleRate"] as? Double {
++          try? audioSession.setPreferredSampleRate(requestedSampleRate)
++        }
++        try audioSession.setActive(true)
++        return
++      } catch {
++        lastError = error
++        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+       }
++    }
+ 
+-      try audioSession.setActive(true)
++    if let lastError {
++      throw lastError
++    }
++  }
++
++  private func startRecordingInternal(options: [String: Any]) async throws {
++    do {
++      try configureAudioSessionForRecording(startOptions: options)
+     } catch {
+       let message = "Failed to configure audio session: \(error.localizedDescription)"
+       sendError(message)

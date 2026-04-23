@@ -133,10 +133,10 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="聊天"
         hitSlop={8}
-        style={[styles.tabSlot, active === 'chat' ? styles.tabSlotActive : undefined]}>
+        style={styles.tabSlot}>
         <Image
           source={active === 'chat' ? CHAT_ACTIVE : CHAT_INACTIVE}
-          style={[styles.sideImg, active === 'chat' ? styles.chatActiveShadow : undefined]}
+          style={styles.sideImg}
           resizeMode="contain"
         />
       </Pressable>
@@ -146,13 +146,9 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="记忆库"
         hitSlop={8}
-        style={[styles.tabSlot, active === 'memory' ? styles.tabSlotActive : undefined]}>
+        style={styles.tabSlot}>
         {active === 'memory' ? (
-          <Image
-            source={MEMORY_ACTIVE}
-            style={[styles.sideImg, styles.activeGlow]}
-            resizeMode="contain"
-          />
+          <Image source={MEMORY_ACTIVE} style={styles.sideImg} resizeMode="contain" />
         ) : (
           <Icon name="Brain" size={SIDE_ICON} color="#FFFFFF" strokeWidth={1.6} />
         )}
@@ -176,13 +172,9 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="知识库"
         hitSlop={8}
-        style={[styles.tabSlot, active === 'knowledge' ? styles.tabSlotActive : undefined]}>
+        style={styles.tabSlot}>
         {active === 'knowledge' ? (
-          <Image
-            source={KNOWLEDGE_ACTIVE}
-            style={[styles.sideImg, styles.activeGlow]}
-            resizeMode="contain"
-          />
+          <Image source={KNOWLEDGE_ACTIVE} style={styles.sideImg} resizeMode="contain" />
         ) : (
           <Icon name="Folder" size={SIDE_ICON} color="#FFFFFF" strokeWidth={1.6} />
         )}
@@ -193,10 +185,10 @@ function SideTabsRow({
         accessibilityRole="button"
         accessibilityLabel="个人资料"
         hitSlop={8}
-        style={[styles.tabSlot, active === 'profile' ? styles.tabSlotActive : undefined]}>
+        style={styles.tabSlot}>
         <Image
           source={active === 'profile' ? PROFILE_ACTIVE : PROFILE_INACTIVE}
-          style={[styles.sideImg, active === 'profile' ? styles.activeGlow : undefined]}
+          style={styles.sideImg}
           resizeMode="contain"
         />
       </Pressable>
@@ -230,9 +222,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 22,
   },
-  tabSlotActive: {
-    backgroundColor: 'rgba(245, 211, 79, 0.12)',
-  },
   centerSlot: {
     width: CENTER_SIZE,
     height: CENTER_SIZE,
@@ -242,17 +231,5 @@ const styles = StyleSheet.create({
   sideImg: {
     width: SIDE_ICON,
     height: SIDE_ICON,
-  },
-  chatActiveShadow: {
-    shadowColor: '#F5D34F',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.75,
-    shadowRadius: 6,
-  },
-  activeGlow: {
-    shadowColor: '#F5D34F',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.65,
-    shadowRadius: 5,
   },
 });

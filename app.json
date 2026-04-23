@@ -3,8 +3,8 @@
     "newArchEnabled": true,
     "name": "AIYOU",
     "slug": "luna-zhouyz719",
-    "version": "1.2.3",
-    "runtimeVersion": "1.2.3",
+    "version": "1.2.5",
+    "runtimeVersion": "1.2.5",
     "scheme": "luna",
     "experiments": {
       "tsconfigPaths": true
@@ -33,7 +33,7 @@
     ],
     "ios": {
       "bundleIdentifier": "com.lmrj.lmaiyou",
-      "buildNumber": "8",
+      "buildNumber": "10",
       "supportsTablet": true,
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
@@ -65,7 +65,7 @@
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "usesCleartextTraffic": true,
-      "versionCode": 3
+      "versionCode": 5
     },
     "extra": {
       "router": {

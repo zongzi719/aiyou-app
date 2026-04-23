@@ -6,9 +6,12 @@ import {
   View,
   Pressable,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   ImageBackground,
+  Image,
+  useWindowDimensions,
+  StyleSheet,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -80,6 +83,86 @@ function friendlyError(raw: string): string {
   }
   // 回退：原样返回但截断过长英文
   return raw.length > 200 ? raw.slice(0, 200) + '…' : raw;
+}
+
+/** 私密模式空状态背景（Figma 402×874 画板比例） */
+const PRIVATE_MODE_SCREEN_BG = '#08141F';
+const PRIVATE_EMPTY_FIGMA = { frameW: 402, frameH: 874 } as const;
+const PRIVATE_EMPTY_IMG = { w: 827, h: 526, left: -331, top: -3 } as const;
+const PRIVATE_EMPTY_GRAD_TOP = { h: 452 } as const;
+const PRIVATE_EMPTY_GRAD_MID = { top: 191, h: 339 } as const;
+
+function PrivateEmptyFigmaBackground({ winW, winH }: { winW: number; winH: number }) {
+  const imgW = (PRIVATE_EMPTY_IMG.w / PRIVATE_EMPTY_FIGMA.frameW) * winW;
+  const imgH = imgW * (PRIVATE_EMPTY_IMG.h / PRIVATE_EMPTY_IMG.w);
+  const imgLeft = (PRIVATE_EMPTY_IMG.left / PRIVATE_EMPTY_FIGMA.frameW) * winW;
+  const imgTop = (PRIVATE_EMPTY_IMG.top / PRIVATE_EMPTY_FIGMA.frameH) * winH;
+  const gradTopH = (PRIVATE_EMPTY_GRAD_TOP.h / PRIVATE_EMPTY_FIGMA.frameH) * winH;
+  const gradMidTop = (PRIVATE_EMPTY_GRAD_MID.top / PRIVATE_EMPTY_FIGMA.frameH) * winH;
+  const gradMidH = (PRIVATE_EMPTY_GRAD_MID.h / PRIVATE_EMPTY_FIGMA.frameH) * winH;
+
+  const imgShadow =
+    Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.25,
+          shadowRadius: 4,
+        }
+      : { elevation: 4 };
+
+  return (
+    <View
+      pointerEvents="none"
+      style={StyleSheet.absoluteFillObject}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
+      <Image
+        source={require('@/assets/images/private-chat-empty-top-bg.png')}
+        style={[
+          {
+            position: 'absolute',
+            top: imgTop,
+            left: imgLeft,
+            width: imgW,
+            height: imgH,
+            zIndex: 0,
+          },
+          imgShadow,
+        ]}
+        resizeMode="cover"
+      />
+      {/* Rectangle 579：中部向下渐入底色 */}
+      <LinearGradient
+        colors={['rgba(8,20,31,0)', PRIVATE_MODE_SCREEN_BG]}
+        locations={[0.0206, 0.9587]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: gradMidTop,
+          height: gradMidH,
+          zIndex: 1,
+        }}
+      />
+      {/* Rectangle 580（旋转后）：顶部与星空衔接 */}
+      <LinearGradient
+        colors={[PRIVATE_MODE_SCREEN_BG, 'rgba(8,20,31,0)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          height: gradTopH,
+          zIndex: 2,
+        }}
+      />
+    </View>
+  );
 }
 
 function firstSearchParam(v: string | string[] | undefined): string | undefined {
@@ -599,22 +682,11 @@ const HomeScreen = () => {
     [suggestionBatchIndex]
   );
   const shouldShowChatInput = homeMode === 'private' || decisionStarted || hasDecisionMessages;
+  const { width: winW, height: winH } = useWindowDimensions();
+  const isPrivateEmptyHome = homeMode === 'private' && !hasMessages;
 
-  return (
-    <ImageBackground
-      source={require('@/assets/images/login-bg.png')}
-      resizeMode="cover"
-      className="flex-1">
-      <View className="relative flex-1 bg-[#1D1D1D]">
-        <LinearGradient
-          style={{ width: '100%', display: 'flex', flex: 1, flexDirection: 'column' }}
-          colors={['rgba(10,32,52,0.38)', 'transparent', colors.gradient]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
-            style={{ flex: 1 }}>
+  const mainContent = (
+          <KeyboardAvoidingView behavior={undefined} keyboardVerticalOffset={0} style={{ flex: 1 }}>
             <View style={{ flex: 1 }}>
               <View
                 className="flex-row items-center justify-between px-6"
@@ -671,17 +743,17 @@ const HomeScreen = () => {
                     onKnowledgeAssistantStarred={handleKnowledgeAssistantStarred}
                   />
                 ) : (
-                  <ScrollView
-                    ref={scrollViewRef}
-                    className="flex-1 px-8 pb-10 pt-36"
-                    contentContainerStyle={{
-                      flexGrow: 1,
-                      paddingBottom: 30 + floatingTabExtra,
-                    }}
-                    showsVerticalScrollIndicator={false}
-                    bounces={false}
-                    overScrollMode="never">
-                    <View className="w-full max-w-md">
+                    <ScrollView
+                      ref={scrollViewRef}
+                      className="flex-1 bg-transparent px-8 pb-10 pt-28"
+                      contentContainerStyle={{
+                        flexGrow: 1,
+                        paddingBottom: 30 + floatingTabExtra,
+                      }}
+                      showsVerticalScrollIndicator={false}
+                      bounces={false}
+                      overScrollMode="never">
+                      <View className="w-full max-w-md">
                       <ThemedText className="text-[32px] leading-[45px] text-white">
                         我是AI YOU
                       </ThemedText>
@@ -731,7 +803,7 @@ const HomeScreen = () => {
                         </ThemedText>
                       </View>
                     </View>
-                  </ScrollView>
+                    </ScrollView>
                 )
               ) : decisionStarted || hasDecisionMessages ? (
                 <DecisionConversation
@@ -759,8 +831,36 @@ const HomeScreen = () => {
               ) : null}
             </View>
           </KeyboardAvoidingView>
-        </LinearGradient>
-      </View>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      {isPrivateEmptyHome ? (
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: PRIVATE_MODE_SCREEN_BG,
+            overflow: 'hidden',
+          }}>
+          <PrivateEmptyFigmaBackground winW={winW} winH={winH} />
+          <View style={{ flex: 1, zIndex: 3 }}>{mainContent}</View>
+        </View>
+      ) : (
+        <ImageBackground
+          source={require('@/assets/images/login-bg.png')}
+          resizeMode="cover"
+          style={{ flex: 1 }}>
+          <View className="relative flex-1 bg-[#1D1D1D]">
+            <LinearGradient
+              style={{ width: '100%', display: 'flex', flex: 1, flexDirection: 'column' }}
+              colors={['rgba(10,32,52,0.38)', 'transparent', colors.gradient]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}>
+              {mainContent}
+            </LinearGradient>
+          </View>
+        </ImageBackground>
+      )}
 
       <DecisionCoachPickerModal
         visible={coachPickerOpen}
@@ -779,7 +879,7 @@ const HomeScreen = () => {
           });
         }}
       />
-    </ImageBackground>
+    </View>
   );
 };
 

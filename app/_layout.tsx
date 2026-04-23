@@ -10,10 +10,21 @@ import useThemedNavigation from './hooks/useThemedNavigation';
 import { AiRecordModalProvider } from '@/app/contexts/AiRecordModalContext';
 import { DrawerProvider } from '@/app/contexts/DrawerContext';
 import GlobalBottomTabBar from '@/components/GlobalBottomTabBar';
+import {
+  preloadAppAssetsOnce,
+  warmupAppDataOnce,
+  warmupRemoteImagesOnce,
+} from '@/lib/appBootstrapPreload';
 import { buildEnvHealthReport } from '@/lib/envHealth';
 
 function ThemedLayout() {
   const { ThemedStatusBar, screenOptions } = useThemedNavigation();
+
+  useEffect(() => {
+    preloadAppAssetsOnce().catch(() => {});
+    warmupAppDataOnce().catch(() => {});
+    warmupRemoteImagesOnce().catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!__DEV__) return;

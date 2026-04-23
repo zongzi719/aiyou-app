@@ -114,7 +114,7 @@ export default function LoginScreen() {
 
   return (
     <ImageBackground
-      source={require('@/assets/images/login-bg.png')}
+      source={require('@/assets/images/backgrounds/login-bg-v2.png')}
       resizeMode="cover"
       className="flex-1 bg-black">
       <View className="bg-black/55 flex-1" style={{ paddingTop: insets.top }}>
