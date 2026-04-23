@@ -5,7 +5,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -19,14 +19,20 @@ import {
   StyleSheet,
   Text,
   ActivityIndicator,
+  useWindowDimensions,
+  PanResponder,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import AvatarDoneOrbitAvatar from '@/components/AvatarDoneOrbitAvatar';
+import AvatarLoadingParticleRing from '@/components/AvatarLoadingParticleRing';
 import Icon from '@/components/Icon';
+import ModelInitImageHeroCluster from '@/components/ModelInitImageHeroCluster';
+import PortraitPickGuideSheets from '@/components/PortraitPickGuideSheets';
 import StarFloatingLoader from '@/components/StarFloatingLoader';
 import ThemedText from '@/components/ThemedText';
 import { useRecording } from '@/hooks/useRecording';
-import { putProfileCache } from '@/lib/profileCache';
+import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import { cloneAliyunVoiceFromLocalRecording } from '@/lib/registerAliyunClonedVoice';
 import { queryImageJob, submitImageJob } from '@/lib/tencentMaasImageApi';
 import {
@@ -53,14 +59,38 @@ const LAST_VOICE_CLONE_TASK_ID_KEY = 'luna:last_voice_clone_task_id';
 const VOICE_CLONE_SYNC_TIMEOUT_MS = 600_000;
 const VOICE_CLONE_RECOVER_TIMEOUT_MS = 90_000;
 
-const IMAGE_STEP_BG_URI =
-  'file:///Users/ZHOU/.cursor/projects/Users-ZHOU-Desktop-project-luna-main/assets/Group_561-bf5ddc81-f815-4ed3-a55b-885ba80e2cff.png';
-const MODEL_INIT_HOME_BG = require('@/assets/images/backgrounds/model-init-home-bg.jpg');
+/**
+ * UI 调试：在模型初始化各步之间左右滑切换界面（不调业务步骤）。
+ * 上线或做完视觉后请改为 false。
+ */
+const MODEL_INIT_UI_SWIPE_BETWEEN_STEPS = true;
+
+const MODEL_INIT_HOME_BG = require('@/assets/images/backgrounds/model-init-home-bg.png');
 const MODEL_INIT_INTERVIEW_BG = require('@/assets/images/backgrounds/model-init-interview-bg.jpg');
-const MODEL_INIT_VOICE_BG = require('@/assets/images/backgrounds/model-init-voice-bg.jpg');
 const MODEL_INIT_IMAGE_BG = require('@/assets/images/backgrounds/model-init-image-bg.jpg');
-const MODEL_INIT_AVATAR_LOADING_BG = require('@/assets/images/backgrounds/model-init-avatar-loading-bg.jpg');
-const MODEL_INIT_AVATAR_DONE_BG = require('@/assets/images/backgrounds/model-init-avatar-done-bg.jpg');
+/** 生成数字形象加载页全屏背景（由设计 PNG 转 JPEG 压缩） */
+const MODEL_INIT_AVATAR_LOADING_SCREEN_BG = require('@/assets/images/backgrounds/model-init-avatar-loading-screen.jpg');
+/** 生成数字形象完成页全屏背景（由设计 PNG 转 JPEG 压缩） */
+const MODEL_INIT_AVATAR_DONE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-avatar-done-screen.jpg');
+/** 声音采集全屏背景（由设计稿导出，JPEG 压缩） */
+const MODEL_INIT_VOICE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-voice-screen-bg.jpg');
+/** Figma Group 491 光效（intro 正中） */
+const MODEL_INIT_INTRO_GLOW = require('@/assets/images/model-init-intro-glow.png');
+const VOICE_MIC_PAUSE_IMG = require('@/assets/images/model-init-voice/voice-mic-pause.png');
+const VOICE_MIC_SPEAK_IMG = require('@/assets/images/model-init-voice/voice-mic-speak.png');
+
+/** 构建模型首页 Figma 402 宽画板比例 */
+const MODEL_INIT_INTRO_FRAME = { w: 402, h: 874 } as const;
+const MODEL_INIT_INTRO_GLOW_BOX = { w: 352, h: 400 } as const;
+/** 图像采集页 Group 491 光效框（467×321，left -30 / top 222） */
+const MODEL_INIT_IMAGE_GLOW_BOX = { w: 467, h: 321 } as const;
+const MODEL_INIT_IMAGE_GLOW_LEFT = -30 / MODEL_INIT_INTRO_FRAME.w;
+const MODEL_INIT_IMAGE_GLOW_TOP = 222 / MODEL_INIT_INTRO_FRAME.h;
+
+/** Figma「声音采集2」垂直尺寸（画板 402×874）按屏高等比 */
+function voiceStepY(px: number, layoutH: number) {
+  return Math.round((px * layoutH) / MODEL_INIT_INTRO_FRAME.h);
+}
 
 const VOICE_SCRIPT = `“Hello，我来了。
 
@@ -82,6 +112,18 @@ type Phase =
   | 'interviewPreamble'
   | 'interview'
   | 'complete';
+
+/** 左右滑切换顺序（与产品流程一致） */
+const MODEL_INIT_PHASE_SWIPE_ORDER: Phase[] = [
+  'intro',
+  'voice',
+  'image',
+  'avatarLoading',
+  'avatarDone',
+  'interviewPreamble',
+  'interview',
+  'complete',
+];
 
 function formatTimer(totalSec: number): string {
   const m = Math.floor(totalSec / 60);
@@ -233,6 +275,38 @@ function GoldButton({
   );
 }
 
+/** 图像采集主 CTA：338×56、圆角 30、金渐变、黑字（与 Intro「开始」同款样式） */
+function ImageStepPrimaryButton({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      disabled={disabled}
+      onPress={onPress}
+      className="w-full overflow-hidden"
+      style={{ height: 56, borderRadius: 30 }}>
+      <LinearGradient
+        colors={['#B3975C', '#A87F2A']}
+        start={{ x: 0.05, y: 0.5 }}
+        end={{ x: 0.95, y: 0.5 }}
+        style={[StyleSheet.absoluteFill, { borderRadius: 30 }]}
+      />
+      <View className="flex-1 items-center justify-center">
+        <ThemedText className="text-base font-normal" style={{ color: '#000000' }}>
+          {label}
+        </ThemedText>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 /** Figma 1037:8853「开始」主按钮：高 56、圆角 30、双色金渐变 */
 function IntroStartButton({ onPress }: { onPress: () => void }) {
   return (
@@ -248,38 +322,162 @@ function IntroStartButton({ onPress }: { onPress: () => void }) {
         style={[StyleSheet.absoluteFill, { borderRadius: 30 }]}
       />
       <View className="flex-1 items-center justify-center">
-        <ThemedText className="text-base font-normal text-white">开始</ThemedText>
+        <ThemedText className="text-base font-normal" style={{ color: '#000000' }}>
+          开始
+        </ThemedText>
       </View>
     </TouchableOpacity>
   );
 }
 
-/** Figma 1037:8848 氛围光（简化：无 heavy blur，保留色块与位置关系） */
-function IntroAmbience() {
+function ImagePhaseGlow() {
+  const { width: winW, height: winH } = useWindowDimensions();
+  const boxW = Math.min((MODEL_INIT_IMAGE_GLOW_BOX.w / MODEL_INIT_INTRO_FRAME.w) * winW, winW + Math.abs(MODEL_INIT_IMAGE_GLOW_LEFT) * winW);
+  const boxH = boxW * (MODEL_INIT_IMAGE_GLOW_BOX.h / MODEL_INIT_IMAGE_GLOW_BOX.w);
+  const left = MODEL_INIT_IMAGE_GLOW_LEFT * winW;
+  const top = MODEL_INIT_IMAGE_GLOW_TOP * winH;
   return (
-    <View pointerEvents="none" className="absolute inset-0 overflow-hidden">
-      <View
-        className="absolute"
-        style={{
-          left: -32,
-          top: 52,
-          width: 236,
-          height: 288,
-          borderRadius: 42,
-          backgroundColor: 'rgba(23, 52, 66, 0.42)',
-        }}
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left,
+        top,
+        width: boxW,
+        height: boxH,
+        zIndex: 0,
+      }}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
+      <Image
+        source={MODEL_INIT_INTRO_GLOW}
+        style={{ width: boxW, height: boxH }}
+        resizeMode="contain"
       />
-      <View
-        className="absolute"
-        style={{
-          left: 8,
-          top: 28,
-          width: 276,
-          height: 268,
-          borderRadius: 38,
-          backgroundColor: 'rgba(0, 39, 28, 0.32)',
-        }}
+    </View>
+  );
+}
+
+/** Figma Group 491：光效图置于屏幕正中 */
+function IntroCenterGlow() {
+  const { width: winW } = useWindowDimensions();
+  const boxW = Math.min(
+    (MODEL_INIT_INTRO_GLOW_BOX.w / MODEL_INIT_INTRO_FRAME.w) * winW,
+    winW - 24
+  );
+  const boxH = boxW * (MODEL_INIT_INTRO_GLOW_BOX.h / MODEL_INIT_INTRO_GLOW_BOX.w);
+  return (
+    <View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center' }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants">
+      <Image
+        source={MODEL_INIT_INTRO_GLOW}
+        style={{ width: boxW, height: boxH }}
+        resizeMode="contain"
       />
+    </View>
+  );
+}
+
+/** Figma Frame 5：四段进度（20×10，gap 3）；第三段可半金半灰（加载中） */
+function ModelInitStepSegments({
+  filled,
+  thirdSegmentPartial,
+}: {
+  filled: number;
+  thirdSegmentPartial?: boolean;
+}) {
+  return (
+    <View className="flex-row items-center" style={{ gap: 3 }}>
+      {[0, 1, 2, 3].map((i) => {
+        if (thirdSegmentPartial && i === 2 && filled >= 3) {
+          return (
+            <View
+              key={i}
+              style={{
+                width: 20,
+                height: 10,
+                borderRadius: 5,
+                overflow: 'hidden',
+                flexDirection: 'row',
+              }}>
+              <View style={{ flex: 1, backgroundColor: '#FFAD00' }} />
+              <View style={{ flex: 1, backgroundColor: '#878787' }} />
+            </View>
+          );
+        }
+        return (
+          <View
+            key={i}
+            style={{
+              width: 20,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: i < filled ? '#FFAD00' : '#878787',
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+type AvatarChecklistStatus = 'done' | 'loading' | 'pending';
+
+function avatarChecklistFromProgress(progress: number): {
+  label: string;
+  status: AvatarChecklistStatus;
+}[] {
+  const s1: AvatarChecklistStatus =
+    progress >= 22 ? 'done' : progress > 0 ? 'loading' : 'pending';
+  const s2: AvatarChecklistStatus =
+    progress >= 88 ? 'done' : progress >= 22 ? 'loading' : 'pending';
+  const s3: AvatarChecklistStatus =
+    progress >= 100 ? 'done' : progress >= 88 ? 'loading' : 'pending';
+  return [
+    { label: '面部特征分析', status: s1 },
+    { label: '生成虚拟形象身份', status: s2 },
+    { label: '优化视觉风格', status: s3 },
+  ];
+}
+
+function AvatarLoadingChecklistRow({
+  label,
+  status,
+}: {
+  label: string;
+  status: AvatarChecklistStatus;
+}) {
+  return (
+    <View className="flex-row items-center" style={{ gap: 12 }}>
+      <View className="items-center justify-center" style={{ width: 20, height: 20 }}>
+        {status === 'done' ? (
+          <View
+            className="items-center justify-center rounded-full"
+            style={{ width: 20, height: 20, backgroundColor: '#FFAD00' }}>
+            <Icon name="Check" size={12} color="#FFFFFF" strokeWidth={2.5} />
+          </View>
+        ) : status === 'loading' ? (
+          <View
+            className="items-center justify-center rounded-full"
+            style={{ width: 20, height: 20, borderWidth: 1.67, borderColor: '#BABABA' }}>
+            <ActivityIndicator size="small" color="#BABABA" />
+          </View>
+        ) : (
+          <View
+            className="rounded-full"
+            style={{
+              width: 18,
+              height: 18,
+              borderWidth: 1.6,
+              borderColor: '#BABABA',
+            }}
+          />
+        )}
+      </View>
+      <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: '#BABABA' }}>{label}</Text>
     </View>
   );
 }
@@ -380,6 +578,7 @@ export default function ModelInitScreen() {
   const { postLogin } = useLocalSearchParams<{ postLogin?: string }>();
   const isPostLoginOnboarding = postLogin === '1';
   const insets = useSafeAreaInsets();
+  const { width: layoutW, height: layoutH } = useWindowDimensions();
   const [phase, setPhase] = useState<Phase>('intro');
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [voiceSubmitting, setVoiceSubmitting] = useState(false);
@@ -397,16 +596,33 @@ export default function ModelInitScreen() {
   const [avatarProgress, setAvatarProgress] = useState(0);
   const [avatarStatusText, setAvatarStatusText] = useState<string>('加载中');
   const [generatedAvatarUrl, setGeneratedAvatarUrl] = useState<string | null>(null);
+  /** 完成页标题：与资料页一致，优先 display_name */
+  const [profileDisplayName, setProfileDisplayName] = useState('用户');
   const [interviewInput, setInterviewInput] = useState('');
   const [interviewRound, setInterviewRound] = useState(0);
   const [chatRows, setChatRows] = useState<ChatRow[]>([]);
+  const [portraitGuideVisible, setPortraitGuideVisible] = useState(false);
+  const [portraitGuideStep, setPortraitGuideStep] = useState<1 | 2>(1);
+
+  const closePortraitGuide = useCallback(() => {
+    setPortraitGuideVisible(false);
+    setPortraitGuideStep(1);
+  }, []);
+
+  const openPortraitGuide = useCallback(() => {
+    setPortraitGuideStep(1);
+    setPortraitGuideVisible(true);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'image') {
+      setPortraitGuideVisible(false);
+      setPortraitGuideStep(1);
+    }
+  }, [phase]);
 
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const avatarAbortRef = useRef<AbortController | null>(null);
-  const prevPhaseRef = useRef<Phase>('intro');
-  const imageAvatarSkipPromptShownRef = useRef(false);
-  /** 从「生成中」取消回到图像步骤时不再弹出「已有头像可跳过」 */
-  const skipImageAvatarPromptAfterCancelRef = useRef(false);
   const { isRecording, isPaused, startRecording, stopRecording, pauseRecording, resumeRecording } =
     useRecording();
 
@@ -415,13 +631,13 @@ export default function ModelInitScreen() {
   const modelInitBackground = (() => {
     switch (phase) {
       case 'voice':
-        return MODEL_INIT_VOICE_BG;
+        return MODEL_INIT_HOME_BG;
       case 'image':
         return MODEL_INIT_IMAGE_BG;
       case 'avatarLoading':
-        return MODEL_INIT_AVATAR_LOADING_BG;
+        return MODEL_INIT_AVATAR_LOADING_SCREEN_BG;
       case 'avatarDone':
-        return MODEL_INIT_AVATAR_DONE_BG;
+        return MODEL_INIT_AVATAR_DONE_SCREEN_BG;
       case 'interviewPreamble':
       case 'interview':
         return MODEL_INIT_INTERVIEW_BG;
@@ -456,6 +672,13 @@ export default function ModelInitScreen() {
     setVoicePromptTextId(textId);
     setVoicePromptText(text.trim() || VOICE_SCRIPT);
   }, []);
+
+  useEffect(() => {
+    if (phase !== 'avatarDone') return;
+    const p = peekProfileCache();
+    const n = p?.display_name?.trim() || p?.username?.trim();
+    if (n) setProfileDisplayName(n);
+  }, [phase]);
 
   useEffect(() => {
     if (!isRecording || isPaused) {
@@ -531,6 +754,9 @@ export default function ModelInitScreen() {
         const profile = await fetchProfile();
         if (cancelled) return;
         putProfileCache(profile);
+        setProfileDisplayName(
+          profile.display_name?.trim() || profile.username?.trim() || '用户'
+        );
         setProfileUserId(profile.user_id?.trim() || null);
         const existingVoiceId = profile.voice_id?.trim();
         setHasExistingVoiceId(Boolean(existingVoiceId));
@@ -621,44 +847,8 @@ export default function ModelInitScreen() {
       Alert.alert('提示', '正在加载资料，请稍后重试。');
       return;
     }
-    if (hasExistingVoiceId) {
-      Alert.alert('提示', '检测到你已设置过声音，本步可以跳过；如需更新音色，也可继续完成采集。', [
-        { text: '继续采集声音', onPress: () => setPhase('voice') },
-        { text: '前往下一步', onPress: () => setPhase('image') },
-      ]);
-      return;
-    }
     setPhase('voice');
   };
-
-  useEffect(() => {
-    const prev = prevPhaseRef.current;
-    prevPhaseRef.current = phase;
-
-    if (phase !== 'image') {
-      imageAvatarSkipPromptShownRef.current = false;
-      skipImageAvatarPromptAfterCancelRef.current = false;
-      return;
-    }
-    if (!voiceGateChecked || !hasExistingAvatar) return;
-
-    if (prev === 'avatarLoading') {
-      skipImageAvatarPromptAfterCancelRef.current = true;
-      return;
-    }
-    if (skipImageAvatarPromptAfterCancelRef.current) return;
-    if (imageAvatarSkipPromptShownRef.current) return;
-
-    imageAvatarSkipPromptShownRef.current = true;
-    Alert.alert(
-      '提示',
-      '检测到你已上传过头像，本步可以跳过直接进入下一环节；也可继续选择照片生成数字形象。',
-      [
-        { text: '继续上传', style: 'cancel' },
-        { text: '前往下一环节', onPress: () => setPhase('interviewPreamble') },
-      ]
-    );
-  }, [phase, hasExistingAvatar, voiceGateChecked]);
 
   const toggleRecord = async () => {
     try {
@@ -804,9 +994,12 @@ export default function ModelInitScreen() {
   };
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('提示', '需要相册权限才能选择照片。');
+    let perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    }
+    if (perm.status !== 'granted') {
+      Alert.alert('提示', '需要相册权限才能选择照片，请在系统设置中开启后重试。');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -821,9 +1014,12 @@ export default function ModelInitScreen() {
   };
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('提示', '需要相机权限才能拍摄照片。');
+    let perm = await ImagePicker.getCameraPermissionsAsync();
+    if (perm.status !== 'granted') {
+      perm = await ImagePicker.requestCameraPermissionsAsync();
+    }
+    if (perm.status !== 'granted') {
+      Alert.alert('提示', '需要相机权限才能拍摄照片，请在系统设置中开启后重试。');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -836,12 +1032,14 @@ export default function ModelInitScreen() {
     }
   };
 
-  const selectPortraitSource = () => {
-    Alert.alert('选择头像来源', '请选择获取照片的方式', [
-      { text: '取消', style: 'cancel' },
-      { text: '拍照', onPress: () => void takePhoto() },
-      { text: '从相册选择', onPress: () => void pickImage() },
-    ]);
+  const handlePortraitTakePhoto = async () => {
+    closePortraitGuide();
+    await takePhoto();
+  };
+
+  const handlePortraitPickLibrary = async () => {
+    closePortraitGuide();
+    await pickImage();
   };
 
   const startGenerateAvatar = async () => {
@@ -1036,22 +1234,103 @@ export default function ModelInitScreen() {
 
   const sampleAvatar = require('@/assets/img/thomino.jpg');
 
+  /** 完成页头像：优先本次图生图结果，其次已写入资料的 avatar_url（动漫形象），勿回退到上传前的真人照 */
+  const avatarDoneImageSource = useMemo(() => {
+    const gen = generatedAvatarUrl?.trim();
+    if (gen) return { uri: bustAvatarCache(gen) };
+    const cached = peekProfileCache()?.avatar_url?.trim();
+    if (cached) return { uri: bustAvatarCache(cached) };
+    return sampleAvatar;
+  }, [generatedAvatarUrl, sampleAvatar, phase]);
+
+  const swipePhaseNavResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) =>
+          MODEL_INIT_UI_SWIPE_BETWEEN_STEPS &&
+          Math.abs(g.dx) > 12 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 1.05,
+        onPanResponderTerminationRequest: () => true,
+        onPanResponderRelease: (_, g) => {
+          if (!MODEL_INIT_UI_SWIPE_BETWEEN_STEPS) return;
+          const idx = MODEL_INIT_PHASE_SWIPE_ORDER.indexOf(phase);
+          if (idx < 0) return;
+          const goNext = g.dx < -48 || g.vx < -0.35;
+          const goPrev = g.dx > 48 || g.vx > 0.35;
+          if (goNext && idx < MODEL_INIT_PHASE_SWIPE_ORDER.length - 1) {
+            setPhase(MODEL_INIT_PHASE_SWIPE_ORDER[idx + 1]!);
+          } else if (goPrev && idx > 0) {
+            setPhase(MODEL_INIT_PHASE_SWIPE_ORDER[idx - 1]!);
+          }
+        },
+      }),
+    [phase],
+  );
+
   return (
-    <ImageBackground
-      source={modelInitBackground}
-      resizeMode="cover"
-      imageStyle={styles.bgImage}
-      style={styles.screenFill}>
-      <LinearGradient
-        colors={['rgba(11,27,40,0.72)', 'rgba(0,0,0,0.62)', 'rgba(7,16,24,0.72)']}
-        locations={[0, 0.52, 1]}
-        start={{ x: 0.22, y: 1 }}
-        end={{ x: 0.78, y: 0 }}
-        style={styles.screenFill}>
-        {phase === 'intro' ? <IntroAmbience /> : null}
-        <KeyboardAvoidingView
-          style={styles.screenFill}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <>
+    <View
+      style={styles.screenFill}
+      {...(MODEL_INIT_UI_SWIPE_BETWEEN_STEPS ? swipePhaseNavResponder.panHandlers : {})}>
+      {phase === 'intro' ? (
+        <>
+          <LinearGradient
+            colors={['#000000', '#000000', '#0B1B28']}
+            locations={[0, 0.5687, 0.9762]}
+            start={{ x: 0.08, y: 1 }}
+            end={{ x: 0.92, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <IntroCenterGlow />
+        </>
+      ) : phase === 'voice' ? (
+        <ImageBackground
+          source={MODEL_INIT_VOICE_SCREEN_BG}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : phase === 'image' ? (
+        <>
+          <LinearGradient
+            colors={['#000000', '#000000', '#0B1B28']}
+            locations={[0, 0.5687, 0.9762]}
+            start={{ x: 0.09, y: 1 }}
+            end={{ x: 0.91, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <ImagePhaseGlow />
+        </>
+      ) : phase === 'avatarLoading' ? (
+        <ImageBackground
+          source={MODEL_INIT_AVATAR_LOADING_SCREEN_BG}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : phase === 'avatarDone' ? (
+        <ImageBackground
+          source={MODEL_INIT_AVATAR_DONE_SCREEN_BG}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : (
+        <ImageBackground
+          source={modelInitBackground}
+          resizeMode="cover"
+          imageStyle={styles.bgImage}
+          style={[StyleSheet.absoluteFillObject, styles.screenFill]}>
+          <LinearGradient
+            colors={['rgba(11,27,40,0.72)', 'rgba(0,0,0,0.62)', 'rgba(7,16,24,0.72)']}
+            locations={[0, 0.52, 1]}
+            start={{ x: 0.22, y: 1 }}
+            end={{ x: 0.78, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </ImageBackground>
+      )}
+      <KeyboardAvoidingView
+        style={[styles.screenFill, { zIndex: 1 }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View
           className="flex-1"
           style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }}>
@@ -1080,7 +1359,7 @@ export default function ModelInitScreen() {
             </View>
           )}
 
-          {title ? (
+          {title && phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone' ? (
             <View className="mt-2 px-4">
               <ThemedText className="text-2xl font-bold">
                 <ThemedText style={{ color: ACCENT }}>{title.n} </ThemedText>
@@ -1091,209 +1370,505 @@ export default function ModelInitScreen() {
           ) : null}
 
           <ScrollView
-            className="mt-4 flex-1 px-4"
-            contentContainerStyle={phase === 'intro' ? { flexGrow: 1 } : undefined}
+            className={`mt-4 flex-1 ${phase === 'intro' || phase === 'voice' || phase === 'image' || phase === 'avatarLoading' || phase === 'avatarDone' ? '' : 'px-4'}`}
+            contentContainerStyle={
+              phase === 'intro' ||
+              phase === 'voice' ||
+              phase === 'image' ||
+              phase === 'avatarLoading' ||
+              phase === 'avatarDone'
+                ? { flexGrow: 1 }
+                : undefined
+            }
             keyboardShouldPersistTaps="handled"
+            scrollEnabled={
+              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+            }
+            bounces={
+              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+            }
+            alwaysBounceVertical={
+              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+            }
             showsVerticalScrollIndicator={false}>
             {phase === 'intro' ? (
-              <View className="flex-1 pb-2 pl-6 pr-1 pt-2">
+              <View
+                className="flex-1 pb-2 pt-2"
+                style={{
+                  paddingHorizontal: Math.max(16, Math.round((37 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                  zIndex: 1,
+                }}>
                 <IntroBrandMark />
-                <View className="mt-[72px] max-w-[320px]">
+                <View style={{ height: Math.max(40, Math.round((72 / MODEL_INIT_INTRO_FRAME.h) * layoutH)) }} />
+                <View style={{ maxWidth: Math.min(320, Math.round((304 / MODEL_INIT_INTRO_FRAME.w) * layoutW)) }}>
                   <ThemedText className="text-[40px] font-normal leading-[50px] text-white">
                     开始构建AI{'\n'}BOSS模型
                   </ThemedText>
                 </View>
-                <ThemedText className="mt-3 text-base font-normal leading-[22.4px] text-white">
+                <ThemedText className="mt-3 text-base font-normal leading-[22px] text-white">
                   从今天起，拥有另一个自己
                 </ThemedText>
-                <View className="mt-auto w-full pt-10">
+                <View className="mt-auto w-full" style={{ paddingTop: Math.max(24, Math.round(0.04 * layoutH)) }}>
                   <IntroStartButton onPress={startModelInit} />
                 </View>
               </View>
             ) : null}
 
             {phase === 'voice' ? (
-              <View>
-                <ThemedText className="text-lg font-semibold leading-8 text-white">
-                  你每一次说话{'\n'}都在让另一个你变得更聪明。
-                </ThemedText>
-                <ThemedText className="mt-4 text-sm text-white/60">
-                  请用自然语气朗读以下内容：
-                </ThemedText>
-                <ThemedText className="text-white/35 mt-1 text-xs">找一个安静的环境</ThemedText>
+              <View
+                style={{
+                  flex: 1,
+                  flexDirection: 'column',
+                  paddingHorizontal: Math.max(16, Math.round((22 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                  zIndex: 1,
+                  paddingBottom: Math.max(insets.bottom, voiceStepY(12, layoutH)),
+                }}>
+                <View>
+                  <View className="flex-row items-end" style={{ gap: 6 }}>
+                    <Text style={{ fontSize: 24, fontWeight: '700', color: '#FFAD00', lineHeight: 29 }}>
+                      1
+                    </Text>
+                    <ThemedText className="text-base font-normal leading-5 text-white">声音采集</ThemedText>
+                  </View>
+                  <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
+                    <ModelInitStepSegments filled={1} />
+                  </View>
 
-                <View
-                  className="mt-5 rounded-2xl border border-white/10 p-4"
-                  style={{ backgroundColor: CARD_BG }}>
-                  <ThemedText className="text-sm leading-7 text-white/90">
-                    {voicePromptText}
+                  {/* Figma：进度条底约 y=152 → 主标题 y=214，间距 62 */}
+                  <ThemedText
+                    className="font-normal text-white"
+                    style={{
+                      marginTop: voiceStepY(62, layoutH),
+                      fontSize: 24,
+                      lineHeight: 34,
+                    }}>
+                    你每一次说话{'\n'}都在让另一个你变得更聪明。
                   </ThemedText>
+
+                  {/* 主标题底 y=282 → 说明 y=337，间距 55 */}
+                  <ThemedText
+                    className="font-normal text-white"
+                    style={{
+                      marginTop: voiceStepY(55, layoutH),
+                      fontSize: 16,
+                      lineHeight: 22,
+                    }}>
+                    请用自然语气请朗读以下内容：
+                  </ThemedText>
+                  <ThemedText
+                    className="font-normal text-[#7F7F7F]"
+                    style={{
+                      marginTop: 0,
+                      fontSize: 12,
+                      lineHeight: 17,
+                    }}>
+                    找一个安静的环境
+                  </ThemedText>
+
+                  {/* 灰字底 y=376 → 卡片 y=393，间距 17；卡片高 278 */}
+                  <View
+                    className="overflow-hidden rounded-[20px]"
+                    style={{
+                      marginTop: voiceStepY(17, layoutH),
+                      backgroundColor: '#1D1F21',
+                      alignSelf: 'stretch',
+                      paddingHorizontal: voiceStepY(18, layoutH),
+                      paddingTop: voiceStepY(16, layoutH),
+                      paddingBottom: voiceStepY(16, layoutH),
+                      height: Math.min(
+                        voiceStepY(278, layoutH),
+                        Math.round(layoutH * 0.345)
+                      ),
+                    }}>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        lineHeight: 18,
+                        letterSpacing: -0.12,
+                        color: '#A6A6A6',
+                        textAlign: 'justify',
+                      }}>
+                      {voicePromptText}
+                    </Text>
+                  </View>
                 </View>
 
-                <View className="mt-10 items-center">
-                  <ThemedText className="mb-3 text-sm text-white/80">
+                {/* Figma：卡片底→计时约 32px；flex 吸收多余高度，避免控件挤在卡片下、底部空一大块 */}
+                <View style={{ flex: 1, minHeight: voiceStepY(32, layoutH) }} />
+
+                <View className="items-center">
+                  <ThemedText
+                    className="text-center"
+                    style={{
+                      marginBottom: voiceStepY(7, layoutH),
+                      fontSize: 15,
+                      lineHeight: 18,
+                      color: '#A5A5A5',
+                    }}>
                     {formatTimer(recordSeconds)}
                   </ThemedText>
-                  <View className="flex-row items-center justify-center gap-8">
+                  <View className="flex-row items-center justify-center" style={{ gap: 50 }}>
                     <TouchableOpacity
                       onPress={resetVoiceStep}
-                      className="h-12 w-12 items-center justify-center rounded-full bg-white/10">
-                      <Icon name="RotateCcw" size={22} color={ACCENT_SOFT} />
+                      hitSlop={12}
+                      className="items-center justify-center rounded-full bg-white/10"
+                      style={{ width: 48, height: 48 }}>
+                      <Icon name="RotateCcw" size={24} color={ACCENT_SOFT} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={toggleRecord}
                       activeOpacity={0.9}
-                      className="h-20 w-20 items-center justify-center rounded-full border-2 border-[#B98C44]/80"
-                      style={{
-                        shadowColor: ACCENT,
-                        shadowOpacity: 0.45,
-                        shadowRadius: 16,
-                        shadowOffset: { width: 0, height: 0 },
-                      }}>
-                      <LinearGradient
-                        colors={['#3a2a18', '#1a120a']}
-                        style={styles.micInnerGradient}
-                      />
-                      <Icon
-                        name={isPaused ? 'Mic' : isRecording ? 'Pause' : 'Mic'}
-                        size={32}
-                        color={ACCENT_SOFT}
+                      accessibilityLabel={isRecording && !isPaused ? '暂停录音' : '开始录音'}
+                      className="h-[78px] w-[78px] items-center justify-center overflow-hidden rounded-full"
+                      style={styles.voiceMicOuter}>
+                      <Image
+                        source={
+                          isRecording && !isPaused ? VOICE_MIC_PAUSE_IMG : VOICE_MIC_SPEAK_IMG
+                        }
+                        style={{ width: 78, height: 78, borderRadius: 39 }}
+                        resizeMode="contain"
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={confirmVoice}
                       disabled={recordSeconds === 0 || voiceSubmitting}
-                      className="h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                      hitSlop={12}
+                      className="items-center justify-center rounded-full bg-white/10"
+                      style={{ width: 48, height: 48 }}>
                       {voiceSubmitting ? (
                         <ActivityIndicator size="small" color={ACCENT_SOFT} />
                       ) : (
                         <Icon
                           name="Check"
-                          size={24}
+                          size={27}
                           color={recordSeconds > 0 && !voiceSubmitting ? ACCENT : '#555'}
                         />
                       )}
                     </TouchableOpacity>
                   </View>
-                  <ThemedText className="mt-6 text-center text-xs text-white/40">
-                    完成朗读后点击右侧确认进入下一步（最多 10 秒）
-                  </ThemedText>
                   {voiceStatusText ? (
                     <ThemedText className="text-white/55 mt-2 text-center text-xs">
                       {voiceStatusText}
                     </ThemedText>
+                  ) : null}
+                  <LinearGradient
+                    colors={[
+                      'transparent',
+                      'rgba(179,151,92,0.55)',
+                      'rgba(168,127,42,0.35)',
+                      'transparent',
+                    ]}
+                    start={{ x: 0, y: 0.5 }}
+                    end={{ x: 1, y: 0.5 }}
+                    style={{
+                      alignSelf: 'center',
+                      marginTop: voiceStepY(20, layoutH),
+                      marginBottom: 4,
+                      height: 2,
+                      width: Math.min(layoutW * 0.78, 320),
+                      borderRadius: 1,
+                    }}
+                  />
+                  {hasExistingVoiceId ? (
+                    <TouchableOpacity
+                      onPress={() => setPhase('image')}
+                      className="mt-4 px-4 py-2"
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="已采集过声音，直接进入下一步">
+                      <ThemedText className="text-center text-sm text-white/55 underline">
+                        已采集过声音，直接进入下一步
+                      </ThemedText>
+                    </TouchableOpacity>
                   ) : null}
                 </View>
               </View>
             ) : null}
 
             {phase === 'image' ? (
-              <View className="items-center pb-8">
-                <View className="relative h-64 w-full items-center justify-center">
-                  {portraitUri ? (
-                    <TouchableOpacity activeOpacity={0.88} onPress={selectPortraitSource}>
-                      <Image source={{ uri: portraitUri }} className="h-40 w-40 rounded-full" />
-                    </TouchableOpacity>
-                  ) : (
-                    <ImageBackground
-                      source={{ uri: IMAGE_STEP_BG_URI }}
-                      resizeMode="contain"
-                      className="h-64 w-full items-center justify-center">
-                      <TouchableOpacity
-                        onPress={selectPortraitSource}
-                        activeOpacity={0.88}
-                        className="h-28 w-28 items-center justify-center rounded-full bg-white/10">
-                        <Icon name="Camera" size={34} color="white" />
-                      </TouchableOpacity>
-                    </ImageBackground>
-                  )}
+              <View
+                style={{
+                  flex: 1,
+                  paddingHorizontal: Math.max(16, Math.round((34 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                  zIndex: 1,
+                  paddingBottom: Math.max(insets.bottom, voiceStepY(12, layoutH)),
+                }}>
+                <View className="flex-row items-end" style={{ gap: 6 }}>
+                  <Text style={{ fontSize: 24, fontWeight: '700', color: '#FFAD00', lineHeight: 29 }}>
+                    2
+                  </Text>
+                  <ThemedText className="text-base font-normal leading-5 text-white">图像采集</ThemedText>
                 </View>
-                <ThemedText className="mt-6 text-center text-sm text-white/75">
-                  上传真人照片或现场拍摄，生成动漫数字形象
-                </ThemedText>
-                <View className="mt-8 w-full">
-                  <GoldButton
-                    label={portraitUri ? '生成数字形象' : '选择图片'}
-                    onPress={() => {
-                      if (!portraitUri) {
-                        selectPortraitSource();
-                        return;
-                      }
-                      startGenerateAvatar();
-                    }}
+                <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
+                  <ModelInitStepSegments filled={2} />
+                </View>
+
+                {/* 中部：青绿光晕 + 错落头像 + 中央「+」（对齐设计稿，非单张拼贴） */}
+                <View
+                  style={{
+                    marginTop: voiceStepY(10, layoutH),
+                    marginLeft: Math.round((-39 / MODEL_INIT_INTRO_FRAME.w) * layoutW),
+                    alignSelf: 'center',
+                  }}>
+                  <ModelInitImageHeroCluster
+                    containerWidth={(556 / MODEL_INIT_INTRO_FRAME.w) * layoutW}
+                    aspectRatio={556 / 399.17}
+                    portraitUri={portraitUri}
+                    onCenterPress={openPortraitGuide}
                   />
                 </View>
+
+                <View style={{ flex: 1, minHeight: voiceStepY(16, layoutH) }} />
+
+                <ThemedText
+                  className="text-center text-white"
+                  style={{
+                    fontSize: 14,
+                    lineHeight: 20,
+                    marginBottom: voiceStepY(19, layoutH),
+                  }}>
+                  上传照片，生成分身形象
+                </ThemedText>
+                <ImageStepPrimaryButton
+                  label={portraitUri ? '生成数字形象' : '选择图片'}
+                  onPress={() => {
+                    if (!portraitUri) {
+                      openPortraitGuide();
+                      return;
+                    }
+                    startGenerateAvatar();
+                  }}
+                />
                 {portraitUri ? (
-                  <TouchableOpacity onPress={selectPortraitSource} className="mt-3 px-4 py-2">
+                  <TouchableOpacity onPress={openPortraitGuide} className="mt-3 px-4 py-2">
                     <ThemedText className="text-sm text-white/70">重新上传</ThemedText>
+                  </TouchableOpacity>
+                ) : null}
+                {hasExistingAvatar ? (
+                  <TouchableOpacity
+                    onPress={() => setPhase('interviewPreamble')}
+                    className="mt-4 px-4 py-2"
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="已上传过头像，进入下一环节">
+                    <ThemedText className="text-center text-sm text-white/55 underline">
+                      已上传过头像，进入下一环节
+                    </ThemedText>
                   </TouchableOpacity>
                 ) : null}
               </View>
             ) : null}
 
             {phase === 'avatarLoading' ? (
-              <View className="items-center pt-6">
-                <View className="h-48 w-48 items-center justify-center rounded-full border border-[#B98C44]/40">
-                  <ThemedText className="text-xl font-bold text-white">AIYOU</ThemedText>
-                  <ThemedText className="mt-2 px-6 text-center text-xs text-white/60">
-                    正在创建您的数字分身
-                  </ThemedText>
+              <View
+                style={{
+                  flex: 1,
+                  paddingHorizontal: Math.max(16, Math.round((19 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                  zIndex: 1,
+                  paddingBottom: Math.max(insets.bottom, voiceStepY(12, layoutH)),
+                }}>
+                {title ? (
+                  <View style={{ flexShrink: 0 }}>
+                    <View className="flex-row items-end" style={{ gap: 6 }}>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: '#FFAD00', lineHeight: 29 }}>
+                        {title.n}
+                      </Text>
+                      <ThemedText className="text-base font-normal leading-5 text-white">{title.label}</ThemedText>
+                    </View>
+                    <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
+                      <ModelInitStepSegments filled={3} thirdSegmentPartial />
+                    </View>
+                  </View>
+                ) : null}
+
+                <View
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    minHeight: Math.round(layoutH * 0.28),
+                    paddingVertical: voiceStepY(16, layoutH),
+                  }}>
+                  <AvatarLoadingParticleRing
+                    size={Math.min(288, Math.max(220, Math.round(layoutW * 0.78)))}>
+                    <Text
+                      style={{
+                        fontSize: 26,
+                        fontWeight: '300',
+                        color: '#FFFFFF',
+                        letterSpacing: 5,
+                        textAlign: 'center',
+                      }}>
+                      AI YOU
+                    </Text>
+                    <Text
+                      style={{
+                        marginTop: 12,
+                        fontSize: 13,
+                        lineHeight: 20,
+                        fontWeight: '400',
+                        color: '#9A9A9A',
+                        textAlign: 'center',
+                      }}>
+                      正在创建您的数字分身
+                    </Text>
+                  </AvatarLoadingParticleRing>
                 </View>
-                <View className="mt-10 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                  <View
-                    className="h-full rounded-full"
-                    style={{ width: `${avatarProgress}%`, backgroundColor: ACCENT }}
-                  />
+
+                <View style={{ flexShrink: 0, paddingTop: voiceStepY(8, layoutH) }}>
+                  <View style={{ gap: 16 }}>
+                    {avatarChecklistFromProgress(avatarProgress).map((row) => (
+                      <AvatarLoadingChecklistRow key={row.label} label={row.label} status={row.status} />
+                    ))}
+                  </View>
+
+                  <View style={{ marginTop: voiceStepY(22, layoutH) }}>
+                    <View
+                      style={{
+                        height: 6,
+                        borderRadius: 9999,
+                        backgroundColor: '#FFFFFF',
+                        overflow: 'hidden',
+                      }}>
+                      <View style={{ width: `${Math.min(100, Math.max(0, avatarProgress))}%`, height: '100%' }}>
+                        <LinearGradient
+                          colors={['#938260', '#9B6900']}
+                          locations={[0.4327, 1]}
+                          start={{ x: 0, y: 0.5 }}
+                          end={{ x: 1, y: 0.5 }}
+                          style={StyleSheet.absoluteFillObject}
+                        />
+                      </View>
+                    </View>
+                    <View className="mt-2 flex-row items-center justify-between">
+                      <Text style={{ fontSize: 12, lineHeight: 16, color: '#9B9B9B' }}>{avatarStatusText}</Text>
+                      <Text style={{ fontSize: 12, lineHeight: 16, fontWeight: '500', color: '#9B9B9B' }}>
+                        {avatarProgress}%
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text
+                    style={{
+                      marginTop: voiceStepY(14, layoutH),
+                      fontSize: 12,
+                      lineHeight: 20,
+                      color: '#4C4C4C',
+                      textAlign: 'center',
+                      alignSelf: 'center',
+                      maxWidth: 276,
+                    }}>
+                    此头像将代表您的 AI 分身，用于对话与洞察展示。
+                  </Text>
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      avatarAbortRef.current?.abort();
+                      avatarAbortRef.current = null;
+                      setPhase('image');
+                    }}
+                    activeOpacity={0.88}
+                    className="w-full items-center justify-center overflow-hidden"
+                    style={{
+                      marginTop: voiceStepY(20, layoutH),
+                      height: 56,
+                      borderRadius: 30,
+                      backgroundColor: '#313131',
+                    }}>
+                    <Text style={{ fontSize: 16, lineHeight: 20, color: '#FFFFFF', fontWeight: '400' }}>
+                      取消
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <View className="mt-2 w-full flex-row justify-between">
-                  <ThemedText className="text-white/45 text-xs">{avatarStatusText}</ThemedText>
-                  <ThemedText className="text-xs text-white/80">{avatarProgress}%</ThemedText>
-                </View>
-                <ThemedText className="text-white/45 mt-6 text-center text-xs">
-                  此头像将代表您的 AI 分身，用于对话与洞察展示。
-                </ThemedText>
-                <TouchableOpacity
-                  onPress={() => {
-                    avatarAbortRef.current?.abort();
-                    avatarAbortRef.current = null;
-                    setPhase('image');
-                  }}
-                  className="mt-10 w-full rounded-2xl bg-white/10 py-3.5">
-                  <ThemedText className="text-center text-base font-semibold text-white">
-                    取消
-                  </ThemedText>
-                </TouchableOpacity>
               </View>
             ) : null}
 
             {phase === 'avatarDone' ? (
-              <View className="items-center pb-8">
-                <View className="rounded-full border-2 p-1" style={{ borderColor: ACCENT }}>
-                  <Image
-                    source={
-                      generatedAvatarUrl
-                        ? { uri: bustAvatarCache(generatedAvatarUrl) }
-                        : portraitUri
-                          ? { uri: portraitUri }
-                          : sampleAvatar
-                    }
-                    className="h-44 w-44 rounded-full"
+              <View
+                style={{
+                  flex: 1,
+                  paddingHorizontal: Math.max(16, Math.round((34 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                  zIndex: 1,
+                  paddingBottom: Math.max(insets.bottom, voiceStepY(12, layoutH)),
+                }}>
+                {title ? (
+                  <View style={{ flexShrink: 0 }}>
+                    <View className="flex-row items-end" style={{ gap: 6 }}>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: '#FFAD00', lineHeight: 29 }}>
+                        {title.n}
+                      </Text>
+                      <ThemedText className="text-base font-normal leading-5 text-white">{title.label}</ThemedText>
+                    </View>
+                    <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
+                      <ModelInitStepSegments filled={3} thirdSegmentPartial />
+                    </View>
+                  </View>
+                ) : null}
+
+                <View
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingVertical: voiceStepY(12, layoutH),
+                  }}>
+                  <AvatarDoneOrbitAvatar
+                    orbitSize={Math.min(248, Math.max(200, Math.round(layoutW * 0.62)))}
+                    imageSource={avatarDoneImageSource}
                   />
+                  <Text
+                    style={{
+                      marginTop: voiceStepY(18, layoutH),
+                      fontSize: 20,
+                      lineHeight: 25,
+                      fontWeight: '700',
+                      color: '#FFFFFF',
+                      textAlign: 'center',
+                    }}>
+                    {profileDisplayName}
+                  </Text>
+                  <Text
+                    style={{
+                      marginTop: 6,
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      color: '#FFFFFF',
+                      textAlign: 'center',
+                    }}>
+                    您的数字形象已生成
+                  </Text>
                 </View>
-                <ThemedText className="mt-6 text-xl font-bold text-white">MouMou</ThemedText>
-                <ThemedText className="mt-1 text-sm text-white/60">您的数字形象已生成</ThemedText>
-                <ThemedText className="text-white/45 mt-6 px-2 text-center text-xs">
-                  此头像将代表您的 AI 分身，用于对话与洞察展示。
-                </ThemedText>
-                <View className="mt-8 w-full gap-3">
+
+                <View style={{ flexShrink: 0, width: '100%' }}>
                   <TouchableOpacity
                     onPress={() => startGenerateAvatar()}
-                    className="w-full rounded-2xl bg-white/10 py-3.5">
-                    <ThemedText className="text-center text-base font-semibold text-white">
+                    activeOpacity={0.88}
+                    className="w-full items-center justify-center"
+                    style={{
+                      height: 53,
+                      borderRadius: 26.5,
+                      backgroundColor: 'rgba(255,255,255,0.1)',
+                    }}>
+                    <Text style={{ fontSize: 16, lineHeight: 22, color: '#FFFFFF', fontWeight: '400' }}>
                       重新生成
-                    </ThemedText>
+                    </Text>
                   </TouchableOpacity>
-                  <GoldButton label="确定" onPress={() => setPhase('interviewPreamble')} />
+                  <View style={{ marginTop: 13 }}>
+                    <ImageStepPrimaryButton label="确定" onPress={() => setPhase('interviewPreamble')} />
+                  </View>
+                  <Text
+                    style={{
+                      marginTop: voiceStepY(16, layoutH),
+                      fontSize: 12,
+                      lineHeight: 20,
+                      color: '#A1A1A1',
+                      textAlign: 'center',
+                      alignSelf: 'center',
+                      maxWidth: 320,
+                    }}>
+                    此头像将代表您的 AI 分身，用于对话与洞察展示。
+                  </Text>
                 </View>
               </View>
             ) : null}
@@ -1429,9 +2004,17 @@ export default function ModelInitScreen() {
             </View>
           ) : null}
         </View>
-        </KeyboardAvoidingView>
-      </LinearGradient>
-    </ImageBackground>
+      </KeyboardAvoidingView>
+    </View>
+    <PortraitPickGuideSheets
+      visible={portraitGuideVisible}
+      step={portraitGuideStep}
+      onClose={closePortraitGuide}
+      onContinueToSource={() => setPortraitGuideStep(2)}
+      onTakePhoto={handlePortraitTakePhoto}
+      onPickLibrary={handlePortraitPickLibrary}
+    />
+    </>
   );
 }
 
@@ -1442,8 +2025,19 @@ const styles = StyleSheet.create({
   bgImage: {
     alignSelf: 'center',
   },
-  micInnerGradient: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 9999,
+  /** Figma 声音页主录音键 78×78 外光 */
+  voiceMicOuter: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#6C542B',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.65,
+        shadowRadius: 22,
+      },
+      android: {
+        elevation: 16,
+      },
+      default: {},
+    }),
   },
 });

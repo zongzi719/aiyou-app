@@ -503,9 +503,11 @@ export const ChatInput = (props: ChatInputProps) => {
   };
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (status !== 'granted') {
+    let perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    }
+    if (perm.status !== 'granted') {
       Alert.alert('需要相册权限', '请在系统设置中允许访问相册后重试。');
       return;
     }
@@ -524,8 +526,11 @@ export const ChatInput = (props: ChatInputProps) => {
   };
 
   const pickCamera = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
+    let perm = await ImagePicker.getCameraPermissionsAsync();
+    if (perm.status !== 'granted') {
+      perm = await ImagePicker.requestCameraPermissionsAsync();
+    }
+    if (perm.status !== 'granted') {
       Alert.alert('需要相机权限', '请在系统设置中允许访问相机后重试。');
       return;
     }
@@ -539,6 +544,15 @@ export const ChatInput = (props: ChatInputProps) => {
       const uris = result.assets.map((a) => a.uri);
       setSelectedImages((prev) => [...prev, ...uris]);
     }
+  };
+
+  /** 主输入条相机键：先选拍照或相册，再按需请求权限 */
+  const openImageCaptureMenu = () => {
+    Alert.alert('选择图片来源', '请选择拍照或从相册上传', [
+      { text: '取消', style: 'cancel' },
+      { text: '拍照', onPress: () => void pickCamera() },
+      { text: '相册上传', onPress: () => void pickImage() },
+    ]);
   };
 
   const removeImage = (indexToRemove: number) => {
@@ -886,10 +900,10 @@ export const ChatInput = (props: ChatInputProps) => {
                           <Icon name="Mic" size={17} color="white" />
                         </Pressable>
                         <Pressable
-                          onPress={pickCamera}
+                          onPress={openImageCaptureMenu}
                           className="border-white/28 bg-black/35 h-[34px] w-[34px] items-center justify-center rounded-full border"
                           accessibilityRole="button"
-                          accessibilityLabel="拍照">
+                          accessibilityLabel="拍照或相册上传">
                           <Icon name="Camera" size={17} color="white" />
                         </Pressable>
                       </View>
@@ -978,7 +992,10 @@ export const ChatInput = (props: ChatInputProps) => {
                       <Animated.View style={attachButtonStyle}>
                         <TouchableOpacity
                           activeOpacity={0.8}
-                          className="h-10 w-10 items-center justify-center rounded-full">
+                          onPress={openImageCaptureMenu}
+                          className="h-10 w-10 items-center justify-center rounded-full"
+                          accessibilityRole="button"
+                          accessibilityLabel="拍照或相册上传">
                           <Icon name="Camera" size={20} />
                         </TouchableOpacity>
                       </Animated.View>
