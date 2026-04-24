@@ -12,7 +12,6 @@ import Icon from '@/components/Icon';
 import ThemedScroller from '@/components/ThemeScroller';
 import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
-import { clearAuthSession } from '@/lib/authSession';
 import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import {
   fetchProfile,
@@ -205,20 +204,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = () => {
-    Alert.alert('退出登录', '确定要退出当前账号吗？', [
-      { text: '取消', style: 'cancel' },
-      {
-        text: '退出',
-        style: 'destructive',
-        onPress: async () => {
-          await clearAuthSession();
-          router.replace('/screens/welcome');
-        },
-      },
-    ]);
-  };
-
   const displayName = profile?.display_name || profile?.username || '用户';
 
   return (
@@ -366,13 +351,6 @@ export default function ProfileScreen() {
               </View>
             </View>
           ))}
-
-          <TouchableOpacity
-            onPress={handleLogout}
-            activeOpacity={0.85}
-            className="mb-2 mt-6 w-full items-center justify-center rounded-xl bg-red-600 py-3.5">
-            <ThemedText className="text-sm font-semibold text-white">退出登录</ThemedText>
-          </TouchableOpacity>
         </View>
       </ThemedScroller>
     </AnimatedView>

@@ -10,6 +10,11 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+/** 原一圈 26s，加快 0.5 倍即速度 ×1.5 → 周期 ÷1.5 */
+const ORBIT_PERIOD_MS = Math.round(26_000 / 1.5);
+/** 行星点闪光脉动（与公转独立） */
+const TWINKLE_MS = 900;
+
 const FIGMA_FRAME_W = 197.2;
 const FIGMA_FRAME_H = 202.88;
 const DEG = Math.PI / 180;
@@ -50,17 +55,29 @@ export default function AvatarDoneOrbitAvatar({ imageSource, orbitSize = 230 }: 
   const dotInnerR = (10.79 / 2) * s;
 
   const t = useSharedValue(0);
+  const twinkle = useSharedValue(0);
   useEffect(() => {
     t.value = withRepeat(
-      withTiming(1, { duration: 26_000, easing: Easing.linear }),
+      withTiming(1, { duration: ORBIT_PERIOD_MS, easing: Easing.linear }),
+      -1,
+      false
+    );
+    twinkle.value = withRepeat(
+      withTiming(1, { duration: TWINKLE_MS, easing: Easing.linear }),
       -1,
       false
     );
   }, []);
 
   const planet1Style = useAnimatedStyle(() => {
+    'worklet';
     const u = t.value * Math.PI * 2;
     const { x, y } = ellipsePoint(rxE3, ryE3, -130, u);
+    const w = twinkle.value * Math.PI * 2;
+    // 多频正弦叠加以增强「闪光」感，两颗点相位错开
+    const pulse =
+      0.42 * (0.5 + 0.5 * Math.sin(w * 2.1)) + 0.32 * (0.5 + 0.5 * Math.sin(w * 5.3 + 0.4));
+    const g = 0.58 + 0.42 * pulse;
     return {
       position: 'absolute' as const,
       left: cx + x - dotOuterR,
@@ -72,12 +89,19 @@ export default function AvatarDoneOrbitAvatar({ imageSource, orbitSize = 230 }: 
       borderColor: 'rgba(255,255,255,0.4)',
       alignItems: 'center',
       justifyContent: 'center',
+      opacity: 0.55 + 0.45 * g,
+      transform: [{ scale: 0.88 + 0.12 * g }],
     };
   });
 
   const planet2Style = useAnimatedStyle(() => {
+    'worklet';
     const u = -(t.value * Math.PI * 2) + Math.PI * 0.65;
     const { x, y } = ellipsePoint(rxE2, ryE2, 50.56, u);
+    const w = twinkle.value * Math.PI * 2 + 1.85;
+    const pulse =
+      0.42 * (0.5 + 0.5 * Math.sin(w * 2.1)) + 0.32 * (0.5 + 0.5 * Math.sin(w * 5.3 + 0.4));
+    const g = 0.58 + 0.42 * pulse;
     return {
       position: 'absolute' as const,
       left: cx + x - dotOuterR,
@@ -89,6 +113,8 @@ export default function AvatarDoneOrbitAvatar({ imageSource, orbitSize = 230 }: 
       borderColor: 'rgba(255,255,255,0.4)',
       alignItems: 'center',
       justifyContent: 'center',
+      opacity: 0.55 + 0.45 * g,
+      transform: [{ scale: 0.88 + 0.12 * g }],
     };
   });
 

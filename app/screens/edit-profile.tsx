@@ -1,224 +1,232 @@
-import * as ImagePicker from 'expo-image-picker';
+import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
-import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
-
-import useThemeColors from '@/app/contexts/ThemeColors';
-import { Button } from '@/components/Button';
-import Header from '@/components/Header';
-import Icon from '@/components/Icon';
-import ThemedScroller from '@/components/ThemeScroller';
-import ThemedText from '@/components/ThemedText';
-import Input from '@/components/forms/Input';
-import Section from '@/components/layout/Section';
-import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
-import { putProfileCache } from '@/lib/profileCache';
+import React, { useState } from 'react';
 import {
-  fetchProfile,
-  updateProfile,
-  uploadAvatar,
-  bustAvatarCache,
-  UserProfile,
-} from '@/services/profileApi';
+  View,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  ScrollView,
+  useWindowDimensions,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import ThemedText from '@/components/ThemedText';
+import IconLucide from '@/components/Icon';
+import { useGlobalFloatingTabBarInset } from '@/hooks/useGlobalFloatingTabBarInset';
+import { clearAuthSession } from '@/lib/authSession';
+import { putProfileCache, clearProfileCache } from '@/lib/profileCache';
+import { clearAllListDataCaches } from '@/lib/listDataCache';
+import { fetchProfile } from '@/services/profileApi';
+
+const BG = '#1D1D1D';
+const CARD = '#262626';
+const DIVIDER = '#2E2E2E';
+const GOLD = '#AA873C';
+
+function sectionTitle(text: string, isFirst = false) {
+  return (
+    <ThemedText
+      className="mb-2.5 text-sm text-white"
+      style={{ fontSize: 14, lineHeight: 20, marginTop: isFirst ? 8 : 20, marginLeft: 4 }}>
+      {text}
+    </ThemedText>
+  );
+}
+
+type RowProps = {
+  icon: React.ComponentProps<typeof IconLucide>['name'];
+  label: string;
+  onPress: () => void;
+  isLast?: boolean;
+};
+
+function settingsNavRow({ icon, label, onPress, isLast }: RowProps) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.7}
+      className="min-h-[50px] flex-row items-center justify-between px-3"
+      style={
+        isLast
+          ? undefined
+          : {
+              borderBottomWidth: 1,
+              borderColor: DIVIDER,
+            }
+      }>
+      <View className="flex-row items-center">
+        <IconLucide name={icon} size={20} color="#fff" />
+        <ThemedText
+          className="ml-3.5 text-[15px] text-white"
+          style={{ lineHeight: 22 }}>
+          {label}
+        </ThemedText>
+      </View>
+      <IconLucide name="ChevronRight" size={20} color="#fff" />
+    </TouchableOpacity>
+  );
+}
 
 export default function EditProfileScreen() {
+  const insets = useSafeAreaInsets();
   const listBottomPad = useGlobalFloatingTabBarInset();
-  const colors = useThemeColors();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [displayName, setDisplayName] = useState('');
-  const [bio, setBio] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
-  const [localAvatar, setLocalAvatar] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [avatarUploading, setAvatarUploading] = useState(false);
+  const { width: winW } = useWindowDimensions();
+  const cardW = Math.min(370, winW - 32);
 
-  useEffect(() => {
-    fetchProfile()
-      .then((p) => {
-        putProfileCache(p);
-        setProfile(p);
-        setDisplayName(p.display_name ?? '');
-        setBio(p.bio ?? '');
-        setTagsInput((p.tags ?? []).join('、'));
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const [clearing, setClearing] = useState(false);
 
-  const handlePickAvatar = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('需要权限', '请在设置中允许访问相册');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
-    if (result.canceled) return;
-    const asset = result.assets[0];
-    setLocalAvatar(asset.uri);
-    setAvatarUploading(true);
+  const handleOpenNotifications = () => {
+    void Linking.openSettings();
+  };
+
+  const handleClearCache = async () => {
+    setClearing(true);
     try {
-      const updated = await uploadAvatar(asset.uri, asset.mimeType ?? 'image/jpeg');
-      putProfileCache(updated);
-      setProfile(updated);
+      clearAllListDataCaches();
+      await clearProfileCache();
+      const p = await fetchProfile();
+      putProfileCache(p);
+      Alert.alert('已清除', '应用缓存与列表缓存已清理');
     } catch (e) {
-      Alert.alert('上传失败', e instanceof Error ? e.message : '请稍后重试');
-      setLocalAvatar(null);
+      Alert.alert('操作失败', e instanceof Error ? e.message : '请稍后重试');
     } finally {
-      setAvatarUploading(false);
+      setClearing(false);
     }
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const tags = tagsInput
-        .split(/[，,、\s]+/)
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const next = await updateProfile({ display_name: displayName.trim(), bio: bio.trim(), tags });
-      putProfileCache(next);
-      router.back();
-    } catch (e) {
-      Alert.alert('保存失败', e instanceof Error ? e.message : '请稍后重试');
-    } finally {
-      setSaving(false);
-    }
+  const handleLogout = () => {
+    Alert.alert('退出登录', '确定要退出当前账号吗？', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '退出',
+        style: 'destructive',
+        onPress: async () => {
+          await clearAuthSession();
+          router.replace('/screens/welcome');
+        },
+      },
+    ]);
   };
-
-  const avatarUri =
-    localAvatar ?? (profile?.avatar_url ? bustAvatarCache(profile.avatar_url) : null);
 
   return (
-    <>
-      <Header
-        title="编辑资料"
-        showBackButton
-        rightComponents={[
-          <Button
-            key="save"
-            title={saving ? '保存中…' : '保存'}
-            rounded="full"
-            onPress={handleSave}
-            disabled={saving || loading}
-          />,
-        ]}
-      />
+    <View className="flex-1" style={{ backgroundColor: BG, paddingTop: insets.top }}>
+      <StatusBar style="light" />
+      <View className="flex-row items-center justify-center px-4" style={{ height: 48 }}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          className="absolute left-3 h-10 w-10 items-center justify-center"
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="返回">
+          <IconLucide name="ArrowLeft" size={24} color="#fff" />
+        </TouchableOpacity>
+        <ThemedText className="text-base text-white" style={{ fontSize: 16, lineHeight: 22 }}>
+          设置
+        </ThemedText>
+        <View className="absolute right-3 w-10" />
+      </View>
 
-      {loading ? (
-        <View className="flex-1 items-center justify-center bg-background">
-          <ActivityIndicator size="large" />
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{
+          paddingBottom: listBottomPad + 32,
+          paddingHorizontal: 16,
+          paddingTop: 4,
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
+        {sectionTitle('通用', true)}
+        <View
+          style={{
+            width: cardW,
+            alignSelf: 'center',
+            backgroundColor: CARD,
+            borderRadius: 20,
+            overflow: 'hidden',
+          }}>
+          {settingsNavRow({
+            icon: 'Bell',
+            label: '通知',
+            onPress: handleOpenNotifications,
+          })}
+          {settingsNavRow({
+            icon: 'User',
+            label: '编辑资料',
+            onPress: () => router.push('/screens/account-center'),
+            isLast: true,
+          })}
         </View>
-      ) : (
-        <ThemedScroller
-          className="px-8"
-          footerSpacer={false}
-          contentContainerStyle={{ paddingBottom: listBottomPad }}>
-          {/* 头像选择 */}
-          <View className="mb-8 mt-8 flex-col items-center">
-            <TouchableOpacity
-              onPress={handlePickAvatar}
-              className="relative"
-              activeOpacity={0.85}
-              disabled={avatarUploading}>
-              {avatarUri ? (
-                <Image
-                  source={{ uri: avatarUri }}
-                  className="h-28 w-28 rounded-full border border-border"
-                />
-              ) : (
-                <View className="h-28 w-28 items-center justify-center rounded-full bg-secondary">
-                  <Icon name="User" size={40} />
-                </View>
-              )}
-              <View className="bg-highlight absolute bottom-0 right-0 h-8 w-8 items-center justify-center rounded-full border-2 border-background">
-                {avatarUploading ? (
-                  <ActivityIndicator size="small" color="white" />
-                ) : (
-                  <Icon name="Camera" size={15} color="white" />
-                )}
-              </View>
-            </TouchableOpacity>
 
-            <Button
-              variant="ghost"
-              title={avatarUri ? '更换头像' : '上传头像'}
-              className="mt-3 bg-secondary"
-              onPress={handlePickAvatar}
-            />
-          </View>
-
-          {/* 基本信息 */}
-          <View className="rounded-2xl bg-secondary p-global">
-            <Section
-              titleSize="xl"
-              className="pb-6 pt-0"
-              title="个人信息"
-              subtitle="管理你的公开资料"
-            />
-
-            <Input
-              label="显示名"
-              variant="underlined"
-              value={displayName}
-              onChangeText={setDisplayName}
-              autoCapitalize="words"
-              placeholder="你的显示名称"
-            />
-            <Input
-              label="用户名"
-              variant="underlined"
-              value={profile?.username ?? ''}
-              editable={false}
-              containerClassName="opacity-50"
-              placeholder="登录用户名（不可修改）"
-            />
-            <Input
-              label="声音ID"
-              variant="underlined"
-              value={profile?.voice_id ?? ''}
-              editable={false}
-              containerClassName="opacity-50"
-              placeholder="尚未创建声音模型"
-            />
-            <Input
-              label="个人简介"
-              variant="underlined"
-              value={bio}
-              onChangeText={setBio}
-              placeholder="一句话介绍自己"
-              autoCapitalize="none"
-            />
-            <Input
-              label="标签（逗号分隔）"
-              variant="underlined"
-              value={tagsInput}
-              onChangeText={setTagsInput}
-              placeholder="如：AI、创业、产品"
-              autoCapitalize="none"
-            />
-          </View>
-
-          {/* 当前标签预览 */}
-          {tagsInput.trim().length > 0 && (
-            <View className="mt-4 flex-row flex-wrap gap-x-2 gap-y-2">
-              {tagsInput
-                .split(/[，,、\s]+/)
-                .filter(Boolean)
-                .map((tag) => (
-                  <View key={tag} className="rounded-full bg-secondary px-3 py-1">
-                    <ThemedText className="text-xs text-subtext">{tag}</ThemedText>
-                  </View>
-                ))}
+        {sectionTitle('隐私与安全')}
+        <View
+          style={{
+            width: cardW,
+            alignSelf: 'center',
+            backgroundColor: CARD,
+            borderRadius: 20,
+            overflow: 'hidden',
+          }}>
+          {settingsNavRow({
+            icon: 'KeyRound',
+            label: '修改密码',
+            onPress: () => router.push('/screens/forgot-password'),
+          })}
+          <TouchableOpacity
+            onPress={handleClearCache}
+            disabled={clearing}
+            activeOpacity={0.7}
+            className="min-h-[50px] flex-row items-center justify-between px-3">
+            <View className="flex-row items-center">
+              <IconLucide name="Trash2" size={20} color="#fff" />
+              <ThemedText
+                className="ml-3.5 text-[15px] text-white"
+                style={{ lineHeight: 22 }}>
+                清除缓存
+              </ThemedText>
             </View>
-          )}
-        </ThemedScroller>
-      )}
-    </>
+            {clearing ? (
+              <ActivityIndicator size="small" color={GOLD} />
+            ) : (
+              <IconLucide name="ChevronRight" size={20} color="#fff" />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {sectionTitle('关于')}
+        <View
+          style={{
+            width: cardW,
+            alignSelf: 'center',
+            backgroundColor: CARD,
+            borderRadius: 20,
+            overflow: 'hidden',
+          }}>
+          {settingsNavRow({
+            icon: 'Info',
+            label: '关于本应用',
+            onPress: () => router.push('/screens/help'),
+            isLast: true,
+          })}
+        </View>
+
+        <TouchableOpacity
+          onPress={handleLogout}
+          className="mt-8 flex-row items-center justify-center"
+          style={{
+            marginHorizontal: 17,
+            minHeight: 42,
+            borderRadius: 20,
+            backgroundColor: GOLD,
+          }}
+          activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="退出登录">
+          <IconLucide name="LogOut" size={18} color="#fff" />
+          <ThemedText className="ml-2 text-sm text-white">退出登录</ThemedText>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
   );
 }

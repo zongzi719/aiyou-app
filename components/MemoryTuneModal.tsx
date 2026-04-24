@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  type ImageSourcePropType,
+  ImageBackground,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -33,10 +35,11 @@ import {
   runTypewriter,
 } from '@/lib/bailianAppCompletion';
 import { peekMemoryMemories, putMemoryMemories } from '@/lib/listDataCache';
+import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import { preferHttpsMediaUrl } from '@/lib/preferHttpsMediaUrl';
 import { synthesizeAliyunCosyVoiceToAudioUrl } from '@/lib/aliyunVoiceApi';
 import { translateCategory, type UserMemory, memoryApi } from '@/services/memoryApi';
-import { fetchProfile } from '@/services/profileApi';
+import { bustAvatarCache, fetchProfile } from '@/services/profileApi';
 
 type TuneMessage = {
   id: string;
@@ -55,6 +58,13 @@ type Props = {
 };
 
 const cloneIntro = '学习你的语气、思维。和我说话，我会越来越像你。';
+
+const CLONE_INTRO_HERO_BG = require('@/assets/images/clone-optimize-hero-bg.png');
+
+/** 配合 resizeMode: cover，使底图满铺中间区域、上下可裁切 */
+const cloneIntroBgImageStyle = { width: '100%' as const, height: '100%' as const };
+
+const FALLBACK_AVATAR_LOCAL = require('@/assets/img/thomino.jpg');
 
 /** 专家通话：转写超过该时长无更新时，自动截断并发送（毫秒） */
 const EXPERT_ASR_IDLE_MS = 1000;
@@ -118,10 +128,21 @@ function sanitizeWorkflowErrorMessage(message: string): string {
   return m;
 }
 
+function resolveProfileAvatarSource(): ImageSourcePropType {
+  const u = peekProfileCache()?.avatar_url?.trim();
+  if (u) {
+    return { uri: preferHttpsMediaUrl(bustAvatarCache(u)) };
+  }
+  return FALLBACK_AVATAR_LOCAL;
+}
+
 export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { height: windowHeight } = useWindowDimensions();
+  const [tuneUserAvatar, setTuneUserAvatar] = useState<ImageSourcePropType>(() =>
+    resolveProfileAvatarSource()
+  );
 
   const submitMessageRef = useRef<(text: string) => void>(() => {});
   const expertCallOpenRef = useRef(false);
@@ -234,6 +255,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     expertWorkflowAbortRef.current?.abort();
     expertWorkflowAbortRef.current = null;
     setMessages([{ id: 'intro', role: 'clone', text: cloneIntro }]);
+    setTuneUserAvatar(resolveProfileAvatarSource());
 
     let cancelled = false;
     (async () => {
@@ -244,6 +266,17 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         putMemoryMemories(latest);
       } catch {
         /* ignore */
+      }
+      try {
+        const p = await fetchProfile();
+        if (cancelled) return;
+        putProfileCache(p);
+        const u = p.avatar_url?.trim();
+        setTuneUserAvatar(
+          u ? { uri: preferHttpsMediaUrl(bustAvatarCache(u)) } : FALLBACK_AVATAR_LOCAL
+        );
+      } catch {
+        /* 保持基于缓存的头像 */
       }
     })().catch(() => {});
 
@@ -741,9 +774,14 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setExpertCallMuted(false);
     try {
       const p = await fetchProfile();
+      putProfileCache(p);
       const v = p.voice_id?.trim() ?? '';
       setExpertVoiceId(v);
       expertVoiceIdRef.current = v;
+      const u = p.avatar_url?.trim();
+      setTuneUserAvatar(
+        u ? { uri: preferHttpsMediaUrl(bustAvatarCache(u)) } : FALLBACK_AVATAR_LOCAL
+      );
     } catch {
       setExpertVoiceId('');
       expertVoiceIdRef.current = '';
@@ -975,32 +1013,55 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         <View className="flex-1 bg-black/50">
           <Pressable className="flex-1" onPress={onRequestClose} />
           <View
-            className="overflow-hidden rounded-t-[32px] bg-[#1E1F23]"
+            className="overflow-hidden rounded-t-[30px] bg-[#1D1D1D]"
             style={{ height: sheetHeight, paddingTop: insets.top + 6 }}>
             <View className="relative items-center pb-4 pt-2">
-              <ThemedText className="text-[16px] font-semibold text-white">分身优化</ThemedText>
+              <ThemedText
+                className="text-white"
+                style={{ fontSize: 16, lineHeight: 20, fontWeight: '400' }}>
+                分身优化
+              </ThemedText>
               <Pressable
                 onPress={onRequestClose}
-                className="absolute right-4 top-0 h-10 w-10 items-center justify-center rounded-full bg-[#2A2E35]">
+                className="absolute right-4 top-0 h-10 w-10 items-center justify-center rounded-full bg-[#2B3239]">
                 <Icon name="X" size={18} color="#fff" />
               </Pressable>
             </View>
 
+            {messages.length === 1 ? (
+              <View className="min-h-0 flex-1 self-stretch">
+                <ImageBackground
+                  source={CLONE_INTRO_HERO_BG}
+                  resizeMode="cover"
+                  imageStyle={cloneIntroBgImageStyle}
+                  style={{
+                    flex: 1,
+                    width: '100%',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                  accessibilityLabel={cloneIntro}
+                  accessible>
+                  <ThemedText
+                    className="text-center text-white"
+                    style={{
+                      fontSize: 14,
+                      lineHeight: 20,
+                      fontWeight: '400',
+                      textAlign: 'center',
+                      paddingHorizontal: 24,
+                      maxWidth: 300,
+                    }}>
+                    {cloneIntro}
+                  </ThemedText>
+                </ImageBackground>
+              </View>
+            ) : (
             <ScrollView
-              className="px-4"
+              className="min-h-0 flex-1 px-4"
               contentContainerStyle={{ paddingBottom: 16 }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
-              {messages.length === 1 ? (
-                <View className="mb-6 mt-6 h-[360px] items-center justify-center overflow-hidden rounded-3xl">
-                  <View className="absolute h-56 w-56 rounded-full bg-[#57D4FF]/20" />
-                  <View className="absolute h-48 w-48 rounded-full bg-[#7C8CFF]/20" />
-                  <View className="absolute h-44 w-44 rounded-full bg-[#5AF0B6]/20" />
-                  <ThemedText className="px-6 text-center text-[15px] leading-7 text-[#E5E7EB]">
-                    {cloneIntro}
-                  </ThemedText>
-                </View>
-              ) : null}
               {messages.map((msg) => {
                 if (messages.length === 1 && msg.role === 'clone') return null;
                 if (msg.role === 'user') {
@@ -1097,6 +1158,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 </View>
               ) : null}
             </ScrollView>
+            )}
+
 
             {pendingMemory && !expertCallOpen ? (
               <View className="mb-3 mt-1 flex-row gap-3 px-4">
@@ -1183,9 +1246,11 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                   disabled={saving || !!pendingMemory || expertWorkflowLoading}
                   onPress={() => {
                     openExpertCall().catch(() => {});
-                  }}>
+                  }}
+                  accessibilityLabel="专家咨询"
+                  accessibilityRole="button">
                   <Image
-                    source={require('@/assets/img/thomino.jpg')}
+                    source={tuneUserAvatar}
                     className="h-full w-full"
                     resizeMode="cover"
                   />
@@ -1236,7 +1301,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
             {expertCallOpen ? (
               <View className="absolute inset-0 z-[60] rounded-t-[32px] bg-[#0c0d10]">
                 <Image
-                  source={require('@/assets/img/thomino.jpg')}
+                  source={tuneUserAvatar}
                   className="absolute inset-0 h-full w-full opacity-95"
                   resizeMode="cover"
                   blurRadius={Platform.OS === 'ios' ? 22 : 10}

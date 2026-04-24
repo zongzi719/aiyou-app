@@ -72,6 +72,8 @@ export function getGlobalBottomTabKey(
     pathname.startsWith('/screens/profile/') ||
     pathname === '/screens/edit-profile' ||
     pathname.startsWith('/screens/edit-profile/') ||
+    pathname === '/screens/account-center' ||
+    pathname.startsWith('/screens/account-center/') ||
     pathname === '/screens/subscription' ||
     pathname.startsWith('/screens/subscription/') ||
     pathname === '/screens/help' ||

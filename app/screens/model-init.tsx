@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   View,
   TouchableOpacity,
   ScrollView,
@@ -74,6 +75,10 @@ const MODEL_INIT_AVATAR_LOADING_SCREEN_BG = require('@/assets/images/backgrounds
 const MODEL_INIT_AVATAR_DONE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-avatar-done-screen.jpg');
 /** 声音采集全屏背景（由设计稿导出，JPEG 压缩） */
 const MODEL_INIT_VOICE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-voice-screen-bg.jpg');
+/** 「解析完成」全屏背景（设计 PNG） */
+const MODEL_INIT_COMPLETE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-complete-screen.png');
+/** 「深度访谈采集」引导页全屏背景（设计 PNG） */
+const MODEL_INIT_INTERVIEW_PREAMBLE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-interview-preamble.png');
 /** Figma Group 491 光效（intro 正中） */
 const MODEL_INIT_INTRO_GLOW = require('@/assets/images/model-init-intro-glow.png');
 const VOICE_MIC_PAUSE_IMG = require('@/assets/images/model-init-voice/voice-mic-pause.png');
@@ -110,6 +115,7 @@ type Phase =
   | 'avatarLoading'
   | 'avatarDone'
   | 'interviewPreamble'
+  | 'interviewPreamble2'
   | 'interview'
   | 'complete';
 
@@ -121,6 +127,7 @@ const MODEL_INIT_PHASE_SWIPE_ORDER: Phase[] = [
   'avatarLoading',
   'avatarDone',
   'interviewPreamble',
+  'interviewPreamble2',
   'interview',
   'complete',
 ];
@@ -517,8 +524,10 @@ function phaseToFilledSegments(phase: Phase): number {
       return 2;
     case 'avatarLoading':
     case 'avatarDone':
-      return 3;
+      return 2;
     case 'interviewPreamble':
+    case 'interviewPreamble2':
+      return 3;
     case 'interview':
     case 'complete':
       return 4;
@@ -543,8 +552,9 @@ function phaseTitle(phase: Phase): { n: string; label: string } | null {
       return { n: '2', label: '图像采集' };
     case 'avatarLoading':
     case 'avatarDone':
-      return { n: '3', label: '生成数字形象' };
+      return { n: '2', label: '生成数字形象' };
     case 'interviewPreamble':
+      return { n: '3', label: '深度访谈采集' };
     case 'interview':
       return { n: '4', label: '深度访谈' };
     case 'complete':
@@ -623,11 +633,18 @@ export default function ModelInitScreen() {
 
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const avatarAbortRef = useRef<AbortController | null>(null);
+  const interviewBridgeOpacity = useRef(new Animated.Value(0)).current;
   const { isRecording, isPaused, startRecording, stopRecording, pauseRecording, resumeRecording } =
     useRecording();
 
   const filled = phaseToFilledSegments(phase);
   const title = phaseTitle(phase);
+  /** 解析完成页：与 Figma 左对齐 34px 等比 */
+  const modelInitCompletePadX = useMemo(
+    () => Math.max(16, Math.round((34 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+    [layoutW]
+  );
+  const isInterviewPreambleLayout = phase === 'interviewPreamble' || phase === 'interviewPreamble2';
   const modelInitBackground = (() => {
     switch (phase) {
       case 'voice':
@@ -639,10 +656,12 @@ export default function ModelInitScreen() {
       case 'avatarDone':
         return MODEL_INIT_AVATAR_DONE_SCREEN_BG;
       case 'interviewPreamble':
+      case 'interviewPreamble2':
+        return MODEL_INIT_INTERVIEW_PREAMBLE_SCREEN_BG;
       case 'interview':
         return MODEL_INIT_INTERVIEW_BG;
       case 'complete':
-        return MODEL_INIT_HOME_BG;
+        return MODEL_INIT_COMPLETE_SCREEN_BG;
       case 'intro':
       default:
         return MODEL_INIT_HOME_BG;
@@ -839,8 +858,41 @@ export default function ModelInitScreen() {
   }, [hasExistingVoiceId, persistVoiceIdAndContinue, phase, voiceGateChecked]);
 
   const onBack = () => {
+    if (phase === 'interviewPreamble2') {
+      setPhase('interviewPreamble');
+      return;
+    }
     router.back();
   };
+
+  useEffect(() => {
+    if (phase !== 'interviewPreamble2') {
+      return;
+    }
+    interviewBridgeOpacity.setValue(0);
+    let cancelled = false;
+    const anim = Animated.sequence([
+      Animated.timing(interviewBridgeOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.delay(4000),
+      Animated.timing(interviewBridgeOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+    ]);
+    anim.start(({ finished }) => {
+      if (cancelled || !finished) return;
+      setInterviewRound(0);
+      setChatRows([
+        {
+          id: 'q1',
+          kind: 'ai',
+          text: '我们先从最根本的开始——你认为，一家企业能活得久，靠的是什么？',
+        },
+      ]);
+      setPhase('interview');
+    });
+    return () => {
+      cancelled = true;
+      interviewBridgeOpacity.stopAnimation();
+    };
+  }, [phase, interviewBridgeOpacity]);
 
   const startModelInit = () => {
     if (!voiceGateChecked) {
@@ -1313,6 +1365,18 @@ export default function ModelInitScreen() {
           resizeMode="cover"
           style={StyleSheet.absoluteFillObject}
         />
+      ) : phase === 'complete' ? (
+        <ImageBackground
+          source={MODEL_INIT_COMPLETE_SCREEN_BG}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : isInterviewPreambleLayout ? (
+        <ImageBackground
+          source={MODEL_INIT_INTERVIEW_PREAMBLE_SCREEN_BG}
+          resizeMode="cover"
+          style={StyleSheet.absoluteFillObject}
+        />
       ) : (
         <ImageBackground
           source={modelInitBackground}
@@ -1337,14 +1401,19 @@ export default function ModelInitScreen() {
           {phase === 'intro' ? (
             <View className="h-3" />
           ) : (
-            <View className="flex-row items-center justify-between px-4">
+            <View
+              className="flex-row items-center justify-between"
+              style={{
+                paddingHorizontal:
+                  phase === 'complete' || isInterviewPreambleLayout ? modelInitCompletePadX : 16,
+              }}>
               <TouchableOpacity
                 onPress={onBack}
                 hitSlop={12}
                 className="h-10 w-10 items-center justify-center rounded-full bg-white/10">
                 <Icon name="ArrowLeft" size={22} color={ACCENT_SOFT} />
               </TouchableOpacity>
-              {phase === 'interview' || phase === 'interviewPreamble' ? (
+              {phase === 'interview' ? (
                 <View className="flex-1 flex-row items-center justify-between pl-3">
                   <ThemedText className="text-sm font-bold" style={{ color: ACCENT }}>
                     阶段 {interviewRound >= 2 ? '4' : interviewRound === 0 ? '1' : '2'}/4
@@ -1360,35 +1429,85 @@ export default function ModelInitScreen() {
           )}
 
           {title && phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone' ? (
-            <View className="mt-2 px-4">
-              <ThemedText className="text-2xl font-bold">
-                <ThemedText style={{ color: ACCENT }}>{title.n} </ThemedText>
-                <ThemedText className="text-white">{title.label}</ThemedText>
-              </ThemedText>
-              <StepProgress filledSegments={filled} />
+            <View
+              className="mt-2"
+              style={{
+                paddingHorizontal:
+                  phase === 'complete' || phase === 'interviewPreamble' ? modelInitCompletePadX : 16,
+              }}>
+              {phase === 'complete' || phase === 'interviewPreamble' ? (
+                <>
+                  <View className="flex-row items-end" style={{ gap: 6 }}>
+                    <Text
+                      style={{
+                        fontSize: 24,
+                        fontWeight: '700',
+                        color: '#FFAD00',
+                        lineHeight: 29,
+                      }}>
+                      {title.n}
+                    </Text>
+                    <ThemedText className="text-base font-normal leading-5 text-white">{title.label}</ThemedText>
+                  </View>
+                  <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
+                    <ModelInitStepSegments filled={phase === 'complete' ? 4 : 3} />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <ThemedText className="text-2xl font-bold">
+                    <ThemedText style={{ color: ACCENT }}>{title.n} </ThemedText>
+                    <ThemedText className="text-white">{title.label}</ThemedText>
+                  </ThemedText>
+                  <StepProgress filledSegments={filled} />
+                </>
+              )}
             </View>
           ) : null}
 
           <ScrollView
-            className={`mt-4 flex-1 ${phase === 'intro' || phase === 'voice' || phase === 'image' || phase === 'avatarLoading' || phase === 'avatarDone' ? '' : 'px-4'}`}
+            className={`mt-4 flex-1 ${phase === 'intro' || phase === 'voice' || phase === 'image' || phase === 'avatarLoading' || phase === 'avatarDone' || phase === 'complete' || isInterviewPreambleLayout ? '' : 'px-4'}`}
+            style={
+              phase === 'complete' || isInterviewPreambleLayout
+                ? { paddingHorizontal: modelInitCompletePadX }
+                : undefined
+            }
             contentContainerStyle={
               phase === 'intro' ||
               phase === 'voice' ||
               phase === 'image' ||
               phase === 'avatarLoading' ||
-              phase === 'avatarDone'
+              phase === 'avatarDone' ||
+              phase === 'complete' ||
+              isInterviewPreambleLayout
                 ? { flexGrow: 1 }
                 : undefined
             }
             keyboardShouldPersistTaps="handled"
             scrollEnabled={
-              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+              phase !== 'voice' &&
+              phase !== 'image' &&
+              phase !== 'avatarLoading' &&
+              phase !== 'avatarDone' &&
+              phase !== 'complete' &&
+              phase !== 'interviewPreamble' &&
+              phase !== 'interviewPreamble2'
             }
             bounces={
-              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+              phase !== 'voice' &&
+              phase !== 'image' &&
+              phase !== 'avatarLoading' &&
+              phase !== 'avatarDone' &&
+              phase !== 'interviewPreamble' &&
+              phase !== 'interviewPreamble2'
             }
             alwaysBounceVertical={
-              phase !== 'voice' && phase !== 'image' && phase !== 'avatarLoading' && phase !== 'avatarDone'
+              phase !== 'voice' &&
+              phase !== 'image' &&
+              phase !== 'avatarLoading' &&
+              phase !== 'avatarDone' &&
+              phase !== 'interviewPreamble' &&
+              phase !== 'interviewPreamble2'
             }
             showsVerticalScrollIndicator={false}>
             {phase === 'intro' ? (
@@ -1408,7 +1527,12 @@ export default function ModelInitScreen() {
                 <ThemedText className="mt-3 text-base font-normal leading-[22px] text-white">
                   从今天起，拥有另一个自己
                 </ThemedText>
-                <View className="mt-auto w-full" style={{ paddingTop: Math.max(24, Math.round(0.04 * layoutH)) }}>
+                <View
+                  className="mt-auto w-full"
+                  style={{
+                    paddingTop: Math.max(24, Math.round(0.04 * layoutH)),
+                    marginBottom: 30,
+                  }}>
                   <IntroStartButton onPress={startModelInit} />
                 </View>
               </View>
@@ -1676,7 +1800,7 @@ export default function ModelInitScreen() {
                       <ThemedText className="text-base font-normal leading-5 text-white">{title.label}</ThemedText>
                     </View>
                     <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
-                      <ModelInitStepSegments filled={3} thirdSegmentPartial />
+                      <ModelInitStepSegments filled={2} />
                     </View>
                   </View>
                 ) : null}
@@ -1800,7 +1924,7 @@ export default function ModelInitScreen() {
                       <ThemedText className="text-base font-normal leading-5 text-white">{title.label}</ThemedText>
                     </View>
                     <View style={{ marginTop: voiceStepY(10, layoutH), alignSelf: 'flex-start' }}>
-                      <ModelInitStepSegments filled={3} thirdSegmentPartial />
+                      <ModelInitStepSegments filled={2} />
                     </View>
                   </View>
                 ) : null}
@@ -1874,29 +1998,111 @@ export default function ModelInitScreen() {
             ) : null}
 
             {phase === 'interviewPreamble' ? (
-              <View className="pb-8 pt-4">
-                <ThemedText className="text-center text-lg font-semibold leading-8 text-white">
-                  形象和声音，只是开始。{'\n'}真正的你，藏在接下来的回答里。
-                </ThemedText>
-                <ThemedText className="text-white/55 mt-6 text-center text-sm">
-                  我们随便聊聊，不用想太久。您准备好了吗？
-                </ThemedText>
-                <View className="mt-12">
-                  <GoldButton
+              <View
+                className="flex-1"
+                style={{
+                  minHeight: Math.max(400, layoutH - insets.top - insets.bottom - 120),
+                  justifyContent: 'space-between',
+                  paddingTop: Math.max(0, Math.round((95 / MODEL_INIT_INTRO_FRAME.h) * layoutH)),
+                }}>
+                <View
+                  style={{
+                    maxWidth: Math.min(340, Math.round((334 / MODEL_INIT_INTRO_FRAME.w) * layoutW)),
+                    alignSelf: 'flex-start',
+                  }}>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      fontSize: 24,
+                      lineHeight: 34,
+                      fontWeight: '400',
+                      textAlign: 'left',
+                    }}>
+                    形象和声音，只是开始。{'\n'}
+                    真正的你，藏在接下来的回答里。
+                  </ThemedText>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      marginTop: Math.max(0, Math.round((76 / MODEL_INIT_INTRO_FRAME.h) * layoutH)),
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      textAlign: 'left',
+                    }}>
+                    我们随便聊聊，不用想太久。
+                  </ThemedText>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      marginTop: 5,
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      textAlign: 'left',
+                    }}>
+                    您准备好了吗？
+                  </ThemedText>
+                </View>
+                <View style={{ width: '100%', marginBottom: 50 }}>
+                  <ImageStepPrimaryButton
                     label="下一步"
                     onPress={() => {
-                      setInterviewRound(0);
-                      setChatRows([
-                        {
-                          id: 'q1',
-                          kind: 'ai',
-                          text: '我们先从最根本的开始——你认为，一家企业能活得久，靠的是什么？',
-                        },
-                      ]);
-                      setPhase('interview');
+                      setPhase('interviewPreamble2');
                     }}
                   />
                 </View>
+              </View>
+            ) : null}
+
+            {phase === 'interviewPreamble2' ? (
+              <View
+                className="flex-1"
+                style={{
+                  minHeight: Math.max(400, layoutH - insets.top - insets.bottom - 120),
+                  justifyContent: 'center',
+                  paddingVertical: Math.max(8, Math.round((16 / MODEL_INIT_INTRO_FRAME.h) * layoutH)),
+                }}>
+                <Animated.View style={{ opacity: interviewBridgeOpacity }}>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      fontSize: 24,
+                      lineHeight: 34,
+                      fontWeight: '400',
+                      textAlign: 'center',
+                      alignSelf: 'center',
+                      maxWidth: 310,
+                    }}>
+                    你回答的每一句话，都会成为它理解你的方式。
+                  </ThemedText>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      marginTop: Math.max(0, Math.round((111 / MODEL_INIT_INTRO_FRAME.h) * layoutH)),
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      textAlign: 'center',
+                      alignSelf: 'center',
+                      maxWidth: 278,
+                    }}>
+                    谢谢你愿意把时间交给另一个自己。
+                  </ThemedText>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      marginTop: 5,
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      textAlign: 'center',
+                      alignSelf: 'center',
+                      maxWidth: 293,
+                    }}>
+                    接下来的对话没有对错，只有真实。
+                  </ThemedText>
+                </Animated.View>
               </View>
             ) : null}
 
@@ -1958,15 +2164,38 @@ export default function ModelInitScreen() {
             ) : null}
 
             {phase === 'complete' ? (
-              <View className="items-center pt-8">
-                <ThemedText className="text-center text-3xl font-bold text-white">
-                  恭喜你！
-                </ThemedText>
-                <ThemedText className="mt-6 px-2 text-center text-sm leading-7 text-white/75">
-                  已完成初次见面沟通，接下来将根据你上传的所有数据生成老板数字记忆模型。
-                </ThemedText>
-                <View className="mt-14 w-full">
-                  <GoldButton
+              <View
+                className="flex-1"
+                style={{
+                  minHeight: Math.max(400, layoutH - insets.top - insets.bottom - 120),
+                  justifyContent: 'space-between',
+                  paddingTop: Math.max(0, Math.round((49 / MODEL_INIT_INTRO_FRAME.h) * layoutH)),
+                }}>
+                <View style={{ maxWidth: Math.min(300, Math.round((280 / MODEL_INIT_INTRO_FRAME.w) * layoutW)) }}>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      fontSize: 40,
+                      lineHeight: 50,
+                      fontWeight: '400',
+                      textAlign: 'left',
+                    }}>
+                    恭喜你！
+                  </ThemedText>
+                  <ThemedText
+                    className="text-white"
+                    style={{
+                      marginTop: 20,
+                      fontSize: 16,
+                      lineHeight: 22,
+                      fontWeight: '400',
+                      textAlign: 'left',
+                    }}>
+                    已完成初次见面沟通，接下来将根据你上传的所有数据生成老板数字记忆模型。
+                  </ThemedText>
+                </View>
+                <View style={{ width: '100%', marginBottom: 50 }}>
+                  <ImageStepPrimaryButton
                     label="开始"
                     onPress={() => {
                       if (isPostLoginOnboarding) {

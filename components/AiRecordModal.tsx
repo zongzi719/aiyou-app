@@ -37,8 +37,9 @@ import {
 import { setPendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 
 const GOLD = '#F5D34F';
+const ACCENT_GOLD = '#AA873C';
 /** 白底 / 金底按钮上的文字，避免与 ThemedText 默认 text-primary 冲突导致看不清 */
-const CYAN_GLOW = 'rgba(34, 211, 238, 0.45)';
+const SHEET_BG = '#1D1D1D';
 
 const SUGGESTION_ROUNDS: string[][] = [
   ['明天下午三点钟开会', '提醒我准备产品演讲'],
@@ -92,7 +93,10 @@ function joinVoiceParts(...parts: string[]): string {
 export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  /** 与稿一致：Frame 1597880490 366×463@26px 圆角；小屏不超出视窗 */
+  const mainCardW = Math.min(366, windowWidth - 32);
+  const mainCardH = Math.max(300, Math.min(463, windowHeight - insets.top - 210));
 
   /** 首次语音前输入框原文；voiceAccumulated 非空后保持不变 */
   const preVoiceTextRef = useRef('');
@@ -139,6 +143,9 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const [result, setResult] = useState<ModalResult | null>(null);
   const [suggestionRound, setSuggestionRound] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  /** 未点「点击录音」前不展示输入框与发起点工具栏，仅展示引导与示例 */
+  const [showComposer, setShowComposer] = useState(false);
+  const textInputRef = useRef<TextInput | null>(null);
 
   const suggestions = useMemo(
     () => SUGGESTION_ROUNDS[suggestionRound % SUGGESTION_ROUNDS.length],
@@ -153,6 +160,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setResult(null);
       setSuggestionRound(0);
       setIsSaving(false);
+      setShowComposer(false);
       preVoiceTextRef.current = '';
       voiceAccumulatedRef.current = '';
       setPendingAudioUrl(null);
@@ -160,6 +168,14 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       wasVoiceStreamingRef.current = false;
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!showComposer || !visible) return;
+    const t = setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [showComposer, visible]);
 
   /** 正在聆听时关闭弹窗：强制中断识别并清空输入与语音缓存 */
   const abortVoiceIfListeningAndClearDraft = useCallback(async () => {
@@ -187,6 +203,10 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   }, [abortVoiceIfListeningAndClearDraft, onRequestClose]);
 
   const handleMicPress = useCallback(async () => {
+    if (!showComposer) {
+      setShowComposer(true);
+      return;
+    }
     try {
       if (!isVoiceStreaming) {
         if (!voiceAccumulatedRef.current.trim()) {
@@ -202,7 +222,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setVoicePhase('idle');
       Alert.alert('录音失败', e instanceof Error ? e.message : '请检查麦克风权限后重试');
     }
-  }, [isVoiceStreaming, draft, startStreaming, stopStreaming]);
+  }, [showComposer, isVoiceStreaming, draft, startStreaming, stopStreaming]);
 
   const isLikelyChatIntent = useCallback((text: string) => {
     const t = text.trim();
@@ -349,75 +369,122 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   }, [closeAll, isSaving, rawSubmitted, result, pendingAudioUrl]);
 
   const renderInput = () => (
-    <View className="px-1 pb-2">
-      <View
-        className="border-cyan-500/35 overflow-hidden rounded-3xl border bg-neutral-900/95"
-        style={styles.cardGlow}>
-        <View className="px-4 pb-3 pt-4">
-          <ThemedText className="text-[15px] leading-6 text-white/90">
-            今天有什么灵感/安排事项？告诉我，可以帮你生成
+    <View
+      className="items-center pb-2"
+      style={{ paddingHorizontal: 3, alignItems: 'center' }}>
+      <View style={[styles.figmaCard, { width: mainCardW, height: mainCardH }]}>
+        <LinearGradient
+          colors={['#161a1f', '#0c0e12', '#0a1218', '#102230', '#0d1f2d']}
+          locations={[0, 0.22, 0.45, 0.72, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={['transparent', 'rgba(20, 55, 72, 0.2)', 'rgba(30, 90, 100, 0.18)']}
+          locations={[0, 0.4, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.cardBottomGlow}
+          pointerEvents="none"
+        />
+        <View
+          style={{
+            flex: 1,
+            zIndex: 1,
+            paddingTop: 20,
+            paddingBottom: 16,
+            paddingHorizontal: 20,
+            justifyContent: 'flex-start',
+          }}>
+          <ThemedText
+            className="text-white"
+            style={{ fontSize: 20, lineHeight: 28, fontWeight: '400' }}>
+            今天有什么灵感/安排事项？
           </ThemedText>
-        </View>
-        <View className="flex-row flex-wrap gap-2 px-4">
-          {suggestions.map((s) => (
-            <Pressable
-              key={s}
-              onPress={() => setDraft(s)}
-              className="rounded-full border border-white/10 bg-white/10 px-3 py-2 active:opacity-80">
-              <ThemedText className="text-white/85 text-xs" numberOfLines={2}>
-                {s}
-              </ThemedText>
-            </Pressable>
-          ))}
-        </View>
-        <Pressable
-          onPress={() => setSuggestionRound((i) => i + 1)}
-          className="flex-row items-center gap-1 self-end px-4 py-2 active:opacity-70"
-          accessibilityRole="button"
-          accessibilityLabel="换一批示例">
-          <Icon name="RefreshCw" size={14} color="rgba(255,255,255,0.55)" />
-          <ThemedText className="text-white/55 text-xs">换一批</ThemedText>
-        </Pressable>
-        <View className="px-3 pb-3">
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={isVoiceStreaming ? '正在聆听…' : '在此输入，或点击下方麦克风'}
-            placeholderTextColor="rgba(255,255,255,0.85)"
-            multiline
-            className="min-h-[240px] rounded-2xl border border-white/10 bg-black/40 px-3 py-3 text-[15px] text-white"
-            style={{ color: '#ffffff' }}
-            textAlignVertical="top"
-          />
-          <View className="mt-3 flex-row items-center justify-between px-1">
-            <View className="flex-row gap-3">
+          <ThemedText
+            className="text-white"
+            style={{ fontSize: 20, lineHeight: 28, fontWeight: '400', marginTop: 2 }}>
+            告诉我，可以帮你生成
+          </ThemedText>
+
+          <View className="mt-4 flex-row flex-wrap" style={{ gap: 10 }}>
+            {suggestions.map((s) => (
               <Pressable
-                hitSlop={8}
-                onPress={() => Alert.alert('即将推出', '图片速记将在后续版本开放。')}
-                accessibilityRole="button"
-                accessibilityLabel="图片">
-                <Icon name="Image" size={22} color="rgba(255,255,255,0.65)" strokeWidth={1.6} />
+                key={s}
+                onPress={() => setDraft(s)}
+                className="rounded-full border px-3 py-2.5 active:opacity-80"
+                style={{ borderColor: 'rgba(255,255,255,0.28)' }}>
+                <ThemedText
+                  style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 18 }}
+                  numberOfLines={2}>
+                  {s}
+                </ThemedText>
               </Pressable>
-              <Pressable
-                hitSlop={8}
-                onPress={() => Alert.alert('即将推出', '链接摘录将在后续版本开放。')}
-                accessibilityRole="button"
-                accessibilityLabel="链接">
-                <Icon name="Link" size={22} color="rgba(255,255,255,0.65)" strokeWidth={1.6} />
-              </Pressable>
-            </View>
-            <Pressable
-              onPress={() => {
-                runAnalyze(draft);
-              }}
-              disabled={isVoiceStreaming}
-              className="active:opacity-85 h-11 w-11 items-center justify-center rounded-full"
-              style={{ backgroundColor: GOLD }}
-              accessibilityRole="button"
-              accessibilityLabel="提交分析">
-              <Icon name="ArrowUp" size={22} color="#ffffff" strokeWidth={2.2} />
-            </Pressable>
+            ))}
           </View>
+
+          <Pressable
+            onPress={() => setSuggestionRound((i) => i + 1)}
+            className="mt-2 flex-row items-center gap-1.5 self-start active:opacity-70"
+            accessibilityRole="button"
+            accessibilityLabel="换一批示例">
+            <ThemedText style={{ color: '#8a8a8a', fontSize: 10, lineHeight: 12 }}>换一批</ThemedText>
+            <Icon name="RefreshCw" size={12} color="#8a8a8a" />
+          </Pressable>
+
+          {showComposer ? (
+            <View className="mt-3" style={{ flex: 1, minHeight: 0 }}>
+              <TextInput
+                ref={textInputRef}
+                value={draft}
+                onChangeText={setDraft}
+                placeholder={isVoiceStreaming ? '正在聆听…' : '在此输入，或点击下方麦克风'}
+                placeholderTextColor="rgba(165,165,165,0.75)"
+                multiline
+                className="rounded-2xl border px-3 py-3 text-[15px] text-white"
+                style={{
+                  flex: 1,
+                  minHeight: 100,
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  backgroundColor: 'rgba(0,0,0,0.3)',
+                  color: '#ffffff',
+                }}
+                textAlignVertical="top"
+              />
+              <View className="mt-3 flex-row items-center justify-between">
+                <View className="flex-row" style={{ gap: 10 }}>
+                  <Pressable
+                    onPress={() => Alert.alert('即将推出', '图片速记将在后续版本开放。')}
+                    accessibilityRole="button"
+                    accessibilityLabel="图片"
+                    style={styles.cardIconCircle}>
+                    <Icon name="Image" size={18} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => Alert.alert('即将推出', '链接摘录将在后续版本开放。')}
+                    accessibilityRole="button"
+                    accessibilityLabel="链接"
+                    style={styles.cardIconCircle}>
+                    <Icon name="Link" size={18} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
+                  </Pressable>
+                </View>
+                <Pressable
+                  onPress={() => {
+                    runAnalyze(draft);
+                  }}
+                  disabled={isVoiceStreaming}
+                  className="active:opacity-85 h-10 w-10 items-center justify-center rounded-full"
+                  style={{ backgroundColor: ACCENT_GOLD }}
+                  accessibilityRole="button"
+                  accessibilityLabel="提交分析">
+                  <Icon name="ArrowUp" size={20} color="#ffffff" strokeWidth={2.2} />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={{ flex: 1, minHeight: 40, marginTop: 4 }} />
+          )}
         </View>
       </View>
 
@@ -427,9 +494,9 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             handleMicPress().catch(() => {});
           }}
           accessibilityRole="button"
-          accessibilityLabel="语音输入">
+          accessibilityLabel={showComposer ? '语音输入' : '点击以显示输入并录音'}>
           <LinearGradient
-            colors={['#F5D34F', '#1e293b', '#0ea5e9']}
+            colors={['#C9A227', '#4c1d95', '#0e7490', '#AA873C']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.micOrb}>
@@ -441,7 +508,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             />
           </LinearGradient>
         </Pressable>
-        <ThemedText className="mt-3 text-xs" style={{ color: '#ffffff' }}>
+        <ThemedText className="mt-3" style={{ color: '#A5A5A5', fontSize: 15, lineHeight: 18 }}>
           {voicePhase === 'finalizing'
             ? '正在识别语音…'
             : isVoiceStreaming
@@ -650,6 +717,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
           setResult(null);
           setPhase('input');
           setDraft(rawSubmitted);
+          setShowComposer(true);
         }}
         className="border-white/35 active:opacity-85 flex-1 items-center rounded-full border py-3"
         accessibilityRole="button"
@@ -696,7 +764,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
                 },
               ]}>
               <View className="relative shrink-0 flex-row items-center justify-center px-4 pb-3 pt-4">
-                <ThemedText className="text-base font-semibold text-white">AI记录</ThemedText>
+                <ThemedText
+                  className="text-center text-white"
+                  style={{ fontSize: 16, lineHeight: 20, fontWeight: '400' }}>
+                  AI记录
+                </ThemedText>
                 <Pressable
                   onPress={closeAll}
                   hitSlop={12}
@@ -757,10 +829,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
-    borderRadius: 28,
-    backgroundColor: '#0a0a0a',
+    borderRadius: 30,
+    backgroundColor: SHEET_BG,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.08)',
     overflow: 'hidden',
   },
   sheetBody: {
@@ -770,21 +842,38 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 12,
   },
-  cardGlow: {
-    shadowColor: CYAN_GLOW,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 14,
-    elevation: 12,
+  figmaCard: {
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignSelf: 'center',
+    overflow: 'hidden',
+  },
+  cardBottomGlow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 200,
+  },
+  cardIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.28)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   micOrb: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   footerBtnLabelLight: {
     fontSize: 14,
