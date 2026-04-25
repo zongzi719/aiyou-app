@@ -71,6 +71,9 @@ export const DECISION_COACHES: DecisionCoachProfile[] = [
 ];
 
 const STORAGE_KEY = 'luna_decision_coach_thread_map_v1';
+const PAGE_THREAD_STORAGE_KEY = 'luna_decision_page_thread_id_v1';
+const DECISION_REQUEST_TIMEOUT_MS = 120_000;
+const DECISION_TIMEOUT_RETRY_COUNT = 1;
 
 function joinUrl(base: string, path: string): string {
   const b = base.replace(/\/$/, '');
@@ -102,39 +105,74 @@ async function saveThreadMap(map: Record<string, string>): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 }
 
-async function postJson(
+async function loadPageThreadId(): Promise<string | null> {
+  const raw = await AsyncStorage.getItem(PAGE_THREAD_STORAGE_KEY);
+  const trimmed = raw?.trim();
+  return trimmed ? trimmed : null;
+}
+
+async function savePageThreadId(threadId: string): Promise<void> {
+  await AsyncStorage.setItem(PAGE_THREAD_STORAGE_KEY, threadId);
+}
+
+async function requestJson(
+  method: 'GET' | 'POST',
   path: string,
-  body: unknown
+  body?: unknown
 ): Promise<{ status: number; json: unknown; text: string }> {
   const base = await getApiBaseUrl();
   const headers = await getPrivateChatAuthHeaders();
   const url = joinUrl(base, path);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { ...headers, Accept: 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if ((err as { name?: string })?.name === 'AbortError') {
-      throw new Error('请求超时，请稍后重试');
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= DECISION_TIMEOUT_RETRY_COUNT; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DECISION_REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { ...headers, Accept: 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let json: unknown = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+      return { status: res.status, json, text };
+    } catch (err) {
+      lastError = err;
+      const isTimeout = (err as { name?: string })?.name === 'AbortError';
+      if (!isTimeout || attempt >= DECISION_TIMEOUT_RETRY_COUNT) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    } finally {
+      clearTimeout(timeout);
     }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
   }
-  const text = await res.text();
-  let json: unknown = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
+
+  if ((lastError as { name?: string } | null)?.name === 'AbortError') {
+    throw new Error('请求超时，请稍后重试');
   }
-  return { status: res.status, json, text };
+  throw lastError;
+}
+
+async function postJson(
+  path: string,
+  body: unknown
+): Promise<{ status: number; json: unknown; text: string }> {
+  return requestJson('POST', path, body);
+}
+
+async function getJson(path: string): Promise<{ status: number; json: unknown; text: string }> {
+  return requestJson('GET', path);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeAiContent(content: unknown): string {
@@ -142,15 +180,44 @@ function normalizeAiContent(content: unknown): string {
   if (content && typeof content === 'object' && !Array.isArray(content)) {
     const o = content as Record<string, unknown>;
     if (typeof o.text === 'string') return o.text;
-    if (o.type === 'text' && typeof o.text === 'string') return o.text;
+    if (typeof o.text === 'object' && o.text && typeof (o.text as Record<string, unknown>).value === 'string') {
+      return ((o.text as Record<string, unknown>).value as string) ?? '';
+    }
+    if (typeof o.content === 'string') return o.content;
+    if (
+      typeof o.content === 'object' &&
+      o.content &&
+      typeof (o.content as Record<string, unknown>).value === 'string'
+    ) {
+      return ((o.content as Record<string, unknown>).value as string) ?? '';
+    }
+    if ((o.type === 'text' || o.type === 'output_text') && typeof o.text === 'string') return o.text;
   }
   if (!Array.isArray(content)) return '';
   return content
     .map((part) => {
       if (typeof part === 'string') return part;
-      if (part && typeof part === 'object' && 'type' in part) {
-        const p = part as { type?: string; text?: string };
-        if (p.type === 'text' && typeof p.text === 'string') return p.text;
+      if (part && typeof part === 'object') {
+        const p = part as { type?: string; text?: string; content?: string };
+        if (typeof p.text === 'string') return p.text;
+        if (typeof p.content === 'string') return p.content;
+        if (
+          typeof (part as Record<string, unknown>).text === 'object' &&
+          (part as Record<string, unknown>).text &&
+          typeof ((part as Record<string, unknown>).text as Record<string, unknown>).value === 'string'
+        ) {
+          return (((part as Record<string, unknown>).text as Record<string, unknown>).value as string) ?? '';
+        }
+        if (
+          typeof (part as Record<string, unknown>).content === 'object' &&
+          (part as Record<string, unknown>).content &&
+          typeof ((part as Record<string, unknown>).content as Record<string, unknown>).value === 'string'
+        ) {
+          return (((part as Record<string, unknown>).content as Record<string, unknown>).value as string) ?? '';
+        }
+        if ((p.type === 'text' || p.type === 'output_text') && typeof p.text === 'string') {
+          return p.text;
+        }
       }
       return '';
     })
@@ -204,6 +271,195 @@ function extractLastAiTextFromMessages(messages: unknown): string {
   return '';
 }
 
+function extractAiTextFromRunPayload(json: unknown): string {
+  const root = asRecord(json);
+  if (!root) return '';
+  const threadData = asRecord(root.thread_data);
+  const candidates: unknown[] = [
+    root.messages,
+    threadData?.messages,
+    asRecord(threadData?.values)?.messages,
+    asRecord(root.output)?.messages,
+    asRecord(root.values)?.messages,
+    asRecord(asRecord(root.state)?.values)?.messages,
+    asRecord(asRecord(root.data)?.output)?.messages,
+  ];
+  for (const c of candidates) {
+    const text = extractLastAiTextFromMessages(c).trim();
+    if (text) return text;
+  }
+  const outputText = (root.output_text ?? asRecord(root.output)?.text) as string | undefined;
+  if (typeof outputText === 'string' && outputText.trim()) return outputText.trim();
+  const artifactText = extractTextFromArtifacts(root.artifacts);
+  if (artifactText) return artifactText;
+  const deepText = extractAiTextFromAnyNestedMessages(root);
+  if (deepText) return deepText;
+  return '';
+}
+
+function extractClarificationFromRunPayload(json: unknown): string {
+  const root = asRecord(json);
+  if (!root) return '';
+  const threadData = asRecord(root.thread_data);
+  const candidates: unknown[] = [
+    root.messages,
+    threadData?.messages,
+    asRecord(threadData?.values)?.messages,
+    asRecord(root.output)?.messages,
+    asRecord(root.values)?.messages,
+    asRecord(asRecord(root.state)?.values)?.messages,
+    asRecord(asRecord(root.data)?.output)?.messages,
+  ];
+  for (const c of candidates) {
+    const text = extractAskClarificationText(c).trim();
+    if (text) return text;
+  }
+  if (root) {
+    const deep = extractClarificationFromAnyNestedMessages(root);
+    if (deep) return deep;
+  }
+  return '';
+}
+
+function extractAiTextFromAnyNestedMessages(root: Record<string, unknown>): string {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [root];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const text = extractLastAiTextFromMessages(cur).trim();
+      if (text) return text;
+      for (let i = cur.length - 1; i >= 0; i -= 1) stack.push(cur[i]);
+      continue;
+    }
+    const rec = asRecord(cur);
+    if (!rec) continue;
+    const directMessages = rec.messages;
+    if (Array.isArray(directMessages)) {
+      const text = extractLastAiTextFromMessages(directMessages).trim();
+      if (text) return text;
+    }
+    for (const value of Object.values(rec)) stack.push(value);
+  }
+  return '';
+}
+
+function extractClarificationFromAnyNestedMessages(root: Record<string, unknown>): string {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [root];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur || seen.has(cur)) continue;
+    seen.add(cur);
+    if (Array.isArray(cur)) {
+      const text = extractAskClarificationText(cur).trim();
+      if (text) return text;
+      for (let i = cur.length - 1; i >= 0; i -= 1) stack.push(cur[i]);
+      continue;
+    }
+    const rec = asRecord(cur);
+    if (!rec) continue;
+    const directMessages = rec.messages;
+    if (Array.isArray(directMessages)) {
+      const text = extractAskClarificationText(directMessages).trim();
+      if (text) return text;
+    }
+    for (const value of Object.values(rec)) stack.push(value);
+  }
+  return '';
+}
+
+function extractRunErrorHint(json: unknown): string {
+  const root = asRecord(json);
+  if (!root) return '';
+  const threadData = asRecord(root.thread_data);
+  const candidates: unknown[] = [
+    root.error,
+    root.detail,
+    root.message,
+    threadData?.error,
+    threadData?.detail,
+    threadData?.message,
+    asRecord(threadData?.last_error)?.message,
+    asRecord(root.last_error)?.message,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return c.trim().slice(0, 120);
+  }
+  return '';
+}
+
+function extractTextFromArtifacts(artifacts: unknown): string {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [artifacts];
+  const candidates: string[] = [];
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur || seen.has(cur)) continue;
+    seen.add(cur);
+    if (typeof cur === 'string') {
+      const t = cur.trim();
+      if (t.length >= 12) candidates.push(t);
+      continue;
+    }
+    if (Array.isArray(cur)) {
+      for (let i = cur.length - 1; i >= 0; i -= 1) stack.push(cur[i]);
+      continue;
+    }
+    const rec = asRecord(cur);
+    if (!rec) continue;
+    const favoredKeys = ['content', 'text', 'markdown', 'answer', 'final', 'output', 'report', 'summary'];
+    for (const k of favoredKeys) {
+      if (k in rec) stack.push(rec[k]);
+    }
+    for (const v of Object.values(rec)) stack.push(v);
+  }
+  if (candidates.length === 0) return '';
+  candidates.sort((a, b) => b.length - a.length);
+  return candidates[0] ?? '';
+}
+
+function extractAskClarificationText(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = asRecord(messages[i]);
+    if (!m) continue;
+    const kwargs = asRecord(m.kwargs);
+    const src = kwargs ?? m;
+    const type = typeof src.type === 'string' ? src.type : '';
+    const role = typeof src.role === 'string' ? src.role : '';
+    const isAi = type === 'ai' || type === 'assistant' || role === 'assistant' || role === 'ai';
+    if (!isAi) continue;
+    const additional = asRecord((src as Record<string, unknown>).additional_kwargs);
+    const toolCalls = (additional?.tool_calls ?? (src as Record<string, unknown>).tool_calls) as
+      | unknown[]
+      | undefined;
+    if (!Array.isArray(toolCalls)) continue;
+    for (const tc of toolCalls) {
+      const call = asRecord(tc);
+      const fn = asRecord(call?.function);
+      const name = (fn?.name ?? call?.name) as string | undefined;
+      if (name !== 'ask_clarification') continue;
+      const argsRaw = (fn?.arguments ?? call?.arguments) as string | undefined;
+      if (!argsRaw) continue;
+      try {
+        const args = JSON.parse(argsRaw) as Record<string, unknown>;
+        const q = typeof args.question === 'string' ? args.question.trim() : '';
+        const options = Array.isArray(args.options)
+          ? args.options.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+          : [];
+        if (q && options.length > 0) return `${q}\n可选项：${options.join(' / ')}`;
+        if (q) return q;
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+  return '';
+}
+
 async function imageUriToDataUrl(uri: string): Promise<string> {
   const compressed = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 1024 } }], {
     compress: 0.65,
@@ -241,15 +497,92 @@ export async function ensureDecisionCoachThreads(
 ): Promise<Record<string, string>> {
   const map = await loadThreadMap();
   const next = { ...map };
-  for (const coachId of coachIds) {
-    if (next[coachId]) continue;
-    const tid = await createDecisionCoachThread(coachId);
-    next[coachId] = tid;
+  const missingCoachIds = coachIds.filter((coachId) => !next[coachId]);
+  if (missingCoachIds.length > 0) {
+    const created = await Promise.all(
+      missingCoachIds.map(async (coachId) => {
+        const tid = await createDecisionCoachThread(coachId);
+        return [coachId, tid] as const;
+      })
+    );
+    for (const [coachId, tid] of created) {
+      next[coachId] = tid;
+    }
   }
   if (JSON.stringify(next) !== JSON.stringify(map)) {
     await saveThreadMap(next);
   }
   return next;
+}
+
+async function replaceDecisionCoachThread(coachId: string): Promise<string> {
+  const map = await loadThreadMap();
+  const tid = await createDecisionCoachThread(coachId);
+  map[coachId] = tid;
+  await saveThreadMap(map);
+  return tid;
+}
+
+export type DecisionPageStateValues = {
+  decision_turns?: unknown;
+  decision_coach_thread_ids?: Record<string, string>;
+  decision_selected_coach_ids?: string[];
+};
+
+async function createDecisionPageThread(threadId: string): Promise<string> {
+  const session = await getAuthSession();
+  if (!session.userId) throw new Error('缺少 user_id');
+  const { status, json, text } = await postJson('/api/threads', {
+    thread_id: threadId,
+    metadata: {
+      is_decision_page: 'true',
+      user_id: session.userId,
+    },
+  });
+  if (status < 200 || status >= 300) {
+    const detail =
+      (asRecord(json)?.detail as string | undefined) ??
+      (asRecord(json)?.message as string | undefined) ??
+      text.slice(0, 200) ??
+      `HTTP ${status}`;
+    throw new Error(`创建决策页面线程失败：${detail}`);
+  }
+  const tid = (asRecord(json)?.thread_id as string | undefined) ?? threadId;
+  return tid;
+}
+
+export async function ensureDecisionPageThread(preferredThreadId?: string): Promise<string> {
+  const existing = preferredThreadId?.trim() || (await loadPageThreadId());
+  if (existing) {
+    await savePageThreadId(existing);
+    return existing;
+  }
+  const generated = `decision_page_${Date.now()}`;
+  const tid = await createDecisionPageThread(generated);
+  await savePageThreadId(tid);
+  return tid;
+}
+
+export async function loadDecisionPageState(pageThreadId: string): Promise<DecisionPageStateValues | null> {
+  const { status, json } = await getJson(`/api/threads/${encodeURIComponent(pageThreadId)}/state`);
+  if (status < 200 || status >= 300) return null;
+  const root = asRecord(json);
+  const values = asRecord(root?.values);
+  if (!values) return null;
+  return {
+    decision_turns: values.decision_turns,
+    decision_coach_thread_ids: asRecord(values.decision_coach_thread_ids) as Record<string, string> | undefined,
+    decision_selected_coach_ids: Array.isArray(values.decision_selected_coach_ids)
+      ? values.decision_selected_coach_ids.filter((x): x is string => typeof x === 'string')
+      : undefined,
+  };
+}
+
+export async function persistDecisionPageState(
+  pageThreadId: string,
+  values: DecisionPageStateValues
+): Promise<void> {
+  await postJson(`/api/threads/${encodeURIComponent(pageThreadId)}/state`, { values });
 }
 
 type ContentPart =
@@ -335,15 +668,60 @@ async function runDecisionCoachWait(args: {
   );
 
   if (status < 200 || status >= 300) {
+    if (status === 502 || status === 503 || status === 504) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (attempt > 0) await sleep(1200);
+        const stateRes = await getJson(`/api/threads/${encodeURIComponent(args.threadId)}/state`);
+        if (stateRes.status >= 200 && stateRes.status < 300) {
+          const recovered =
+            extractAiTextFromRunPayload(stateRes.json).trim() ||
+            extractClarificationFromRunPayload(stateRes.json).trim();
+          if (recovered) {
+            const sections = parseDecisionReplySections(recovered);
+            return { ok: true, rawText: recovered, sections };
+          }
+        }
+      }
+    }
     const detail = formatDecisionHttpError(status, json, text);
     return { ok: false, errorText: `请求失败：${detail}` };
   }
 
-  const root = asRecord(json);
-  const rawMessages = root?.messages;
-  const rawText = extractLastAiTextFromMessages(rawMessages).trim();
+  let rawText = extractAiTextFromRunPayload(json).trim();
   if (!rawText) {
-    return { ok: false, errorText: '未收到回复，请稍后重试' };
+    for (let attempt = 0; attempt < 3 && !rawText; attempt += 1) {
+      if (attempt > 0) await sleep(1200);
+      const stateRes = await getJson(`/api/threads/${encodeURIComponent(args.threadId)}/state`);
+      if (stateRes.status >= 200 && stateRes.status < 300) {
+        rawText = extractAiTextFromRunPayload(stateRes.json).trim();
+        if (!rawText) rawText = extractClarificationFromRunPayload(stateRes.json).trim();
+      }
+      if (__DEV__ && !rawText) {
+        console.log('[decision] state poll no text', {
+          coachId: args.coachId,
+          threadId: args.threadId,
+          attempt: attempt + 1,
+        });
+      }
+    }
+  }
+  if (!rawText) rawText = extractClarificationFromRunPayload(json).trim();
+  if (!rawText) {
+    const runErrorHint = extractRunErrorHint(json);
+    if (__DEV__) {
+      console.warn('[decision] 无可用回复文本', {
+        coachId: args.coachId,
+        threadId: args.threadId,
+        runErrorHint,
+        runResponseKeys: Object.keys(asRecord(json) ?? {}),
+      });
+    }
+    return {
+      ok: false,
+      errorText: runErrorHint
+        ? `教练暂未返回有效内容：${runErrorHint}`
+        : '未收到回复，请稍后重试（可补充更多上下文）',
+    };
   }
   const sections = parseDecisionReplySections(rawText);
   return { ok: true, rawText, sections };
@@ -355,25 +733,81 @@ export async function runDecisionTurn(args: {
   modelName: string;
   images?: string[];
   files?: SelectedFile[];
+  onCoachResult?: (payload: {
+    coachId: string;
+    threadId: string | null;
+    result: RunDecisionCoachResult;
+  }) => void;
 }): Promise<Record<string, RunDecisionCoachResult>> {
   const map = await ensureDecisionCoachThreads(args.coachIds);
-  const entries = await Promise.all(
+  const localThreadMap: Record<string, string> = { ...map };
+  if (__DEV__) {
+    console.log('[decision] runDecisionTurn start', {
+      coachIds: args.coachIds,
+      threadMap: map,
+    });
+  }
+  const out: Record<string, RunDecisionCoachResult> = {};
+  await Promise.all(
     args.coachIds.map(async (coachId) => {
-      const threadId = map[coachId];
-      if (!threadId) return [coachId, { ok: false, errorText: '线程创建失败' }] as const;
-      const res = await runDecisionCoachWait({
-        coachId,
-        threadId,
-        userText: args.userText,
-        modelName: args.modelName,
-        images: args.images,
-        files: args.files,
-      });
-      return [coachId, res] as const;
+      const threadId = localThreadMap[coachId];
+      let res: RunDecisionCoachResult;
+      if (!threadId) {
+        res = { ok: false, errorText: '线程创建失败' };
+      } else {
+        res = await runDecisionCoachWait({
+          coachId,
+          threadId,
+          userText: args.userText,
+          modelName: args.modelName,
+          images: args.images,
+          files: args.files,
+        });
+        const shouldRetryWithFreshThread =
+          !res.ok &&
+          (res.errorText.includes('未收到回复') ||
+            res.errorText.includes('网关超时') ||
+            res.errorText.includes('服务暂时不可用'));
+        if (shouldRetryWithFreshThread) {
+          try {
+            const freshThreadId = await replaceDecisionCoachThread(coachId);
+            localThreadMap[coachId] = freshThreadId;
+            if (__DEV__) {
+              console.log('[decision] retry with fresh coach thread', {
+                coachId,
+                oldThreadId: threadId,
+                freshThreadId,
+              });
+            }
+            res = await runDecisionCoachWait({
+              coachId,
+              threadId: freshThreadId,
+              userText: args.userText,
+              modelName: args.modelName,
+              images: args.images,
+              files: args.files,
+            });
+          } catch (retryErr) {
+            if (__DEV__) {
+              console.warn('[decision] fresh thread retry failed', {
+                coachId,
+                error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+              });
+            }
+          }
+        }
+      }
+      if (__DEV__) {
+        console.log('[decision] coach result', {
+          coachId,
+          threadId: threadId ?? null,
+          ok: res.ok,
+          errorText: res.ok ? undefined : res.errorText,
+        });
+      }
+      out[coachId] = res;
+      args.onCoachResult?.({ coachId, threadId: threadId ?? null, result: res });
     })
   );
-
-  const out: Record<string, RunDecisionCoachResult> = {};
-  for (const [coachId, res] of entries) out[coachId] = res;
   return out;
 }

@@ -10,6 +10,7 @@ import {
   Platform,
   StyleSheet,
   Image,
+  Text,
   Linking,
   Alert,
 } from 'react-native';
@@ -23,7 +24,16 @@ import ThemedText from './ThemedText';
 
 import { useThemeColors } from '@/app/contexts/ThemeColors';
 import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
-import { stripGeneratedDocumentRefs, type ParsedChatDocument } from '@/lib/chatGeneratedDocuments';
+import {
+  formatAssistantMessageMarkdown,
+  getAstLinkDisplayLabel,
+} from '@/lib/assistantMessageCitations';
+import {
+  parseThinkingBlocks,
+  stripGeneratedDocumentRefs,
+  type ParsedChatDocument,
+} from '@/lib/chatGeneratedDocuments';
+import { persistFromAssistantMessagesFireForget } from '@/lib/persistGeneratedChatDocuments';
 import { shareChatConversation } from '@/lib/shareChatConversation';
 import { knowledgeApi } from '@/services/knowledgeApi';
 import { shadowPresets } from '@/utils/useShadow';
@@ -57,6 +67,8 @@ type ConversationProps = {
    */
   knowledgeStarredAssistantIds?: Set<string>;
   onKnowledgeAssistantStarred?: (assistantMessageId: string) => void;
+  /** 私人对话线程 id：用于将助手生成的报告默认登记到「历史文档」 */
+  getThreadId?: () => string | null;
 };
 
 function buildMarkdownStyles(colors: ReturnType<typeof useThemeColors>) {
@@ -135,13 +147,66 @@ function buildMarkdownStyles(colors: ReturnType<typeof useThemeColors>) {
       opacity: 0.8,
     },
     link: {
-      color: colors.text,
+      color: colors.isDark ? 'rgba(230, 240, 255, 0.96)' : 'rgba(15, 40, 90, 0.95)',
+      fontSize: 15,
+      lineHeight: 22,
+      textDecorationLine: 'none' as 'none',
+      backgroundColor: colors.isDark ? 'rgba(220, 232, 255, 0.18)' : 'rgba(30, 80, 200, 0.08)',
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.isDark
+        ? 'rgba(220, 232, 255, 0.28)'
+        : 'rgba(30, 80, 200, 0.18)',
+      marginTop: 2,
+      marginBottom: 2,
+    },
+    linkLabel: {
+      color: colors.isDark ? 'rgba(230, 240, 255, 0.96)' : 'rgba(15, 40, 90, 0.95)',
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    linkIcon: {
+      color: colors.isDark ? 'rgba(200, 220, 255, 0.6)' : 'rgba(30, 80, 200, 0.55)',
+      fontSize: 12,
+      lineHeight: 20,
     },
     paragraph: {
       marginVertical: 4,
     },
   });
 }
+
+/** 仅覆写内联 `link`：可点击、短标题、↗，避免依赖 `openUrl` 对 onLinkPress 的布尔陷阱 */
+const assistantChatMarkdownRules = {
+  link: (node: any, children: any, _parent: unknown, styles: any) => {
+    const href = (node?.attributes?.href as string | undefined)?.trim() ?? '';
+    if (!href) {
+      return (
+        <Text key={node.key} style={styles.body}>
+          {children}
+        </Text>
+      );
+    }
+    const display = getAstLinkDisplayLabel(node, href);
+    return (
+      <Text
+        key={node.key}
+        accessible
+        accessibilityRole="link"
+        accessibilityLabel={`${display}，在浏览器中打开`}
+        onPress={() => {
+          void Linking.openURL(href);
+        }}
+        style={styles.link}
+      >
+        <Text style={styles.linkLabel}>{display}</Text>
+        <Text style={styles.linkIcon}> ↗</Text>
+      </Text>
+    );
+  },
+};
 
 export const Conversation = ({
   messages,
@@ -150,6 +215,7 @@ export const Conversation = ({
   onRegenerateAssistant,
   knowledgeStarredAssistantIds: knowledgeStarredAssistantIdsProp,
   onKnowledgeAssistantStarred,
+  getThreadId,
 }: ConversationProps) => {
   const insets = useSafeAreaInsets();
   const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
@@ -157,6 +223,10 @@ export const Conversation = ({
   const [internalStarredIds, setInternalStarredIds] = useState<Set<string>>(() => new Set());
   const [showScrollButton, setShowScrollButton] = useState(false);
   const colors = useThemeColors();
+
+  useEffect(() => {
+    persistFromAssistantMessagesFireForget(messages, getThreadId);
+  }, [messages, getThreadId]);
 
   const useExternalStar =
     knowledgeStarredAssistantIdsProp != null && onKnowledgeAssistantStarred != null;
@@ -428,18 +498,6 @@ const UserMessage = ({
   </AnimatedView>
 );
 
-function parseThinkingBlocks(content: string): { thinking: string[]; main: string } {
-  const thinking: string[] = [];
-  const main = content
-    .replace(/<thinking>([\s\S]*?)<\/thinking>/gi, (_, inner: string) => {
-      const trimmed = inner.trim();
-      if (trimmed) thinking.push(trimmed);
-      return '';
-    })
-    .trim();
-  return { thinking, main };
-}
-
 const ThinkingBlock = ({ text }: { text: string }) => {
   const [expanded, setExpanded] = useState(false);
   const colors = useThemeColors();
@@ -652,10 +710,14 @@ function CombinedChatTurn({
   const { displayMarkdown, documents } = !isStreaming
     ? stripGeneratedDocumentRefs(main)
     : { displayMarkdown: main, documents: [] as ParsedChatDocument[] };
+  const displayMd = useMemo(
+    () => formatAssistantMessageMarkdown(displayMarkdown),
+    [displayMarkdown]
+  );
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
 
-  const copyText = `${userMessage.content.trim()}\n\n${displayMarkdown}`.trim();
-  const knowledgeMd = `# ${userMessage.content.trim().slice(0, 120)}\n\n${displayMarkdown}`;
+  const copyText = `${userMessage.content.trim()}\n\n${displayMd}`.trim();
+  const knowledgeMd = `# ${userMessage.content.trim().slice(0, 120)}\n\n${displayMd}`;
 
   const handleSave = () => {
     void (async () => {
@@ -685,14 +747,15 @@ function CombinedChatTurn({
             {thinking.map((t, i) => (
               <ThinkingBlock key={i} text={t} />
             ))}
-            {displayMarkdown.trim().length > 0 ? (
+            {displayMd.trim().length > 0 ? (
               <Markdown
                 style={markdownStyles}
+                rules={assistantChatMarkdownRules}
                 onLinkPress={(url) => {
                   Linking.openURL(url);
                   return false;
                 }}>
-                {displayMarkdown}
+                {displayMd}
               </Markdown>
             ) : isStreaming ? null : (
               <ThemedText className="text-base italic text-subtext">（未收到正文）</ThemedText>
@@ -760,9 +823,13 @@ const AssistantMessage = ({
   const { displayMarkdown, documents } = !isStreaming
     ? stripGeneratedDocumentRefs(main)
     : { displayMarkdown: main, documents: [] as ParsedChatDocument[] };
+  const displayMd = useMemo(
+    () => formatAssistantMessageMarkdown(displayMarkdown),
+    [displayMarkdown]
+  );
   const markdownStyles = useMemo(() => buildMarkdownStyles(colors), [colors]);
 
-  const copyText = displayMarkdown.trim();
+  const copyText = displayMd.trim();
   const knowledgeMd = `# 对话摘录\n\n${copyText}`;
 
   const handleSave = () => {
@@ -785,14 +852,15 @@ const AssistantMessage = ({
           {thinking.map((t, i) => (
             <ThinkingBlock key={i} text={t} />
           ))}
-          {displayMarkdown.trim().length > 0 ? (
+          {displayMd.trim().length > 0 ? (
             <Markdown
               style={markdownStyles}
+              rules={assistantChatMarkdownRules}
               onLinkPress={(url) => {
                 Linking.openURL(url);
                 return false;
               }}>
-              {displayMarkdown}
+              {displayMd}
             </Markdown>
           ) : !isStreaming ? (
             <ThemedText className="text-base italic text-subtext">（未收到回复）</ThemedText>

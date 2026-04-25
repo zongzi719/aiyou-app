@@ -29,13 +29,16 @@ const CENTER_SIZE = 45;
 export default function GlobalBottomTabBar() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { openAiRecord } = useAiRecordModal();
+  const { openAiRecord, visible: aiRecordModalVisible } = useAiRecordModal();
   const homeRecordPanelVisible = useHomeRecordPanelVisible();
 
   if (!shouldShowGlobalBottomTabBar(pathname)) {
     return null;
   }
   if (pathname === '/' && homeRecordPanelVisible) {
+    return null;
+  }
+  if (aiRecordModalVisible) {
     return null;
   }
 

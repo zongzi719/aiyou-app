@@ -5,6 +5,8 @@ import AiRecordModal from '@/components/AiRecordModal';
 type AiRecordModalContextValue = {
   openAiRecord: () => void;
   closeAiRecord: () => void;
+  /** 灵感笔记全屏层打开时为 true，用于隐藏底部 Tab */
+  visible: boolean;
 };
 
 const AiRecordModalContext = createContext<AiRecordModalContextValue | null>(null);
@@ -15,7 +17,10 @@ export function AiRecordModalProvider({ children }: { children: React.ReactNode 
   const openAiRecord = useCallback(() => setVisible(true), []);
   const closeAiRecord = useCallback(() => setVisible(false), []);
 
-  const value = useMemo(() => ({ openAiRecord, closeAiRecord }), [openAiRecord, closeAiRecord]);
+  const value = useMemo(
+    () => ({ openAiRecord, closeAiRecord, visible }),
+    [openAiRecord, closeAiRecord, visible]
+  );
 
   return (
     <AiRecordModalContext.Provider value={value}>

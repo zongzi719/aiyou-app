@@ -423,7 +423,7 @@ export default function KnowledgeFileDetailScreen() {
 
       {file.status === 'done' && (
         <ThemedText className="mb-2 mt-4 text-sm font-semibold text-primary">
-          共 {chunksTotal || file.chunk_count} 个分块
+          预览模式 | 共 {chunksTotal || file.chunk_count} 个分块
         </ThemedText>
       )}
 

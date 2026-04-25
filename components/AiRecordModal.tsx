@@ -1,11 +1,12 @@
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
   Text,
+  Image,
+  ImageBackground,
   Pressable,
   TextInput,
   KeyboardAvoidingView,
@@ -15,6 +16,9 @@ import {
   ScrollView,
   StyleSheet,
   useWindowDimensions,
+  Animated,
+  Easing,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -37,9 +41,13 @@ import {
 import { setPendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
 
 const GOLD = '#F5D34F';
-const ACCENT_GOLD = '#AA873C';
 /** 白底 / 金底按钮上的文字，避免与 ThemedText 默认 text-primary 冲突导致看不清 */
 const SHEET_BG = '#1D1D1D';
+const MIC_TALKING_ICON = require('@/assets/images/ai-record/mic-talking.png');
+const MIC_PAUSE_ICON = require('@/assets/images/ai-record/mic-paused.png');
+const CARD_OVERLAY_IMAGE = require('@/assets/images/ai-record/card-overlay.png');
+const CARD_LISTENING_OVERLAY_IMAGE = require('@/assets/images/ai-record/card-listening-overlay.png');
+const CARD_OVERLAY_ASPECT_RATIO = 1478 / 1098;
 
 const SUGGESTION_ROUNDS: string[][] = [
   ['明天下午三点钟开会', '提醒我准备产品演讲'],
@@ -94,9 +102,12 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  /** 与稿一致：Frame 1597880490 366×463@26px 圆角；小屏不超出视窗 */
+  /** 卡片容器直接使用素材形状，按宽度等比缩放 */
   const mainCardW = Math.min(366, windowWidth - 32);
-  const mainCardH = Math.max(300, Math.min(463, windowHeight - insets.top - 210));
+  const mainCardH = Math.max(
+    300,
+    Math.min(mainCardW * CARD_OVERLAY_ASPECT_RATIO, windowHeight - insets.top - 210)
+  );
 
   /** 首次语音前输入框原文；voiceAccumulated 非空后保持不变 */
   const preVoiceTextRef = useRef('');
@@ -108,6 +119,8 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const [pendingAudioUrl, setPendingAudioUrl] = useState<string | null>(null);
   /** 区分采集中与已点结束、等待 done/OSS */
   const [voicePhase, setVoicePhase] = useState<'idle' | 'capturing' | 'finalizing'>('idle');
+  /** 录音态页面锁定：暂停后仍停留在录音页 UI，不回到初始态 */
+  const [recordingLayoutLocked, setRecordingLayoutLocked] = useState(false);
 
   const {
     isStreaming: isVoiceStreaming,
@@ -136,6 +149,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const sheetMinH = Math.round(
     Math.min(windowHeight * 0.76, windowHeight - insets.top - Math.max(insets.bottom, 8) - 12)
   );
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const [phase, setPhase] = useState<Phase>('input');
   const [draft, setDraft] = useState('');
@@ -143,9 +157,10 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const [result, setResult] = useState<ModalResult | null>(null);
   const [suggestionRound, setSuggestionRound] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  /** 未点「点击录音」前不展示输入框与发起点工具栏，仅展示引导与示例 */
-  const [showComposer, setShowComposer] = useState(false);
+  const [savedTargetTab, setSavedTargetTab] = useState<'schedule' | 'inspiration' | null>(null);
   const textInputRef = useRef<TextInput | null>(null);
+  const wave1 = useRef(new Animated.Value(0)).current;
+  const wave2 = useRef(new Animated.Value(0.5)).current;
 
   const suggestions = useMemo(
     () => SUGGESTION_ROUNDS[suggestionRound % SUGGESTION_ROUNDS.length],
@@ -160,22 +175,19 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setResult(null);
       setSuggestionRound(0);
       setIsSaving(false);
-      setShowComposer(false);
+      setSavedTargetTab(null);
       preVoiceTextRef.current = '';
       voiceAccumulatedRef.current = '';
       setPendingAudioUrl(null);
       setVoicePhase('idle');
+      setRecordingLayoutLocked(false);
       wasVoiceStreamingRef.current = false;
+      wave1.stopAnimation();
+      wave2.stopAnimation();
+      wave1.setValue(0);
+      wave2.setValue(0.5);
     }
-  }, [visible]);
-
-  useEffect(() => {
-    if (!showComposer || !visible) return;
-    const t = setTimeout(() => {
-      textInputRef.current?.focus();
-    }, 250);
-    return () => clearTimeout(t);
-  }, [showComposer, visible]);
+  }, [visible, wave1, wave2]);
 
   /** 正在聆听时关闭弹窗：强制中断识别并清空输入与语音缓存 */
   const abortVoiceIfListeningAndClearDraft = useCallback(async () => {
@@ -202,16 +214,30 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       });
   }, [abortVoiceIfListeningAndClearDraft, onRequestClose]);
 
+  const closeSavedDialogOnly = useCallback(() => {
+    setSavedTargetTab(null);
+  }, []);
+
+  const closeSavedDialogAndSheet = useCallback(() => {
+    setSavedTargetTab(null);
+    closeAll();
+  }, [closeAll]);
+
+  const goToSavedResult = useCallback(() => {
+    if (!savedTargetTab) return;
+    const nextTab = savedTargetTab;
+    setSavedTargetTab(null);
+    closeAll();
+    router.push(`/screens/memory?tab=inspiration&notesTab=${nextTab}`);
+  }, [closeAll, savedTargetTab]);
+
   const handleMicPress = useCallback(async () => {
-    if (!showComposer) {
-      setShowComposer(true);
-      return;
-    }
     try {
       if (!isVoiceStreaming) {
         if (!voiceAccumulatedRef.current.trim()) {
           preVoiceTextRef.current = draft;
         }
+        setRecordingLayoutLocked(true);
         setVoicePhase('capturing');
         await startStreaming();
       } else {
@@ -222,7 +248,54 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       setVoicePhase('idle');
       Alert.alert('录音失败', e instanceof Error ? e.message : '请检查麦克风权限后重试');
     }
-  }, [showComposer, isVoiceStreaming, draft, startStreaming, stopStreaming]);
+  }, [isVoiceStreaming, draft, startStreaming, stopStreaming]);
+
+  const handleClearDraftWhileRecording = useCallback(() => {
+    preVoiceTextRef.current = '';
+    voiceAccumulatedRef.current = '';
+    setPendingAudioUrl(null);
+    setDraft('');
+  }, []);
+
+
+  const handleSubmitInspirationFromRecording = useCallback(async () => {
+    if (voicePhase === 'finalizing') return;
+    const fallbackText = draft.trim();
+    try {
+      if (isVoiceStreaming) {
+        setVoicePhase('finalizing');
+        await stopStreaming();
+      }
+      const recognized = joinVoiceParts(preVoiceTextRef.current, voiceAccumulatedRef.current).trim();
+      const submitText = recognized || fallbackText;
+      if (!submitText) {
+        Alert.alert('提示', '请先说点内容再提交');
+        return;
+      }
+      setRawSubmitted(submitText);
+      setPhase('analyzing');
+      const analysis = await analyzeNoteInput({ text: submitText });
+      if (analysis.type === 'schedule') {
+        setResult(mapScheduleToModal(analysis));
+      } else {
+        setResult(mapInspirationToModal(analysis, submitText));
+      }
+      setPhase('result');
+    } catch (e) {
+      setPhase('input');
+      setVoicePhase('idle');
+      Alert.alert('提交失败', e instanceof Error ? e.message : '请稍后重试');
+    }
+  }, [
+    draft,
+    isVoiceStreaming,
+    mapInspirationToModal,
+    mapScheduleToModal,
+    stopStreaming,
+    voicePhase,
+  ]);
+
+  const showRecordingLayout = isVoiceStreaming || recordingLayoutLocked;
 
   const isLikelyChatIntent = useCallback((text: string) => {
     const t = text.trim();
@@ -325,6 +398,56 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     isVoiceStreamingRef.current = isVoiceStreaming;
   }, [isVoiceStreaming]);
 
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(showEvt, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const onHide = Keyboard.addListener(hideEvt, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible || !isVoiceStreaming) {
+      wave1.stopAnimation();
+      wave2.stopAnimation();
+      wave1.setValue(0);
+      wave2.setValue(0.5);
+      return;
+    }
+
+    const waveDuration = Platform.OS === 'ios' ? 1600 : 1750;
+    const waveAnim1 = Animated.loop(
+      Animated.timing(wave1, {
+        toValue: 1,
+        duration: waveDuration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      })
+    );
+    const waveAnim2 = Animated.loop(
+      Animated.timing(wave2, {
+        toValue: 1.5,
+        duration: waveDuration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      })
+    );
+    waveAnim1.start();
+    waveAnim2.start();
+
+    return () => {
+      waveAnim1.stop();
+      waveAnim2.stop();
+    };
+  }, [isVoiceStreaming, visible, wave1, wave2]);
+
   const onSave = useCallback(async () => {
     if (!result || isSaving) return;
     setIsSaving(true);
@@ -350,16 +473,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         });
       }
       const tab = result.kind === 'schedule' ? 'schedule' : 'inspiration';
-      Alert.alert('已保存', '已同步到灵感笔记模块。', [
-        {
-          text: '去查看',
-          onPress: () => {
-            closeAll();
-            router.push(`/screens/memory?tab=inspiration&notesTab=${tab}`);
-          },
-        },
-        { text: '关闭', onPress: closeAll },
-      ]);
+      setSavedTargetTab(tab);
     } catch (error) {
       const apiError = error as NotesApiError;
       Alert.alert('保存失败', apiError?.message || '请稍后重试');
@@ -370,144 +484,186 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
 
   const renderInput = () => (
     <View
-      className="items-center pb-2"
+      className="flex-1 items-center pb-2"
       style={{ paddingHorizontal: 3, alignItems: 'center' }}>
-      <View style={[styles.figmaCard, { width: mainCardW, height: mainCardH }]}>
-        <LinearGradient
-          colors={['#161a1f', '#0c0e12', '#0a1218', '#102230', '#0d1f2d']}
-          locations={[0, 0.22, 0.45, 0.72, 1]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(20, 55, 72, 0.2)', 'rgba(30, 90, 100, 0.18)']}
-          locations={[0, 0.4, 1]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={styles.cardBottomGlow}
-          pointerEvents="none"
-        />
+      <ImageBackground
+        source={showRecordingLayout ? CARD_LISTENING_OVERLAY_IMAGE : CARD_OVERLAY_IMAGE}
+        resizeMode="stretch"
+        style={[
+          styles.figmaCard,
+          {
+            width: mainCardW,
+            height: showRecordingLayout
+              ? Math.max(170, mainCardH - Math.round(keyboardLift * 0.62))
+              : mainCardH,
+          },
+        ]}>
         <View
           style={{
             flex: 1,
             zIndex: 1,
-            paddingTop: 20,
-            paddingBottom: 16,
-            paddingHorizontal: 20,
+            paddingTop: showRecordingLayout ? 13 : 20,
+            paddingBottom: showRecordingLayout ? 13 : 16,
+            paddingHorizontal: showRecordingLayout ? 13 : 20,
             justifyContent: 'flex-start',
           }}>
-          <ThemedText
-            className="text-white"
-            style={{ fontSize: 20, lineHeight: 28, fontWeight: '400' }}>
-            今天有什么灵感/安排事项？
-          </ThemedText>
-          <ThemedText
-            className="text-white"
-            style={{ fontSize: 20, lineHeight: 28, fontWeight: '400', marginTop: 2 }}>
-            告诉我，可以帮你生成
-          </ThemedText>
-
-          <View className="mt-4 flex-row flex-wrap" style={{ gap: 10 }}>
-            {suggestions.map((s) => (
-              <Pressable
-                key={s}
-                onPress={() => setDraft(s)}
-                className="rounded-full border px-3 py-2.5 active:opacity-80"
-                style={{ borderColor: 'rgba(255,255,255,0.28)' }}>
-                <ThemedText
-                  style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 18 }}
-                  numberOfLines={2}>
-                  {s}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
-
-          <Pressable
-            onPress={() => setSuggestionRound((i) => i + 1)}
-            className="mt-2 flex-row items-center gap-1.5 self-start active:opacity-70"
-            accessibilityRole="button"
-            accessibilityLabel="换一批示例">
-            <ThemedText style={{ color: '#8a8a8a', fontSize: 10, lineHeight: 12 }}>换一批</ThemedText>
-            <Icon name="RefreshCw" size={12} color="#8a8a8a" />
-          </Pressable>
-
-          {showComposer ? (
-            <View className="mt-3" style={{ flex: 1, minHeight: 0 }}>
-              <TextInput
-                ref={textInputRef}
-                value={draft}
-                onChangeText={setDraft}
-                placeholder={isVoiceStreaming ? '正在聆听…' : '在此输入，或点击下方麦克风'}
-                placeholderTextColor="rgba(165,165,165,0.75)"
-                multiline
-                className="rounded-2xl border px-3 py-3 text-[15px] text-white"
-                style={{
-                  flex: 1,
-                  minHeight: 100,
-                  borderColor: 'rgba(255,255,255,0.08)',
-                  backgroundColor: 'rgba(0,0,0,0.3)',
-                  color: '#ffffff',
-                }}
-                textAlignVertical="top"
-              />
-              <View className="mt-3 flex-row items-center justify-between">
-                <View className="flex-row" style={{ gap: 10 }}>
-                  <Pressable
-                    onPress={() => Alert.alert('即将推出', '图片速记将在后续版本开放。')}
-                    accessibilityRole="button"
-                    accessibilityLabel="图片"
-                    style={styles.cardIconCircle}>
-                    <Icon name="Image" size={18} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => Alert.alert('即将推出', '链接摘录将在后续版本开放。')}
-                    accessibilityRole="button"
-                    accessibilityLabel="链接"
-                    style={styles.cardIconCircle}>
-                    <Icon name="Link" size={18} color="rgba(255,255,255,0.85)" strokeWidth={1.5} />
-                  </Pressable>
+          {showRecordingLayout ? (
+            <>
+              <View style={{ flex: 1, minHeight: 0, marginTop: 0 }}>
+                <View style={styles.listeningInputCard}>
+                  <View style={styles.listeningInputInner}>
+                    <TextInput
+                      ref={textInputRef}
+                      value={draft}
+                      onChangeText={setDraft}
+                      placeholder="正在聆听…"
+                      placeholderTextColor="rgba(255,255,255,0.5)"
+                      multiline
+                      style={styles.listeningInputField}
+                      textAlignVertical="top"
+                      scrollEnabled
+                    />
+                    <View style={{ height: 10 }} />
+                  </View>
                 </View>
-                <Pressable
-                  onPress={() => {
-                    runAnalyze(draft);
-                  }}
-                  disabled={isVoiceStreaming}
-                  className="active:opacity-85 h-10 w-10 items-center justify-center rounded-full"
-                  style={{ backgroundColor: ACCENT_GOLD }}
-                  accessibilityRole="button"
-                  accessibilityLabel="提交分析">
-                  <Icon name="ArrowUp" size={20} color="#ffffff" strokeWidth={2.2} />
-                </Pressable>
               </View>
-            </View>
+            </>
           ) : (
-            <View style={{ flex: 1, minHeight: 40, marginTop: 4 }} />
+            <>
+              <View style={{ marginTop: 50 }}>
+                <ThemedText
+                  className="text-white"
+                  style={{ fontSize: 20, lineHeight: 28, fontWeight: '400' }}>
+                  今天有什么灵感/安排事项？
+                </ThemedText>
+                <ThemedText
+                  className="text-white"
+                  style={{ fontSize: 20, lineHeight: 28, fontWeight: '400', marginTop: 2 }}>
+                  告诉我，可以帮你生成
+                </ThemedText>
+
+                <View className="mt-4 flex-row flex-wrap" style={{ gap: 10 }}>
+                  {suggestions.map((s) => (
+                    <View
+                      key={s}
+                      className="rounded-full border px-3 py-2.5"
+                      style={{ borderColor: 'rgba(255,255,255,0.28)' }}>
+                      <ThemedText
+                        style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, lineHeight: 18 }}
+                        numberOfLines={2}>
+                        {s}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+
+                <View className="mt-2 flex-row items-center gap-1.5 self-start" accessibilityLabel="换一批示例">
+                  <ThemedText style={{ color: '#8a8a8a', fontSize: 10, lineHeight: 12 }}>
+                    换一批
+                  </ThemedText>
+                  <Icon name="RefreshCw" size={12} color="#8a8a8a" />
+                </View>
+              </View>
+
+              <View style={{ flex: 1, minHeight: 40, marginTop: 4 }} />
+            </>
           )}
         </View>
-      </View>
+      </ImageBackground>
 
-      <View className="mt-8 items-center pb-1">
-        <Pressable
-          onPress={() => {
-            handleMicPress().catch(() => {});
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={showComposer ? '语音输入' : '点击以显示输入并录音'}>
-          <LinearGradient
-            colors={['#C9A227', '#4c1d95', '#0e7490', '#AA873C']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.micOrb}>
-            <Icon
-              name={isVoiceStreaming ? 'Pause' : 'Mic'}
-              size={28}
-              color="#fff"
-              strokeWidth={isVoiceStreaming ? 2.5 : 2}
-            />
-          </LinearGradient>
-        </Pressable>
+      <View
+        className="mt-4 items-center"
+        style={{
+          width: '100%',
+          backgroundColor: SHEET_BG,
+          paddingBottom: 22 + keyboardLift,
+        }}>
+        <View style={styles.recordingActionRow}>
+          {showRecordingLayout ? (
+            <Pressable
+              onPress={handleClearDraftWhileRecording}
+              style={styles.recordingSideButton}
+              accessibilityRole="button"
+              accessibilityLabel="清空输入">
+              <Icon name="RefreshCw" size={21} color="white" />
+            </Pressable>
+          ) : (
+            <View style={styles.recordingSideButtonPlaceholder} />
+          )}
+
+          <Pressable
+            onPress={() => {
+              handleMicPress().catch(() => {});
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="语音输入">
+            <View style={styles.micOrbWrap}>
+              {isVoiceStreaming ? (
+                <>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.waveRing,
+                      {
+                        opacity: wave1.interpolate({
+                          inputRange: [0, 0.7, 1],
+                          outputRange: [0.45, 0.22, 0],
+                        }),
+                        transform: [
+                          {
+                            scale: wave1.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [1, 1.72],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.waveRing,
+                      {
+                        opacity: wave2.interpolate({
+                          inputRange: [0.5, 1.2, 1.5],
+                          outputRange: [0.38, 0.16, 0],
+                        }),
+                        transform: [
+                          {
+                            scale: wave2.interpolate({
+                              inputRange: [0.5, 1.5],
+                              outputRange: [1.1, 1.8],
+                            }),
+                          },
+                        ],
+                      },
+                    ]}
+                  />
+                </>
+              ) : null}
+              <Image
+                source={isVoiceStreaming ? MIC_PAUSE_ICON : MIC_TALKING_ICON}
+                style={styles.micIconImage}
+                resizeMode="contain"
+              />
+            </View>
+          </Pressable>
+
+          {showRecordingLayout ? (
+            <Pressable
+              onPress={() => {
+                handleSubmitInspirationFromRecording().catch(() => {});
+              }}
+              style={styles.recordingSideButton}
+              accessibilityRole="button"
+              accessibilityLabel="提交灵感笔记">
+              <Icon name="Check" size={22} color="white" />
+            </Pressable>
+          ) : (
+            <View style={styles.recordingSideButtonPlaceholder} />
+          )}
+        </View>
         <ThemedText className="mt-3" style={{ color: '#A5A5A5', fontSize: 15, lineHeight: 18 }}>
           {voicePhase === 'finalizing'
             ? '正在识别语音…'
@@ -717,7 +873,6 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
           setResult(null);
           setPhase('input');
           setDraft(rawSubmitted);
-          setShowComposer(true);
         }}
         className="border-white/35 active:opacity-85 flex-1 items-center rounded-full border py-3"
         accessibilityRole="button"
@@ -727,6 +882,16 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     </View>
   );
 
+  const isInputPhase = phase === 'input';
+  const keyboardLift = isInputPhase
+    ? Math.min(Math.max(0, keyboardHeight - insets.bottom), Math.round(windowHeight * 0.38))
+    : 0;
+  const sheetBottomPadding = Math.max(insets.bottom, 16);
+  const effectiveSheetMaxH = sheetMaxH;
+  const effectiveSheetMinH = sheetMinH;
+  const showKeyboardSubmitButton =
+    isInputPhase && showRecordingLayout && keyboardHeight > 0 && voicePhase !== 'finalizing';
+
   return (
     <Modal
       visible={visible}
@@ -735,7 +900,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       statusBarTranslucent
       onRequestClose={closeAll}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={undefined}
         style={[styles.kavRoot, themes[theme]]}>
         <View style={styles.overlayRoot}>
           <BlurView intensity={55} tint="dark" style={StyleSheet.absoluteFillObject} />
@@ -751,16 +916,20 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
               styles.sheetWrap,
               {
                 paddingTop: insets.top + 12,
-                paddingBottom: Math.max(insets.bottom, 16),
+                paddingBottom: sheetBottomPadding,
+                justifyContent: isInputPhase ? 'flex-end' : 'center',
               },
             ]}>
             <View
               style={[
                 styles.sheet,
                 {
-                  minHeight: sheetMinH,
-                  maxHeight: sheetMaxH,
-                  paddingBottom: phase === 'result' ? 0 : Math.max(insets.bottom, 8),
+                  minHeight: effectiveSheetMinH,
+                  maxHeight: effectiveSheetMaxH,
+                  paddingBottom:
+                    phase === 'result'
+                      ? 0
+                      : Math.max(insets.bottom, showRecordingLayout ? 20 : 8),
                 },
               ]}>
               <View className="relative shrink-0 flex-row items-center justify-center px-4 pb-3 pt-4">
@@ -769,6 +938,17 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
                   style={{ fontSize: 16, lineHeight: 20, fontWeight: '400' }}>
                   AI记录
                 </ThemedText>
+                {showKeyboardSubmitButton ? (
+                  <Pressable
+                    onPress={() => {
+                      handleSubmitInspirationFromRecording().catch(() => {});
+                    }}
+                    style={styles.headerKeyboardSubmitButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="键盘提交灵感笔记">
+                    <Icon name="Check" size={18} color="#111111" />
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={closeAll}
                   hitSlop={12}
@@ -779,33 +959,62 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
                 </Pressable>
               </View>
 
-              {phase === 'input' && isVoiceStreaming ? (
-                <ThemedText className="shrink-0 px-5 pb-1 text-xs text-cyan-300/90">
-                  正在聆听…
-                </ThemedText>
-              ) : null}
-
               {phase === 'result' ? (
                 <>
                   <View style={styles.sheetBody}>{renderResult()}</View>
                   {resultFooter}
                 </>
               ) : (
-                <ScrollView
-                  style={styles.sheetBody}
-                  contentContainerStyle={[
-                    styles.sheetScrollContent,
-                    { paddingBottom: 28 + Math.max(insets.bottom, 12) + 100 },
-                  ]}
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                  bounces={false}>
+                <View style={styles.sheetBody}>
                   {phase === 'input' ? renderInput() : null}
                   {phase === 'analyzing' ? renderAnalyzing() : null}
-                </ScrollView>
+                </View>
               )}
             </View>
           </View>
+          {savedTargetTab ? (
+            <View style={styles.savedDialogOverlay} pointerEvents="box-none">
+              <Pressable
+                style={StyleSheet.absoluteFillObject}
+                className="bg-black/55"
+                onPress={closeSavedDialogOnly}
+                accessibilityRole="button"
+                accessibilityLabel="关闭已保存弹窗背景"
+              />
+              <View style={styles.savedDialogCard}>
+                <View className="flex-row items-start gap-3">
+                  <View style={styles.savedDialogIconWrap}>
+                    <Icon name="Check" size={18} color="#111111" />
+                  </View>
+                  <View className="flex-1">
+                    <ThemedText className="text-lg font-semibold text-[#F8F8F8]">已保存</ThemedText>
+                    <ThemedText className="mt-1 text-sm leading-5 text-white/65">
+                      已同步到灵感笔记模块。
+                    </ThemedText>
+                  </View>
+                </View>
+
+                <View className="mt-6 flex-row justify-end gap-2">
+                  <Pressable
+                    onPress={goToSavedResult}
+                    className="active:opacity-85 items-center rounded-full px-4 py-2.5"
+                    style={styles.savedDialogPrimaryBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="查看已保存内容">
+                    <ThemedText style={styles.savedDialogPrimaryBtnText}>去查看</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    onPress={closeSavedDialogAndSheet}
+                    className="active:opacity-85 items-center rounded-full px-4 py-2.5"
+                    style={styles.savedDialogGhostBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="关闭已保存弹窗">
+                    <ThemedText style={styles.savedDialogGhostBtnText}>关闭</ThemedText>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -837,24 +1046,35 @@ const styles = StyleSheet.create({
   },
   sheetBody: {
     flex: 1,
-  },
-  sheetScrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 12,
+    backgroundColor: SHEET_BG,
   },
   figmaCard: {
     borderRadius: 26,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
     alignSelf: 'center',
     overflow: 'hidden',
   },
-  cardBottomGlow: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 200,
+  listeningInputCard: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+  },
+  listeningInputInner: {
+    flex: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  listeningInputField: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    backgroundColor: 'transparent',
+    borderRadius: 0,
   },
   cardIconCircle: {
     width: 40,
@@ -866,14 +1086,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  micOrb: {
+  micOrbWrap: {
+    width: 72,
+    height: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recordingActionRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 56,
+  },
+  recordingSideButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0C0F14',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  recordingSideButtonPlaceholder: {
+    width: 40,
+    height: 40,
+  },
+  micIconImage: {
+    width: 72,
+    height: 72,
+  },
+  waveRing: {
+    position: 'absolute',
     width: 72,
     height: 72,
     borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 2,
+    borderColor: 'rgba(245, 211, 79, 0.95)',
+    backgroundColor: 'rgba(245, 211, 79, 0.08)',
   },
   footerBtnLabelLight: {
     fontSize: 14,
@@ -889,5 +1140,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fafafa',
+  },
+  savedDialogOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  savedDialogCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#161616',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  savedDialogIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: GOLD,
+  },
+  savedDialogPrimaryBtn: {
+    backgroundColor: GOLD,
+  },
+  savedDialogGhostBtn: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  savedDialogPrimaryBtnText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#111111',
+  },
+  savedDialogGhostBtnText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#f4f4f5',
+  },
+  headerKeyboardSubmitButton: {
+    position: 'absolute',
+    right: 52,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFD041',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(0,0,0,0.18)',
   },
 });

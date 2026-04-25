@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, Switch, View } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 
@@ -108,6 +108,7 @@ export type DecisionCoachCardModel = {
 type Props = {
   model: DecisionCoachCardModel;
   onToggleEnabled: (next: boolean) => void;
+  defaultExpanded?: boolean;
 };
 
 function CoachAvatar({ name }: { name: string }) {
@@ -169,8 +170,13 @@ function SectionBlock({
   );
 }
 
-export default function DecisionCoachCard({ model, onToggleEnabled }: Props) {
+export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpanded = false }: Props) {
   const dimmed = !model.enabled;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  useEffect(() => {
+    setExpanded(defaultExpanded);
+  }, [defaultExpanded, model.coachId]);
 
   return (
     <View
@@ -197,58 +203,69 @@ export default function DecisionCoachCard({ model, onToggleEnabled }: Props) {
         />
       </View>
 
-      <View className="mt-4 gap-3">
-        {model.loading ? (
-          <View className="gap-3">
+      <View className="mt-3">
+        <Pressable
+          onPress={() => setExpanded((v) => !v)}
+          className="flex-row items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? '收起回答' : '展开回答'}>
+          <ThemedText className="text-[12px] text-white/75">{expanded ? '收起' : '展开'}</ThemedText>
+          <Icon
+            name={expanded ? 'ChevronUp' : 'ChevronDown'}
+            size={14}
+            color="rgba(255,255,255,0.72)"
+          />
+        </Pressable>
+      </View>
+
+      {expanded ? (
+        <View className="mt-4 gap-3">
+          {model.loading ? (
+            <View className="gap-3">
+              <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <StarFloatingLoader text="正在分析..." textClassName="text-white/75 text-[14px]" />
+              </View>
+              <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <StarFloatingLoader text="正在生成关键问题..." textClassName="text-white/75 text-[14px]" />
+              </View>
+              <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                <StarFloatingLoader text="正在扫描风险..." textClassName="text-white/75 text-[14px]" />
+              </View>
+            </View>
+          ) : model.errorText ? (
             <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <StarFloatingLoader text="正在分析..." textClassName="text-white/75 text-[14px]" />
+              <View className="flex-row items-center gap-2">
+                <Icon name="TriangleAlert" size={16} color="rgba(255,255,255,0.85)" />
+                <ThemedText className="text-[14px] font-semibold text-[#F5F5F5]">出错了</ThemedText>
+              </View>
+              <ThemedText className="mt-2 text-[13px] leading-[19px] text-[#D4D4D8]">
+                {model.errorText}
+              </ThemedText>
             </View>
-            <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <StarFloatingLoader text="正在生成关键问题..." textClassName="text-white/75 text-[14px]" />
-            </View>
-            <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <StarFloatingLoader text="正在扫描风险..." textClassName="text-white/75 text-[14px]" />
-            </View>
-          </View>
-        ) : model.errorText ? (
-          <View className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-            <View className="flex-row items-center gap-2">
-              <Icon name="TriangleAlert" size={16} color="rgba(255,255,255,0.85)" />
-              <ThemedText className="text-[14px] font-semibold text-[#F5F5F5]">出错了</ThemedText>
-            </View>
-            <ThemedText className="mt-2 text-[13px] leading-[19px] text-[#D4D4D8]">
-              {model.errorText}
-            </ThemedText>
-          </View>
-        ) : (
-          <>
-            {model.decisionAdvice.trim() ? (
+          ) : (
+            <>
               <SectionBlock
                 title="决策建议"
                 icon="Sparkles"
                 tone="purple"
-                text={model.decisionAdvice}
+                text={model.decisionAdvice.trim() || '暂无内容'}
               />
-            ) : null}
-            {model.keyQuestions.trim() ? (
               <SectionBlock
                 title="关键问题"
                 icon="HelpCircle"
                 tone="cyan"
-                text={model.keyQuestions}
+                text={model.keyQuestions.trim() || '暂无内容'}
               />
-            ) : null}
-            {model.riskWarnings.trim() ? (
               <SectionBlock
                 title="风险提示"
                 icon="ShieldAlert"
                 tone="orange"
-                text={model.riskWarnings}
+                text={model.riskWarnings.trim() || '暂无内容'}
               />
-            ) : null}
-          </>
-        )}
-      </View>
+            </>
+          )}
+        </View>
+      ) : null}
 
       {model.rawText && !model.loading && !model.errorText ? (
         <Pressable

@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -39,7 +40,23 @@ import {
 } from '@/services/knowledgeApi';
 import { MeetingFolder, MeetingRecord, meetingApi } from '@/services/meetingApi';
 
+const FOLDER_ILLUSTRATION = require('@/assets/images/knowledge-base/folder-documents-illustration.png');
+const FILE_TYPE_PDF_ICON = require('@/assets/images/knowledge-base/file-type-pdf.png');
+const FILE_TYPE_WORD_ICON = require('@/assets/images/knowledge-base/file-type-word.png');
+
 const SCREEN_WIDTH = Dimensions.get('window').width;
+
+function mimeTypeIsPdf(mimeType: string): boolean {
+  return mimeType.includes('pdf');
+}
+
+function mimeTypeIsWord(mimeType: string): boolean {
+  return (
+    mimeType.includes('word') ||
+    mimeType.includes('docx') ||
+    mimeType.includes('doc')
+  );
+}
 
 // ─── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -48,6 +65,24 @@ interface FileBadgeProps {
 }
 
 const FileBadge = ({ mimeType }: FileBadgeProps) => {
+  if (mimeTypeIsPdf(mimeType)) {
+    return (
+      <Image
+        source={FILE_TYPE_PDF_ICON}
+        className="h-12 w-12 rounded-xl"
+        resizeMode="cover"
+      />
+    );
+  }
+  if (mimeTypeIsWord(mimeType)) {
+    return (
+      <Image
+        source={FILE_TYPE_WORD_ICON}
+        className="h-12 w-12 rounded-xl"
+        resizeMode="cover"
+      />
+    );
+  }
   const label = getMimeLabel(mimeType);
   const color = getMimeColor(mimeType);
   return (
@@ -81,44 +116,12 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
       activeOpacity={0.75}
       style={{ width: FOLDER_ITEM_WIDTH, marginBottom: GRID_GAP }}>
       <View
-        className="relative mb-1.5 items-center justify-center overflow-hidden rounded-2xl bg-secondary"
+        className="relative mb-1.5 items-center justify-center overflow-hidden rounded-2xl bg-secondary p-2"
         style={{ height: cardH }}>
-        {/* 叠层文档效果 */}
-        <View
-          className="absolute"
-          style={{
-            bottom: 8,
-            left: 10,
-            width: FOLDER_ITEM_WIDTH * 0.38,
-            height: FOLDER_ITEM_WIDTH * 0.48,
-            backgroundColor: '#fff',
-            borderRadius: 6,
-            opacity: 0.35,
-          }}
-        />
-        <View
-          className="absolute"
-          style={{
-            bottom: 10,
-            left: 14,
-            width: FOLDER_ITEM_WIDTH * 0.38,
-            height: FOLDER_ITEM_WIDTH * 0.48,
-            backgroundColor: '#fff',
-            borderRadius: 6,
-            opacity: 0.55,
-          }}
-        />
-        <View
-          className="absolute"
-          style={{
-            bottom: 12,
-            left: 18,
-            width: FOLDER_ITEM_WIDTH * 0.38,
-            height: FOLDER_ITEM_WIDTH * 0.48,
-            backgroundColor: '#fff',
-            borderRadius: 6,
-            opacity: 0.8,
-          }}
+        <Image
+          source={FOLDER_ILLUSTRATION}
+          style={{ width: '100%', height: '100%' }}
+          resizeMode="contain"
         />
         {/* 文件数角标 */}
         <View className="bg-background/70 absolute right-2 top-2 rounded-md px-1.5 py-0.5">

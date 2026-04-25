@@ -41,6 +41,7 @@ export interface UserMemory {
   category: string;
   content: string;
   confidence?: number;
+  createdAt?: string;
   /** 全量记忆接口中每条块的更新时间（ISO 8601） */
   updatedAt?: string;
   /** 非 facts 汇总块不可调用删除接口 */
@@ -66,7 +67,18 @@ interface MemorySummaryBlock {
 
 /** 从记忆对象中提取用于展示的时间（优先接口约定的 updatedAt） */
 export function resolveMemoryTime(m: UserMemory): string | undefined {
-  return m.updatedAt ?? m.created_at ?? m.updated_at ?? m.created_time ?? m.timestamp;
+  return (
+    m.createdAt ??
+    m.created_at ??
+    m.created_time ??
+    m.updatedAt ??
+    m.updated_at ??
+    m.timestamp
+  );
+}
+
+export function hasRawMemoryTime(m: UserMemory): boolean {
+  return Boolean(m.updatedAt ?? m.created_at ?? m.updated_at ?? m.created_time ?? m.timestamp);
 }
 
 export interface HistoryDocument {
@@ -76,6 +88,8 @@ export interface HistoryDocument {
   mime_type: string;
   created_at: string;
   thread_id?: string;
+  /** 对话生成报告的原始下载/打开地址（若后端返回） */
+  source_url?: string;
 }
 
 export interface HistoryTodo {
@@ -110,7 +124,11 @@ export interface UpdateMemoryFactPayload {
 
 function blockTime(block: MemorySummaryBlock): string | undefined {
   return (
-    block.updatedAt ?? block.updated_at ?? block.created_at ?? block.created_time ?? block.timestamp
+    block.updatedAt ??
+    block.updated_at ??
+    block.created_at ??
+    block.created_time ??
+    block.timestamp
   );
 }
 
@@ -140,18 +158,21 @@ function memoriesFromSummarySections(
 function normalizeMemoriesPayload(data: MemoryResponse): UserMemory[] {
   const fromFacts = (data.facts ?? []).map((f) => ({
     ...f,
-    updatedAt: f.updatedAt ?? f.updated_at,
+    createdAt: f.createdAt ?? f.created_time ?? f.created_at,
+    updatedAt: f.updatedAt ?? f.updated_at ?? f.created_at ?? f.created_time ?? f.timestamp,
     deletable: f.deletable ?? true,
   }));
   const fromUser = memoriesFromSummarySections(data.user, 'user');
   const fromHistory = memoriesFromSummarySections(data.history, 'history');
   const structured = [...fromUser, ...fromHistory];
 
-  if (fromFacts.length > 0 && structured.length > 0) {
-    return [...fromFacts, ...structured];
-  }
-  if (fromFacts.length > 0) return fromFacts;
-  return structured;
+  return (
+    fromFacts.length > 0 && structured.length > 0
+      ? [...fromFacts, ...structured]
+      : fromFacts.length > 0
+        ? fromFacts
+        : structured
+  );
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -172,15 +193,32 @@ export const memoryApi = {
   deleteMemory: (id: string) => request<{ deleted: boolean }>(`/facts/${id}`, { method: 'DELETE' }),
 
   addMemoryFact: async (payload: AddMemoryFactPayload) => {
+    const normalizedContent = payload.content.trim();
+    const normalizedCategory = (payload.category ?? 'context').toLowerCase();
     const data = await request<MemoryResponse>('/facts', {
       method: 'POST',
       body: JSON.stringify({
-        content: payload.content.trim(),
+        content: normalizedContent,
         category: payload.category ?? 'context',
         confidence: payload.confidence ?? 0.8,
       }),
     });
     const list = normalizeMemoriesPayload(data);
+    const exact = list.find(
+      (m) =>
+        m.deletable !== false &&
+        m.content.trim() === normalizedContent &&
+        m.category.toLowerCase() === normalizedCategory
+    );
+    if (exact) return exact;
+    const deletable = list.filter((m) => m.deletable !== false);
+    if (deletable.length > 0) {
+      return deletable.sort((a, b) => {
+        const ta = new Date(resolveMemoryTime(a) ?? 0).getTime();
+        const tb = new Date(resolveMemoryTime(b) ?? 0).getTime();
+        return tb - ta;
+      })[0];
+    }
     return list[0] ?? null;
   },
 
@@ -197,6 +235,39 @@ export const memoryApi = {
   getDocuments: (q?: string) => {
     const qs = q ? `?q=${encodeURIComponent(q)}` : '';
     return request<{ documents: HistoryDocument[] }>(`/documents${qs}`).then((r) => r.documents);
+  },
+
+  /**
+   * POST /api/memory/documents — 登记对话中生成的报告/文档，供「历史文档」列表展示。
+   * 若后端尚未实现，调用会失败，由调用方忽略错误。
+   */
+  recordGeneratedDocument: async (payload: {
+    title: string;
+    source_url: string;
+    mime_type?: string;
+    preview?: string;
+    thread_id?: string;
+  }) => {
+    const res = await request<{ document?: HistoryDocument } & Partial<HistoryDocument>>(
+      '/documents',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          title: payload.title.trim(),
+          source_url: payload.source_url.trim(),
+          mime_type: payload.mime_type ?? 'text/markdown',
+          preview: payload.preview ?? '',
+          thread_id: payload.thread_id,
+        }),
+      },
+    );
+    if (res && typeof res === 'object' && 'document' in res && res.document) {
+      return res.document;
+    }
+    if (res && typeof res === 'object' && 'id' in res && typeof (res as HistoryDocument).id === 'string') {
+      return res as HistoryDocument;
+    }
+    throw new Error('recordGeneratedDocument: unexpected response');
   },
 
   getTodos: (category?: string) => {
@@ -371,7 +442,8 @@ export function formatMemoryDate(iso: string): string {
   const dd = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+  const sec = String(d.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;
 }
 
 export function groupByDate(items: { created_at: string }[]): Record<string, typeof items> {

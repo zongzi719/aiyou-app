@@ -25,6 +25,7 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withSpring,
+  withRepeat,
   useSharedValue,
   interpolate,
   Easing,
@@ -52,8 +53,8 @@ const imageExitAnimation = new Keyframe({
   0: { opacity: 1, transform: [{ scale: 1 }] },
   100: { opacity: 0, transform: [{ scale: 0.8 }] },
 }).duration(120);
-const HOME_RECORD_MIC_ICON = require('@/assets/images/record-mic-custom.png');
-const HOME_RECORD_PAUSE_ICON = require('@/assets/images/record-pause-custom.png');
+const HOME_RECORD_MIC_ICON = require('@/assets/images/home-record/mic-speaking.png');
+const HOME_RECORD_PAUSE_ICON = require('@/assets/images/home-record/mic-paused.png');
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -75,6 +76,8 @@ type ChatInputProps = {
 };
 
 export const ChatInput = (props: ChatInputProps) => {
+  const HOME_INPUT_MIN_HEIGHT = 60;
+  const HOME_INPUT_MAX_HEIGHT = 156;
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
@@ -93,6 +96,7 @@ export const ChatInput = (props: ChatInputProps) => {
   const [showKnowledgePicker, setShowKnowledgePicker] = useState(false);
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([]);
   const [loadingKnowledgeFiles, setLoadingKnowledgeFiles] = useState(false);
+  const [homeInputHeight, setHomeInputHeight] = useState(HOME_INPUT_MIN_HEIGHT);
   const lottieRef = useRef<LottieView>(null);
   const inputRef = useRef<any>(null);
   /** 本次流式识别开始前的输入框内容 */
@@ -222,6 +226,8 @@ export const ChatInput = (props: ChatInputProps) => {
   const inputVisible = useSharedValue(1);
   const lottieVisible = useSharedValue(0);
   const sendButtonVisible = useSharedValue(0);
+  const recordRippleScale = useSharedValue(1);
+  const recordRippleOpacity = useSharedValue(0);
 
   // Animation config
   const animConfig = {
@@ -322,6 +328,11 @@ export const ChatInput = (props: ChatInputProps) => {
     transform: [
       { scale: interpolate(sendButtonVisible.value, [0, 1], [0.5, 1], Extrapolation.CLAMP) },
     ],
+  }));
+
+  const recordRippleStyle = useAnimatedStyle(() => ({
+    opacity: recordRippleOpacity.value,
+    transform: [{ scale: recordRippleScale.value }],
   }));
 
   // Android overlay style
@@ -458,6 +469,23 @@ export const ChatInput = (props: ChatInputProps) => {
     }
   };
 
+  /** 首页：暂停录音（停止 ASR），但不发送、不收起面板，便于用户继续手动编辑 */
+  const handleHomePauseRecording = async () => {
+    if (isStoppingHomeRecording) return;
+    setIsStoppingHomeRecording(true);
+    homePendingAutoSendRef.current = false;
+    try {
+      await stopStreaming();
+    } catch (error) {
+      Alert.alert(
+        '识别失败',
+        error instanceof Error ? error.message : '语音转文字失败，请稍后重试'
+      );
+    } finally {
+      setIsStoppingHomeRecording(false);
+    }
+  };
+
   const handleCancelRecording = async () => {
     LayoutAnimation.configureNext(
       LayoutAnimation.create(
@@ -490,7 +518,7 @@ export const ChatInput = (props: ChatInputProps) => {
   const handleHomePanelCenterPress = async () => {
     if (isStoppingHomeRecording) return;
     if (isRecordingUI) {
-      await handleHomeConfirmVoiceDone();
+      await handleHomePauseRecording();
       return;
     }
     try {
@@ -605,6 +633,11 @@ export const ChatInput = (props: ChatInputProps) => {
     setSelectedFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
+  const handleHomeInputContentSizeChange = (height: number) => {
+    const next = Math.min(HOME_INPUT_MAX_HEIGHT, Math.max(HOME_INPUT_MIN_HEIGHT, Math.ceil(height)));
+    setHomeInputHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next));
+  };
+
   const handleSendMessage = () => {
     if (isRecordingUI) return;
     const hasContent = inputText.trim() || selectedImages.length > 0 || selectedFiles.length > 0;
@@ -640,6 +673,7 @@ export const ChatInput = (props: ChatInputProps) => {
     .padStart(2, '0')} : ${(recordingSeconds % 60).toString().padStart(2, '0')}`;
   const homeVoiceWaveLevel = isRecordingUI ? streamMeterLevel : 0;
   const homeVoiceWaveActive = isRecordingUI;
+  const homeInputExpanded = homeInputHeight > HOME_INPUT_MIN_HEIGHT + 1;
 
   useEffect(() => {
     if (!isRecordingUI || isStoppingHomeRecording) return;
@@ -648,6 +682,26 @@ export const ChatInput = (props: ChatInputProps) => {
     }, 1000);
     return () => clearInterval(timer);
   }, [isRecordingUI, isStoppingHomeRecording]);
+
+  useEffect(() => {
+    if (isRecordingUI) {
+      recordRippleScale.value = 1;
+      recordRippleOpacity.value = 0.38;
+      recordRippleOpacity.value = withRepeat(
+        withTiming(0, { duration: 1800, easing: Easing.out(Easing.cubic) }),
+        -1,
+        false
+      );
+      recordRippleScale.value = withRepeat(
+        withTiming(1.75, { duration: 1800, easing: Easing.out(Easing.cubic) }),
+        -1,
+        false
+      );
+      return;
+    }
+    recordRippleOpacity.value = withTiming(0, { duration: 120 });
+    recordRippleScale.value = withTiming(1, { duration: 120 });
+  }, [isRecordingUI, recordRippleOpacity, recordRippleScale]);
 
   useEffect(() => {
     setHomeRecordPanelVisible(homeRecordPanelOpen);
@@ -832,7 +886,8 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className="h-[60px] flex-1 flex-row items-center rounded-full bg-[#1A1F28]/95 pl-5 pr-3">
+                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-end pt-2' : 'items-center'}`}
+                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -842,7 +897,19 @@ export const ChatInput = (props: ChatInputProps) => {
                         onChangeText={setInputText}
                         onSubmitEditing={handleSendMessage}
                         returnKeyType="send"
-                        multiline={false}
+                        multiline
+                        blurOnSubmit={false}
+                        textAlignVertical={homeInputExpanded ? 'top' : 'center'}
+                        onContentSizeChange={(event) => {
+                          handleHomeInputContentSizeChange(event.nativeEvent.contentSize.height + 18);
+                        }}
+                        style={{
+                          minHeight: 24,
+                          maxHeight: HOME_INPUT_MAX_HEIGHT - 16,
+                          lineHeight: 20,
+                          paddingTop: homeInputExpanded ? (Platform.OS === 'ios' ? 8 : 6) : 0,
+                          paddingBottom: homeInputExpanded ? 8 : 0,
+                        }}
                       />
                       <Pressable
                         onPress={handleSendMessage}
@@ -878,7 +945,8 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className="h-[60px] flex-1 flex-row items-center rounded-full bg-[#1A1F28]/95 pl-5 pr-3">
+                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-end pt-2' : 'items-center'}`}
+                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -888,7 +956,19 @@ export const ChatInput = (props: ChatInputProps) => {
                         onChangeText={setInputText}
                         onSubmitEditing={handleSendMessage}
                         returnKeyType="send"
-                        multiline={false}
+                        multiline
+                        blurOnSubmit={false}
+                        textAlignVertical={homeInputExpanded ? 'top' : 'center'}
+                        onContentSizeChange={(event) => {
+                          handleHomeInputContentSizeChange(event.nativeEvent.contentSize.height + 18);
+                        }}
+                        style={{
+                          minHeight: 24,
+                          maxHeight: HOME_INPUT_MAX_HEIGHT - 16,
+                          lineHeight: 20,
+                          paddingTop: homeInputExpanded ? (Platform.OS === 'ios' ? 8 : 6) : 0,
+                          paddingBottom: homeInputExpanded ? 8 : 0,
+                        }}
                       />
                       <View className="flex-row items-center gap-2">
                         <Pressable
@@ -1088,11 +1168,24 @@ export const ChatInput = (props: ChatInputProps) => {
                     onPress={() => {
                       handleHomePanelCenterPress().catch(() => {});
                     }}
-                    className="h-[88px] w-[88px] items-center justify-center rounded-[44px]">
+                    className="h-[72px] w-[72px] items-center justify-center rounded-[36px]">
+                    <Animated.View
+                      pointerEvents="none"
+                      style={[
+                        recordRippleStyle,
+                        {
+                          position: 'absolute',
+                          width: 108,
+                          height: 108,
+                          borderRadius: 54,
+                          backgroundColor: 'rgba(250, 204, 21, 0.22)',
+                        },
+                      ]}
+                    />
                     <Image
                       source={isRecordingUI ? HOME_RECORD_PAUSE_ICON : HOME_RECORD_MIC_ICON}
                       resizeMode="contain"
-                      className="h-[88px] w-[88px]"
+                      className="h-[72px] w-[72px]"
                     />
                   </Pressable>
                   {isRecordingUI ? (

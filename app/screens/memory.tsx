@@ -8,6 +8,7 @@ import {
   ScrollView,
   RefreshControl,
   Alert,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -29,6 +30,12 @@ import {
   memoryDocumentsStale,
   LIST_CACHE_POLL_INTERVAL_MS,
 } from '@/lib/listDataCache';
+import {
+  clearPendingMemoryReview,
+  getPendingMemoryReview,
+  subscribePendingMemoryReview,
+  type PendingMemoryReview,
+} from '@/lib/pendingMemoryReview';
 import {
   deleteInspirationNote,
   deleteSchedule,
@@ -52,6 +59,7 @@ import {
   extractCategories,
   confidenceLabel,
   resolveMemoryTime,
+  hasRawMemoryTime,
 } from '@/services/memoryApi';
 import { formatScheduleTimeForDisplay } from '@/utils/date';
 import {
@@ -452,6 +460,17 @@ const MemoriesTab = ({ contentBottomPad }: MemoriesTabProps) => {
     }
     try {
       const list = await memoryApi.getMemories();
+      const missingRawTime = list.filter((m) => !hasRawMemoryTime(m));
+      if (missingRawTime.length > 0) {
+        console.warn(
+          '[memory] 以下用户记忆缺少后端原始时间字段（已使用兜底时间显示）:',
+          missingRawTime.map((m) => ({
+            id: m.id,
+            category: m.category,
+            contentPreview: m.content.slice(0, 40),
+          }))
+        );
+      }
       putMemoryMemories(list);
       setMemories(list);
     } catch {
@@ -871,10 +890,19 @@ interface DocumentCardProps {
 const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
   const color = getMimeColor(doc.mime_type);
   const label = getMimeLabel(doc.mime_type);
+  const openDoc = () => {
+    const u = doc.source_url?.trim();
+    if (u && /^https?:\/\//i.test(u)) {
+      void Linking.openURL(u);
+      return;
+    }
+    Alert.alert('提示', '暂无可打开的链接，请稍后同步或联系管理员配置历史文档接口。');
+  };
 
   return (
     <TouchableOpacity
       activeOpacity={0.75}
+      onPress={openDoc}
       className="mx-global mb-3 overflow-hidden rounded-2xl bg-secondary">
       <View style={{ backgroundColor: color }} className="flex-row items-center px-4 py-2.5">
         <ThemedText className="flex-1 text-sm font-bold text-white" numberOfLines={1}>
@@ -1006,6 +1034,10 @@ export default function MemoryScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>('灵感笔记');
   const [activePage, setActivePage] = useState<TopPageKey>('memory');
   const [showMemoryTune, setShowMemoryTune] = useState(false);
+  const [pendingReview, setPendingReview] = useState<PendingMemoryReview | null>(() =>
+    getPendingMemoryReview()
+  );
+  const [reviewDeleting, setReviewDeleting] = useState(false);
   const notesInitialTab: NotesTabKey = params.notesTab === 'schedule' ? '日程安排' : '灵感笔记';
 
   useEffect(() => {
@@ -1014,6 +1046,32 @@ export default function MemoryScreen() {
     if (params.tab === 'documents') setActiveTab('历史文档');
     if (params.tab === 'ceo') setActivePage('aiCeo');
   }, [params.tab]);
+
+  useEffect(() => subscribePendingMemoryReview(setPendingReview), []);
+
+  const handleAcceptPendingReview = useCallback(() => {
+    clearPendingMemoryReview();
+    setPendingReview(null);
+  }, []);
+
+  const handleCancelPendingReview = useCallback(async () => {
+    if (!pendingReview || reviewDeleting) return;
+    setReviewDeleting(true);
+    try {
+      if (!pendingReview.id.startsWith('local-')) {
+        await memoryApi.deleteMemory(pendingReview.id);
+      }
+    } catch {
+      // ignore: cache 仍以本地删除为准，后续拉取会再对齐
+    } finally {
+      const current = peekMemoryMemories() ?? [];
+      const next = current.filter((m) => m.id !== pendingReview.id);
+      putMemoryMemories(next);
+      clearPendingMemoryReview();
+      setPendingReview(null);
+      setReviewDeleting(false);
+    }
+  }, [pendingReview, reviewDeleting]);
 
   return (
     <View className="flex-1 bg-background">
@@ -1026,6 +1084,43 @@ export default function MemoryScreen() {
       />
 
       {activePage === 'memory' ? <TabBar active={activeTab} onChange={setActiveTab} /> : null}
+
+      {activePage === 'memory' && pendingReview ? (
+        <View
+          className="absolute left-4 right-4 z-30 rounded-[30px] border border-[#B98C44]/40 bg-[#1D1D1D] px-5"
+          style={{
+            top: insets.top + 52,
+            height: 130,
+            shadowColor: '#000',
+            shadowOpacity: 0.25,
+            shadowRadius: 30,
+            shadowOffset: { width: 0, height: 16 },
+          }}>
+          <View className="mt-3 flex-row items-center">
+            <ThemedText className="text-[14px] text-[#FECF9A]">私密记忆更新</ThemedText>
+            <Icon name="Lock" size={14} color="#FECF9A" style={{ marginLeft: 6 }} />
+          </View>
+          <ThemedText className="mt-2 text-[12px] leading-[17px] text-white" numberOfLines={2}>
+            {pendingReview.content}
+          </ThemedText>
+          <View className="mt-4 flex-row justify-between">
+            <TouchableOpacity
+              disabled={reviewDeleting}
+              onPress={handleAcceptPendingReview}
+              className="h-6 w-[145px] items-center justify-center rounded-xl bg-[#AA873C]">
+              <ThemedText className="text-[12px] text-black">接受</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              disabled={reviewDeleting}
+              onPress={() => {
+                handleCancelPendingReview().catch(() => {});
+              }}
+              className="h-6 w-[145px] items-center justify-center rounded-xl bg-white">
+              <ThemedText className="text-[12px] text-black">取消</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       <View className="flex-1">
         {activePage === 'aiCeo' ? <AiCeoTab contentBottomPad={listBottomPad} /> : null}

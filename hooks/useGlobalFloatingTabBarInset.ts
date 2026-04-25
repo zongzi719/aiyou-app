@@ -1,6 +1,7 @@
 import { usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
 import {
   GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT,
   shouldShowGlobalBottomTabBar,
@@ -12,8 +13,10 @@ export function useGlobalFloatingTabBarInset(): number {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const homeRecordPanelVisible = useHomeRecordPanelVisible();
+  const { visible: aiRecordModalVisible } = useAiRecordModal();
   if (!shouldShowGlobalBottomTabBar(pathname)) return insets.bottom + 16;
   if (pathname === '/' && homeRecordPanelVisible) return insets.bottom + 16;
+  if (aiRecordModalVisible) return insets.bottom + 16;
   return insets.bottom + GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT + 16;
 }
 
@@ -21,7 +24,9 @@ export function useGlobalFloatingTabBarInset(): number {
 export function useGlobalFloatingTabBarExtraBottom(): number {
   const pathname = usePathname();
   const homeRecordPanelVisible = useHomeRecordPanelVisible();
+  const { visible: aiRecordModalVisible } = useAiRecordModal();
   if (!shouldShowGlobalBottomTabBar(pathname)) return 0;
   if (pathname === '/' && homeRecordPanelVisible) return 0;
+  if (aiRecordModalVisible) return 0;
   return GLOBAL_FLOATING_TAB_BAR_STACKING_HEIGHT;
 }

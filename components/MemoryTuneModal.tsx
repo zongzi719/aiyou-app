@@ -35,6 +35,7 @@ import {
   runTypewriter,
 } from '@/lib/bailianAppCompletion';
 import { peekMemoryMemories, putMemoryMemories } from '@/lib/listDataCache';
+import { setPendingMemoryReview } from '@/lib/pendingMemoryReview';
 import { peekProfileCache, putProfileCache } from '@/lib/profileCache';
 import { preferHttpsMediaUrl } from '@/lib/preferHttpsMediaUrl';
 import { synthesizeAliyunCosyVoiceToAudioUrl } from '@/lib/aliyunVoiceApi';
@@ -61,8 +62,12 @@ const cloneIntro = '学习你的语气、思维。和我说话，我会越来越
 
 const CLONE_INTRO_HERO_BG = require('@/assets/images/clone-optimize-hero-bg.png');
 
-/** 配合 resizeMode: cover，使底图满铺中间区域、上下可裁切 */
-const cloneIntroBgImageStyle = { width: '100%' as const, height: '100%' as const };
+/** 分身优化首屏：背景图满铺整卡片并轻微放大裁切，避免圆角边缘露底 */
+const cloneIntroCardBgImageStyle = {
+  width: '100%' as const,
+  height: '100%' as const,
+  transform: [{ scale: 1.12 }],
+};
 
 const FALLBACK_AVATAR_LOCAL = require('@/assets/img/thomino.jpg');
 
@@ -907,8 +912,18 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setExpertCallLines([]);
     expertLinesRef.current = [];
 
-    const userParts = lines.filter((l) => l.role === 'user');
-    if (userParts.length === 0) return;
+    const pairedUserParts = lines.filter((line, idx) => {
+      if (line.role !== 'user') return false;
+      // 仅当该 user 段落后存在有效 clone 回复时，才纳入记忆
+      const nextClone = lines.slice(idx + 1).find((n) => n.role === 'clone');
+      if (!nextClone) return false;
+      const reply = nextClone.text.trim();
+      if (!reply) return false;
+      if (reply === '思考中…') return false;
+      if (reply.startsWith('工作流失败：')) return false;
+      return true;
+    });
+    if (pairedUserParts.length === 0) return;
 
     const merged: TuneMessage[] = lines.map((l) => ({
       id: l.id,
@@ -916,7 +931,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       text: l.text,
     }));
 
-    const combined = userParts.map((l) => l.text).join('；');
+    const combined = pairedUserParts.map((l) => l.text).join('；');
     const inferred = inferCategory(combined);
     const candidate = buildCandidate(combined);
 
@@ -961,12 +976,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         content: pendingMemory.content,
         category: pendingMemory.category,
         confidence: 0.86,
-        updatedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         deletable: true,
       };
-      const next = [inserted, ...current.filter((m) => m.id !== inserted.id)];
+      const insertedForDisplay: UserMemory = {
+        ...inserted,
+        content: pendingMemory.content,
+        category: pendingMemory.category,
+        createdAt: inserted.createdAt ?? new Date().toISOString(),
+      };
+      const next = [insertedForDisplay, ...current.filter((m) => m.id !== insertedForDisplay.id)];
       putMemoryMemories(next);
       setMemories(next);
+      setPendingMemoryReview(insertedForDisplay);
       setPendingMemory(null);
       setEditingPendingMemory(false);
       setMessages((prev) => [
@@ -999,6 +1021,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   }, [memoryEditDraft]);
 
   const voiceInputBusy = holdIsStreaming || sending;
+  const isCloneIntroState = messages.length === 1;
 
   return (
     <Modal
@@ -1015,6 +1038,16 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
           <View
             className="overflow-hidden rounded-t-[30px] bg-[#1D1D1D]"
             style={{ height: sheetHeight, paddingTop: insets.top + 6 }}>
+            {isCloneIntroState ? (
+              <ImageBackground
+                source={CLONE_INTRO_HERO_BG}
+                resizeMode="cover"
+                imageStyle={cloneIntroCardBgImageStyle}
+                style={StyleSheet.absoluteFillObject}
+                accessibilityLabel={cloneIntro}
+                accessible
+              />
+            ) : null}
             <View className="relative items-center pb-4 pt-2">
               <ThemedText
                 className="text-white"
@@ -1028,20 +1061,15 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
               </Pressable>
             </View>
 
-            {messages.length === 1 ? (
+            {isCloneIntroState ? (
               <View className="min-h-0 flex-1 self-stretch">
-                <ImageBackground
-                  source={CLONE_INTRO_HERO_BG}
-                  resizeMode="cover"
-                  imageStyle={cloneIntroBgImageStyle}
+                <View
                   style={{
                     flex: 1,
                     width: '100%',
                     justifyContent: 'center',
                     alignItems: 'center',
-                  }}
-                  accessibilityLabel={cloneIntro}
-                  accessible>
+                  }}>
                   <ThemedText
                     className="text-center text-white"
                     style={{
@@ -1054,7 +1082,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     }}>
                     {cloneIntro}
                   </ThemedText>
-                </ImageBackground>
+                </View>
               </View>
             ) : (
             <ScrollView

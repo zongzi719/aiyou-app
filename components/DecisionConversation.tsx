@@ -104,7 +104,7 @@ export default function DecisionConversation({
           <View key={turn.id} className="mb-8 gap-4">
             <UserBubble text={turn.userText} />
             <View className="gap-4">
-              {turn.coachCards.map((c) => (
+              {turn.coachCards.map((c, idx) => (
                 <DecisionCoachCard
                   key={`${turn.id}-${c.coachId}`}
                   model={{
@@ -112,6 +112,7 @@ export default function DecisionConversation({
                     enabled: coachEnabledMap[c.coachId] !== false,
                   }}
                   onToggleEnabled={(next) => onToggleCoach(c.coachId, next)}
+                  defaultExpanded={idx === 0}
                 />
               ))}
             </View>

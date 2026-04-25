@@ -8,6 +8,10 @@ function normalizeHeading(s: string): string {
   return s
     .replace(/\r/g, '')
     .replace(/[【】]/g, '')
+    .replace(
+      /^((第[一二三四五六七八九十0-9]+[点章节部分]|[一二三四五六七八九十0-9]+)\s*[、.\-:：）)]\s*)+/i,
+      ''
+    )
     .replace(/[：:]\s*$/g, '')
     .trim()
     .toLowerCase();

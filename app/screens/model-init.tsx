@@ -22,6 +22,8 @@ import {
   ActivityIndicator,
   useWindowDimensions,
   PanResponder,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,6 +32,7 @@ import AvatarLoadingParticleRing from '@/components/AvatarLoadingParticleRing';
 import Icon from '@/components/Icon';
 import ModelInitImageHeroCluster from '@/components/ModelInitImageHeroCluster';
 import PortraitPickGuideSheets from '@/components/PortraitPickGuideSheets';
+import { normalizeRecordingMetering, RecordingVoiceWave } from '@/components/RecordingVoiceWave';
 import StarFloatingLoader from '@/components/StarFloatingLoader';
 import ThemedText from '@/components/ThemedText';
 import { useRecording } from '@/hooks/useRecording';
@@ -55,7 +58,7 @@ const voiceCloneProvider = getVoiceCloneProvider();
 const ACCENT = '#D4A017';
 const ACCENT_SOFT = '#F5DCA8';
 const CARD_BG = 'rgba(8, 26, 51, 0.92)';
-const MAX_VOICE_RECORD_SECONDS = 10;
+const MAX_VOICE_RECORD_SECONDS = 60;
 const LAST_VOICE_CLONE_TASK_ID_KEY = 'luna:last_voice_clone_task_id';
 const VOICE_CLONE_SYNC_TIMEOUT_MS = 600_000;
 const VOICE_CLONE_RECOVER_TIMEOUT_MS = 90_000;
@@ -81,8 +84,8 @@ const MODEL_INIT_COMPLETE_SCREEN_BG = require('@/assets/images/backgrounds/model
 const MODEL_INIT_INTERVIEW_PREAMBLE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-interview-preamble.png');
 /** Figma Group 491 光效（intro 正中） */
 const MODEL_INIT_INTRO_GLOW = require('@/assets/images/model-init-intro-glow.png');
-const VOICE_MIC_PAUSE_IMG = require('@/assets/images/model-init-voice/voice-mic-pause.png');
-const VOICE_MIC_SPEAK_IMG = require('@/assets/images/model-init-voice/voice-mic-speak.png');
+const VOICE_MIC_PAUSE_IMG = require('@/assets/images/home-record/mic-paused.png');
+const VOICE_MIC_SPEAK_IMG = require('@/assets/images/home-record/mic-speaking.png');
 
 /** 构建模型首页 Figma 402 宽画板比例 */
 const MODEL_INIT_INTRO_FRAME = { w: 402, h: 874 } as const;
@@ -600,6 +603,7 @@ export default function ModelInitScreen() {
   const [voicePromptText, setVoicePromptText] = useState(VOICE_SCRIPT);
   const [voicePromptTextId, setVoicePromptTextId] = useState<string | null>(null);
   const [voiceQualityFailCount, setVoiceQualityFailCount] = useState(0);
+  const [voiceLimitModalVisible, setVoiceLimitModalVisible] = useState(false);
   /** 阿里云 OSS 路径用；与资料接口 user_id 一致 */
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [portraitUri, setPortraitUri] = useState<string | null>(null);
@@ -634,10 +638,13 @@ export default function ModelInitScreen() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const avatarAbortRef = useRef<AbortController | null>(null);
   const interviewBridgeOpacity = useRef(new Animated.Value(0)).current;
-  const { isRecording, isPaused, startRecording, stopRecording, pauseRecording, resumeRecording } =
+  const { isRecording, isPaused, metering, startRecording, stopRecording, pauseRecording, resumeRecording } =
     useRecording();
 
   const filled = phaseToFilledSegments(phase);
+  const voiceWaveLevel = normalizeRecordingMetering(metering);
+  /** 部分 Android 机型 metering 偏低，给最小振幅兜底，确保水波可见 */
+  const visibleVoiceWaveLevel = isRecording && !isPaused ? Math.max(voiceWaveLevel, 0.1) : 0;
   const title = phaseTitle(phase);
   /** 解析完成页：与 Figma 左对齐 34px 等比 */
   const modelInitCompletePadX = useMemo(
@@ -719,13 +726,10 @@ export default function ModelInitScreen() {
     if (!isRecording || isPaused || recordSeconds < MAX_VOICE_RECORD_SECONDS) return;
     pauseRecording()
       .then(() => {
-        Alert.alert(
-          '提示',
-          `当前录音最多 ${MAX_VOICE_RECORD_SECONDS} 秒，已自动暂停，请点击右侧确认。`
-        );
+        setVoiceLimitModalVisible(true);
       })
       .catch(() => {
-        Alert.alert('提示', '录音时长已达上限，请点击右侧确认。');
+        setVoiceLimitModalVisible(true);
       });
   }, [isRecording, isPaused, pauseRecording, recordSeconds]);
 
@@ -919,7 +923,7 @@ export default function ModelInitScreen() {
       }
       if (isPaused) {
         if (recordSeconds >= MAX_VOICE_RECORD_SECONDS) {
-          Alert.alert('提示', `当前录音最多 ${MAX_VOICE_RECORD_SECONDS} 秒，请点击右侧确认。`);
+          setVoiceLimitModalVisible(true);
           return;
         }
         await resumeRecording();
@@ -1210,6 +1214,7 @@ export default function ModelInitScreen() {
 
   const resetVoiceStep = () => {
     setRecordSeconds(0);
+    setVoiceLimitModalVisible(false);
     if (isRecording) {
       stopRecording().catch(() => {});
     }
@@ -1643,13 +1648,13 @@ export default function ModelInitScreen() {
                       onPress={toggleRecord}
                       activeOpacity={0.9}
                       accessibilityLabel={isRecording && !isPaused ? '暂停录音' : '开始录音'}
-                      className="h-[78px] w-[78px] items-center justify-center overflow-hidden rounded-full"
+                      className="h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-full"
                       style={styles.voiceMicOuter}>
                       <Image
                         source={
                           isRecording && !isPaused ? VOICE_MIC_PAUSE_IMG : VOICE_MIC_SPEAK_IMG
                         }
-                        style={{ width: 78, height: 78, borderRadius: 39 }}
+                        style={{ width: 72, height: 72, borderRadius: 36 }}
                         resizeMode="contain"
                       />
                     </TouchableOpacity>
@@ -1675,24 +1680,18 @@ export default function ModelInitScreen() {
                       {voiceStatusText}
                     </ThemedText>
                   ) : null}
-                  <LinearGradient
-                    colors={[
-                      'transparent',
-                      'rgba(179,151,92,0.55)',
-                      'rgba(168,127,42,0.35)',
-                      'transparent',
-                    ]}
-                    start={{ x: 0, y: 0.5 }}
-                    end={{ x: 1, y: 0.5 }}
+                  <View
                     style={{
                       alignSelf: 'center',
                       marginTop: voiceStepY(20, layoutH),
                       marginBottom: 4,
-                      height: 2,
                       width: Math.min(layoutW * 0.78, 320),
-                      borderRadius: 1,
-                    }}
-                  />
+                    }}>
+                    <RecordingVoiceWave
+                      level={visibleVoiceWaveLevel}
+                      active={isRecording && !isPaused}
+                    />
+                  </View>
                   {hasExistingVoiceId ? (
                     <TouchableOpacity
                       onPress={() => setPhase('image')}
@@ -2243,6 +2242,44 @@ export default function ModelInitScreen() {
       onTakePhoto={handlePortraitTakePhoto}
       onPickLibrary={handlePortraitPickLibrary}
     />
+    <Modal
+      visible={voiceLimitModalVisible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={() => setVoiceLimitModalVisible(false)}>
+      <Pressable
+        className="flex-1 items-center justify-center bg-black/55 px-7"
+        onPress={() => setVoiceLimitModalVisible(false)}>
+        <Pressable
+          className="w-full max-w-[340px] overflow-hidden rounded-3xl border border-white/10 bg-[#181B20] px-5 pb-5 pt-4"
+          onPress={() => {}}>
+          <View className="mb-2 flex-row items-center">
+            <ThemedText className="text-[18px] font-semibold text-white">提示</ThemedText>
+          </View>
+          <ThemedText className="text-[15px] leading-6 text-[#C9CDD3]">
+            当前录音最多 {MAX_VOICE_RECORD_SECONDS} 秒，已自动暂停，请点击右侧确认。
+          </ThemedText>
+          <View className="mt-4">
+            <TouchableOpacity
+              onPress={() => setVoiceLimitModalVisible(false)}
+              activeOpacity={0.88}
+              className="items-center justify-center overflow-hidden rounded-2xl"
+              style={{ height: 48 }}>
+              <LinearGradient
+                colors={['#B3975C', '#A87F2A']}
+                start={{ x: 0.05, y: 0.5 }}
+                end={{ x: 0.95, y: 0.5 }}
+                style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
+              />
+              <ThemedText className="text-base font-medium" style={{ color: '#000000' }}>
+                我知道了
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
     </>
   );
 }

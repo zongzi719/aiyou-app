@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColors } from '@/app/contexts/ThemeColors';
+import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
 import { ChatInput, SelectedFile } from '@/components/ChatInput';
 import { Conversation, Message, type MessageFile } from '@/components/Conversation';
 import DecisionCoachPickerModal, {
@@ -29,7 +30,10 @@ import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTab
 import { hasPrivateChatBackendSession } from '@/lib/authSession';
 import {
   DECISION_COACHES,
+  ensureDecisionPageThread,
   ensureDecisionCoachThreads,
+  loadDecisionPageState,
+  persistDecisionPageState,
   runDecisionTurn,
 } from '@/lib/decisionChatApi';
 import {
@@ -178,6 +182,7 @@ const HomeScreen = () => {
   const colors = useThemeColors();
   const scrollViewRef = useRef<ScrollView>(null);
   const privateThreadIdRef = useRef<string | null>(null);
+  const getPrivateThreadId = useCallback(() => privateThreadIdRef.current, []);
   /** 清屏或新开对话时递增，用于忽略仍在进行的私人模式流式回调 */
   const privateUiEpochRef = useRef(0);
   const handleSendMessageRef = useRef<
@@ -197,6 +202,8 @@ const HomeScreen = () => {
   });
   const [decisionTurns, setDecisionTurns] = useState<DecisionTurn[]>([]);
   const [decisionIsRunning, setDecisionIsRunning] = useState(false);
+  const decisionPageThreadIdRef = useRef<string | null>(null);
+  const restoringDecisionStateRef = useRef(false);
 
   const handleOpenDrawer = useCallback(() => {
     try {
@@ -217,6 +224,16 @@ const HomeScreen = () => {
     setDecisionTurns([]);
     setDecisionStarted(false);
     setDecisionIsRunning(false);
+    void (async () => {
+      const pageThreadId =
+        decisionPageThreadIdRef.current ?? (await ensureDecisionPageThread().catch(() => null));
+      if (!pageThreadId) return;
+      decisionPageThreadIdRef.current = pageThreadId;
+      await persistDecisionPageState(pageThreadId, {
+        decision_turns: [],
+        decision_selected_coach_ids: selectedCoachIds,
+      }).catch(() => {});
+    })();
   }, [homeMode]);
 
   useEffect(() => {
@@ -569,7 +586,18 @@ const HomeScreen = () => {
       }
 
       const modelName = selectedModelRef.current || (await getSelectedModelName());
-      await ensureDecisionCoachThreads(enabledCoachIds);
+      const pageThreadId =
+        decisionPageThreadIdRef.current ?? (await ensureDecisionPageThread().catch(() => null));
+      if (pageThreadId) {
+        decisionPageThreadIdRef.current = pageThreadId;
+      }
+      const coachThreadMap = await ensureDecisionCoachThreads(enabledCoachIds);
+      if (pageThreadId) {
+        await persistDecisionPageState(pageThreadId, {
+          decision_coach_thread_ids: coachThreadMap,
+          decision_selected_coach_ids: selectedCoachIds,
+        }).catch(() => {});
+      }
 
       const results = await runDecisionTurn({
         coachIds: enabledCoachIds,
@@ -577,6 +605,35 @@ const HomeScreen = () => {
         modelName,
         images,
         files,
+        onCoachResult: ({ coachId, result }) => {
+          setDecisionTurns((prev) =>
+            prev.map((t) => {
+              if (t.id !== turnId) return t;
+              return {
+                ...t,
+                coachCards: t.coachCards.map((card) => {
+                  if (card.coachId !== coachId) return card;
+                  if (result.ok) {
+                    return {
+                      ...card,
+                      loading: false,
+                      rawText: result.rawText,
+                      decisionAdvice: result.sections.decisionAdvice,
+                      keyQuestions: result.sections.keyQuestions,
+                      riskWarnings: result.sections.riskWarnings,
+                      errorText: '',
+                    };
+                  }
+                  return {
+                    ...card,
+                    loading: false,
+                    errorText: result.errorText,
+                  };
+                }),
+              };
+            })
+          );
+        },
       });
 
       setDecisionTurns((prev) =>
@@ -670,6 +727,56 @@ const HomeScreen = () => {
     void run();
   }, [newChatParam, openThreadIdParam]);
 
+  useEffect(() => {
+    if (homeMode !== 'decision') return;
+    if (restoringDecisionStateRef.current) return;
+    restoringDecisionStateRef.current = true;
+    void (async () => {
+      const pageThreadId = await ensureDecisionPageThread().catch(() => null);
+      if (!pageThreadId) return;
+      decisionPageThreadIdRef.current = pageThreadId;
+      const state = await loadDecisionPageState(pageThreadId).catch(() => null);
+      if (!state) return;
+      if (Array.isArray(state.decision_selected_coach_ids) && state.decision_selected_coach_ids.length > 0) {
+        setSelectedCoachIds(state.decision_selected_coach_ids);
+      }
+      const rawTurns = state.decision_turns;
+      if (Array.isArray(rawTurns) && rawTurns.length > 0) {
+        const turns = rawTurns
+          .map((t) => {
+            const row = t as Record<string, unknown>;
+            const id = typeof row.id === 'string' ? row.id : `${Date.now()}`;
+            const userText = typeof row.userText === 'string' ? row.userText : '';
+            const createdAtRaw = typeof row.createdAt === 'string' ? row.createdAt : '';
+            const createdAt = createdAtRaw ? new Date(createdAtRaw) : new Date();
+            const coachCards = Array.isArray(row.coachCards) ? (row.coachCards as DecisionTurn['coachCards']) : [];
+            return { id, userText, createdAt, coachCards };
+          })
+          .filter((t) => t.userText.trim().length > 0 || t.coachCards.length > 0);
+        if (turns.length > 0) {
+          setDecisionTurns(turns);
+          setDecisionStarted(true);
+        }
+      }
+    })().finally(() => {
+      restoringDecisionStateRef.current = false;
+    });
+  }, [homeMode]);
+
+  useEffect(() => {
+    if (homeMode !== 'decision') return;
+    const pageThreadId = decisionPageThreadIdRef.current;
+    if (!pageThreadId) return;
+    const serializableTurns = decisionTurns.map((t) => ({
+      ...t,
+      createdAt: t.createdAt instanceof Date ? t.createdAt.toISOString() : String(t.createdAt),
+    }));
+    void persistDecisionPageState(pageThreadId, {
+      decision_turns: serializableTurns,
+      decision_selected_coach_ids: selectedCoachIds,
+    }).catch(() => {});
+  }, [decisionTurns, homeMode, selectedCoachIds]);
+
   const hasMessages = messages.length > 0;
   const hasDecisionMessages = decisionTurns.length > 0;
 
@@ -681,7 +788,9 @@ const HomeScreen = () => {
     () => buildSimpleHomeSuggestionBatch(suggestionBatchIndex),
     [suggestionBatchIndex]
   );
-  const shouldShowChatInput = homeMode === 'private' || decisionStarted || hasDecisionMessages;
+  const { visible: aiRecordModalVisible } = useAiRecordModal();
+  const shouldShowChatInput =
+    (homeMode === 'private' || decisionStarted || hasDecisionMessages) && !aiRecordModalVisible;
   const { width: winW, height: winH } = useWindowDimensions();
   const isPrivateEmptyHome = homeMode === 'private' && !hasMessages;
 
@@ -741,6 +850,7 @@ const HomeScreen = () => {
                     onRegenerateAssistant={handleRegenerateAssistant}
                     knowledgeStarredAssistantIds={knowledgeStarredIds}
                     onKnowledgeAssistantStarred={handleKnowledgeAssistantStarred}
+                    getThreadId={getPrivateThreadId}
                   />
                 ) : (
                     <ScrollView
