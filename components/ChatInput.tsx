@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import LottieView from 'lottie-react-native';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
 import {
   Pressable,
   Image,
@@ -73,6 +73,13 @@ export interface SelectedFile {
 type ChatInputProps = {
   onSendMessage?: (text: string, images?: string[], files?: SelectedFile[]) => void;
   variant?: 'default' | 'home';
+  /** 与 index 中包住 Chat + 浮层 的 `View` 一致，用于测量底栏相对位置 */
+  homeInputMeasureParentRef?: RefObject<View | null>;
+  /**
+   * 主内容区底边 到 首页底栏（链接+圆角输入+按钮）上沿 的像素距 + 8pt 安全间距
+   * （用于决策模式教练浮层 `bottom` 定位）
+   */
+  onHomeInputStripOffsetFromParentBottom?: (px: number) => void;
 };
 
 export const ChatInput = (props: ChatInputProps) => {
@@ -99,6 +106,7 @@ export const ChatInput = (props: ChatInputProps) => {
   const [homeInputHeight, setHomeInputHeight] = useState(HOME_INPUT_MIN_HEIGHT);
   const lottieRef = useRef<LottieView>(null);
   const inputRef = useRef<any>(null);
+  const homePillBlockRef = useRef<View | null>(null);
   /** 本次流式识别开始前的输入框内容 */
   const asrPrefixRef = useRef('');
   const wasStreamingRef = useRef(false);
@@ -675,6 +683,41 @@ export const ChatInput = (props: ChatInputProps) => {
   const homeVoiceWaveActive = isRecordingUI;
   const homeInputExpanded = homeInputHeight > HOME_INPUT_MIN_HEIGHT + 1;
 
+  const syncHomePillOffset = useCallback(() => {
+    const report = props.onHomeInputStripOffsetFromParentBottom;
+    const parentRef = props.homeInputMeasureParentRef;
+    if (props.variant !== 'home' || !report || !parentRef) return;
+    const parent = parentRef.current;
+    const pill = homePillBlockRef.current;
+    if (!parent || !pill) return;
+    parent.measureInWindow((px, py, pw, ph) => {
+      pill.measureInWindow((cx, cy, _cw, _ch) => {
+        const fromBottom = py + ph - cy;
+        if (Number.isFinite(fromBottom) && fromBottom >= 0) {
+          report(fromBottom + 8);
+        }
+      });
+    });
+  }, [props.variant, props.onHomeInputStripOffsetFromParentBottom, props.homeInputMeasureParentRef]);
+
+  useEffect(() => {
+    if (props.variant !== 'home' || !props.onHomeInputStripOffsetFromParentBottom) return;
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(syncHomePillOffset);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [
+    homeInputHeight,
+    homeInputVoiceSessionUi,
+    homeRecordPanelOpen,
+    selectedImages.length,
+    selectedFiles.length,
+    syncHomePillOffset,
+    props.variant,
+    props.onHomeInputStripOffsetFromParentBottom,
+    iosKeyboardHeight,
+  ]);
+
   useEffect(() => {
     if (!isRecordingUI || isStoppingHomeRecording) return;
     const timer = setInterval(() => {
@@ -841,7 +884,12 @@ export const ChatInput = (props: ChatInputProps) => {
               homeRecordPanelOpen
                 ? 0
                 : iosBottomBase + iosKeyboardLift,
-            zIndex: 999,
+            /**
+             * 首页决策模式时浮层（教练叠放等）在父级 zIndex>此值；若写 999，Reanimated
+             * 合成层容易盖过普通 View 上的更高 zIndex，需主动压低本层。
+             */
+            zIndex: isHomeVariant ? 1 : 999,
+            ...(isHomeVariant && Platform.OS === 'android' ? { elevation: 0 } : {}),
           },
           Platform.OS === 'android' ? androidInputStyle : {},
         ]}
@@ -866,10 +914,20 @@ export const ChatInput = (props: ChatInputProps) => {
           )}
 
           <View
-            style={{ ...shadowPresets.card }}
+            style={{
+              ...shadowPresets.card,
+              ...(isHomeVariant && Platform.OS === 'android' ? { elevation: 0 } : {}),
+            }}
             className={`${isHomeVariant ? '' : 'rounded-[25px] border border-border bg-background'}`}>
             {isHomeVariant ? (
-              <View className="gap-2 pb-1">
+              <View
+                ref={homePillBlockRef}
+                onLayout={() => {
+                  requestAnimationFrame(() => {
+                    syncHomePillOffset();
+                  });
+                }}
+                className="gap-2 pb-1">
                 {homeInputVoiceSessionUi ? (
                   <View className="flex-row items-end">
                     <Pressable
@@ -886,7 +944,7 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-end pt-2' : 'items-center'}`}
+                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-center pt-1.5' : 'items-center'}`}
                       style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
                       <TextInput
                         ref={inputRef}
@@ -970,18 +1028,28 @@ export const ChatInput = (props: ChatInputProps) => {
                           paddingBottom: homeInputExpanded ? 8 : 0,
                         }}
                       />
-                      <View className="flex-row items-center gap-2">
+                      <View className="mb-1 flex-row items-center gap-2">
+                        {inputText.trim().length > 0 ? (
+                          <Pressable
+                            onPress={handleSendMessage}
+                            disabled={isRecordingUI}
+                            className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
+                            accessibilityRole="button"
+                            accessibilityLabel="提交">
+                            <Icon name="ArrowUp" size={17} color="white" />
+                          </Pressable>
+                        ) : null}
                         <Pressable
                           onPress={openHomeRecordPanel}
                           disabled={isRecordingUI}
-                          className={`border-white/28 bg-black/35 h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
+                          className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${homeInputExpanded ? '-mt-0.5' : ''} ${isRecordingUI ? 'opacity-45' : ''}`}
                           accessibilityRole="button"
                           accessibilityLabel="录音">
                           <Icon name="Mic" size={17} color="white" />
                         </Pressable>
                         <Pressable
                           onPress={openImageCaptureMenu}
-                          className="border-white/28 bg-black/35 h-[34px] w-[34px] items-center justify-center rounded-full border"
+                          className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${homeInputExpanded ? '-mt-0.5' : ''}`}
                           accessibilityRole="button"
                           accessibilityLabel="拍照或相册上传">
                           <Icon name="Camera" size={17} color="white" />

@@ -72,8 +72,21 @@ export const DECISION_COACHES: DecisionCoachProfile[] = [
 
 const STORAGE_KEY = 'luna_decision_coach_thread_map_v1';
 const PAGE_THREAD_STORAGE_KEY = 'luna_decision_page_thread_id_v1';
-const DECISION_REQUEST_TIMEOUT_MS = 120_000;
-const DECISION_TIMEOUT_RETRY_COUNT = 1;
+const DECISION_REQUEST_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_DECISION_REQUEST_TIMEOUT_MS || 120_000);
+const DECISION_TIMEOUT_RETRY_COUNT = Number(process.env.EXPO_PUBLIC_DECISION_TIMEOUT_RETRY_COUNT || 1);
+const DECISION_STATE_RECOVER_POLL_COUNT = Number(
+  process.env.EXPO_PUBLIC_DECISION_STATE_RECOVER_POLL_COUNT || 3
+);
+const DECISION_STATE_RECOVER_POLL_INTERVAL_MS = Number(
+  process.env.EXPO_PUBLIC_DECISION_STATE_RECOVER_POLL_INTERVAL_MS || 1200
+);
+
+function logDecisionMetric(event: string, payload?: Record<string, unknown>): void {
+  const data = { ts: new Date().toISOString(), event, ...payload };
+  if (__DEV__) {
+    console.log('[decision-metric]', JSON.stringify(data));
+  }
+}
 
 function joinUrl(base: string, path: string): string {
   const b = base.replace(/\/$/, '');
@@ -84,6 +97,72 @@ function joinUrl(base: string, path: string): string {
 function asRecord(v: unknown): Record<string, unknown> | undefined {
   if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
   return undefined;
+}
+
+function parseJsonIfString<T = unknown>(value: unknown): T | undefined {
+  if (typeof value !== 'string') return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function deepFindByKey(root: unknown, key: string): unknown {
+  const stack: unknown[] = [root];
+  const seen = new Set<unknown>();
+  while (stack.length > 0) {
+    const cur = stack.pop();
+    if (!cur || seen.has(cur)) continue;
+    seen.add(cur);
+    const rec = asRecord(cur);
+    if (!rec) continue;
+    if (key in rec) return rec[key];
+    for (const v of Object.values(rec)) {
+      if (v && typeof v === 'object') stack.push(v);
+      const parsed = parseJsonIfString(v);
+      if (parsed && typeof parsed === 'object') stack.push(parsed);
+    }
+  }
+  return undefined;
+}
+
+function coerceStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) {
+    const out = value.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+    return out.length > 0 ? out : undefined;
+  }
+  const parsed = parseJsonIfString<unknown>(value);
+  if (Array.isArray(parsed)) {
+    const out = parsed.filter((x): x is string => typeof x === 'string' && x.trim().length > 0);
+    return out.length > 0 ? out : undefined;
+  }
+  return undefined;
+}
+
+function coerceStringRecord(value: unknown): Record<string, string> | undefined {
+  const tryObject = (obj: unknown): Record<string, string> | undefined => {
+    const rec = asRecord(obj);
+    if (!rec) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rec)) {
+      if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  };
+  const direct = tryObject(value);
+  if (direct) return direct;
+  const parsed = parseJsonIfString<unknown>(value);
+  return tryObject(parsed);
+}
+
+function coerceTurnsValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  const parsed = parseJsonIfString<unknown>(value);
+  if (Array.isArray(parsed)) return parsed;
+  return value;
 }
 
 async function loadThreadMap(): Promise<Record<string, string>> {
@@ -116,7 +195,7 @@ async function savePageThreadId(threadId: string): Promise<void> {
 }
 
 async function requestJson(
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: unknown
 ): Promise<{ status: number; json: unknown; text: string }> {
@@ -271,6 +350,24 @@ function extractLastAiTextFromMessages(messages: unknown): string {
   return '';
 }
 
+function extractLastHumanTextFromMessages(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = asRecord(messages[i]);
+    if (!m) continue;
+    const kwargs = asRecord(m.kwargs);
+    const src = kwargs ?? m;
+    const type = typeof src.type === 'string' ? src.type : '';
+    const role = typeof src.role === 'string' ? src.role : '';
+    const isHuman = type === 'human' || type === 'user' || role === 'human' || role === 'user';
+    if (!isHuman) continue;
+    const contentSrc = (src as Record<string, unknown>).content;
+    const text = normalizeAiContent(contentSrc).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function extractAiTextFromRunPayload(json: unknown): string {
   const root = asRecord(json);
   if (!root) return '';
@@ -290,10 +387,10 @@ function extractAiTextFromRunPayload(json: unknown): string {
   }
   const outputText = (root.output_text ?? asRecord(root.output)?.text) as string | undefined;
   if (typeof outputText === 'string' && outputText.trim()) return outputText.trim();
-  const artifactText = extractTextFromArtifacts(root.artifacts);
-  if (artifactText) return artifactText;
   const deepText = extractAiTextFromAnyNestedMessages(root);
   if (deepText) return deepText;
+  const artifactText = extractTextFromArtifacts(root.artifacts);
+  if (artifactText) return artifactText;
   return '';
 }
 
@@ -317,6 +414,26 @@ function extractClarificationFromRunPayload(json: unknown): string {
   if (root) {
     const deep = extractClarificationFromAnyNestedMessages(root);
     if (deep) return deep;
+  }
+  return '';
+}
+
+function extractHumanTextFromStatePayload(json: unknown): string {
+  const root = asRecord(json);
+  if (!root) return '';
+  const threadData = asRecord(root.thread_data);
+  const candidates: unknown[] = [
+    root.messages,
+    threadData?.messages,
+    asRecord(threadData?.values)?.messages,
+    asRecord(root.output)?.messages,
+    asRecord(root.values)?.messages,
+    asRecord(asRecord(root.state)?.values)?.messages,
+    asRecord(asRecord(root.data)?.output)?.messages,
+  ];
+  for (const c of candidates) {
+    const text = extractLastHumanTextFromMessages(c).trim();
+    if (text) return text;
   }
   return '';
 }
@@ -401,7 +518,7 @@ function extractTextFromArtifacts(artifacts: unknown): string {
     seen.add(cur);
     if (typeof cur === 'string') {
       const t = cur.trim();
-      if (t.length >= 12) candidates.push(t);
+      if (t.length >= 12 && !looksLikePathOnlyText(t)) candidates.push(t);
       continue;
     }
     if (Array.isArray(cur)) {
@@ -419,6 +536,24 @@ function extractTextFromArtifacts(artifacts: unknown): string {
   if (candidates.length === 0) return '';
   candidates.sort((a, b) => b.length - a.length);
   return candidates[0] ?? '';
+}
+
+function looksLikePathOnlyText(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const normalized = t.replace(/\\+/g, '/');
+  const pathLike =
+    normalized.startsWith('/mnt/') ||
+    normalized.startsWith('/tmp/') ||
+    normalized.startsWith('/var/') ||
+    normalized.startsWith('file://') ||
+    /^[a-zA-Z]:\//.test(normalized);
+  const fileExtLike = /\.(md|markdown|txt|json|csv|xlsx|docx|pdf)(\?|#|$)/i.test(normalized);
+  const hasSentencePunctuation = /[。！？；.!?]/.test(normalized);
+  const hasChinese = /[\u4e00-\u9fa5]/.test(normalized);
+  if ((pathLike || fileExtLike) && !hasSentencePunctuation) return true;
+  if (pathLike && hasChinese && !hasSentencePunctuation && normalized.length < 120) return true;
+  return false;
 }
 
 function extractAskClarificationText(messages: unknown): string {
@@ -527,6 +662,7 @@ export type DecisionPageStateValues = {
   decision_turns?: unknown;
   decision_coach_thread_ids?: Record<string, string>;
   decision_selected_coach_ids?: string[];
+  title?: string;
 };
 
 async function createDecisionPageThread(threadId: string): Promise<string> {
@@ -563,19 +699,108 @@ export async function ensureDecisionPageThread(preferredThreadId?: string): Prom
   return tid;
 }
 
+/**
+ * 清除本地持久化的决策页 thread id 与教练子线程映射。
+ * 「创建新对话」后调用，使决策模式从新的 page 线程与空映射开始，不再连上上一份会话或教练线程。
+ */
+export async function clearDecisionLocalSession(): Promise<void> {
+  await AsyncStorage.multiRemove([PAGE_THREAD_STORAGE_KEY, STORAGE_KEY]);
+}
+
 export async function loadDecisionPageState(pageThreadId: string): Promise<DecisionPageStateValues | null> {
   const { status, json } = await getJson(`/api/threads/${encodeURIComponent(pageThreadId)}/state`);
   if (status < 200 || status >= 300) return null;
   const root = asRecord(json);
-  const values = asRecord(root?.values);
-  if (!values) return null;
+  const values = asRecord(root?.values) ?? {};
+  const decisionTurnsRaw =
+    values.decision_turns ??
+    deepFindByKey(values, 'decision_turns') ??
+    deepFindByKey(root, 'decision_turns');
+  const coachThreadIdsRaw =
+    values.decision_coach_thread_ids ??
+    deepFindByKey(values, 'decision_coach_thread_ids') ??
+    deepFindByKey(root, 'decision_coach_thread_ids');
+  const selectedCoachIdsRaw =
+    values.decision_selected_coach_ids ??
+    deepFindByKey(values, 'decision_selected_coach_ids') ??
+    deepFindByKey(root, 'decision_selected_coach_ids');
+  const decisionTurns = coerceTurnsValue(decisionTurnsRaw);
+  const coachThreadIds = coerceStringRecord(coachThreadIdsRaw);
+  const selectedCoachIds = coerceStringArray(selectedCoachIdsRaw);
+  if (__DEV__) {
+    const turnsLen = Array.isArray(decisionTurns) ? decisionTurns.length : -1;
+    console.log('[decision] loadDecisionPageState parsed', {
+      pageThreadId,
+      status,
+      hasRoot: !!root,
+      rootKeys: root ? Object.keys(root).slice(0, 12) : [],
+      decisionTurnsType: Array.isArray(decisionTurns) ? 'array' : typeof decisionTurns,
+      decisionTurnsLen: turnsLen,
+      coachThreadIdsKeys: coachThreadIds ? Object.keys(coachThreadIds) : [],
+      selectedCoachIdsLen: selectedCoachIds?.length ?? 0,
+      rawDecisionTurnsType: typeof decisionTurnsRaw,
+      rawCoachThreadIdsType: typeof coachThreadIdsRaw,
+      rawSelectedCoachIdsType: typeof selectedCoachIdsRaw,
+    });
+  }
+  if (decisionTurns == null && !coachThreadIds && !selectedCoachIds) return null;
   return {
-    decision_turns: values.decision_turns,
-    decision_coach_thread_ids: asRecord(values.decision_coach_thread_ids) as Record<string, string> | undefined,
-    decision_selected_coach_ids: Array.isArray(values.decision_selected_coach_ids)
-      ? values.decision_selected_coach_ids.filter((x): x is string => typeof x === 'string')
-      : undefined,
+    decision_turns: decisionTurns,
+    decision_coach_thread_ids: coachThreadIds,
+    decision_selected_coach_ids: selectedCoachIds,
   };
+}
+
+export async function loadLatestDecisionTurnFromCoachThreads(args: {
+  coachThreadIds: Record<string, string>;
+  selectedCoachIds?: string[];
+}): Promise<
+  | {
+      question: string;
+      replies: Array<{ coachId: string; content: string; error?: string }>;
+    }
+  | null
+> {
+  const coachIds =
+    args.selectedCoachIds && args.selectedCoachIds.length > 0
+      ? args.selectedCoachIds.filter((id) => !!args.coachThreadIds[id])
+      : Object.keys(args.coachThreadIds);
+  if (coachIds.length === 0) return null;
+
+  const settled = await Promise.allSettled(
+    coachIds.map(async (coachId) => {
+      const threadId = args.coachThreadIds[coachId];
+      const state = await getJson(`/api/threads/${encodeURIComponent(threadId)}/state`);
+      if (state.status < 200 || state.status >= 300) {
+        return { coachId, content: '', question: '', error: `HTTP ${state.status}` };
+      }
+      const content =
+        extractAiTextFromRunPayload(state.json).trim() ||
+        extractClarificationFromRunPayload(state.json).trim();
+      const question = extractHumanTextFromStatePayload(state.json).trim();
+      return { coachId, content, question, error: content ? '' : '未收到回复' };
+    })
+  );
+
+  const replies: Array<{ coachId: string; content: string; error?: string }> = [];
+  let question = '';
+  settled.forEach((item, index) => {
+    const coachId = coachIds[index] ?? '';
+    if (item.status === 'rejected') {
+      replies.push({ coachId, content: '', error: '读取历史失败' });
+      return;
+    }
+    const value = item.value;
+    if (!question && value.question) question = value.question;
+    replies.push({
+      coachId: value.coachId,
+      content: value.content,
+      error: value.error || undefined,
+    });
+  });
+  const hasAnyContent = replies.some((r) => r.content.trim().length > 0);
+  if (!hasAnyContent) return null;
+  return { question: question || '历史决策问题', replies };
 }
 
 export async function persistDecisionPageState(
@@ -601,6 +826,8 @@ async function runDecisionCoachWait(args: {
   images?: string[];
   files?: SelectedFile[];
 }): Promise<RunDecisionCoachResult> {
+  const startedAt = Date.now();
+  logDecisionMetric('run_start', { coachId: args.coachId, threadId: args.threadId });
   const coach = DECISION_COACHES.find((c) => c.id === args.coachId);
   if (!coach) return { ok: false, errorText: '未知教练' };
 
@@ -659,6 +886,7 @@ async function runDecisionCoachWait(args: {
       custom_system_prompt: coach.systemPrompt,
       output_guidelines: '请按“决策建议 / 关键问题 / 风险提示”三段式输出，中文，简洁可执行。',
       disable_auto_file_output: true,
+      forbid_path_only_output: true,
     },
   };
 
@@ -669,8 +897,8 @@ async function runDecisionCoachWait(args: {
 
   if (status < 200 || status >= 300) {
     if (status === 502 || status === 503 || status === 504) {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        if (attempt > 0) await sleep(1200);
+      for (let attempt = 0; attempt < DECISION_STATE_RECOVER_POLL_COUNT; attempt += 1) {
+        if (attempt > 0) await sleep(DECISION_STATE_RECOVER_POLL_INTERVAL_MS);
         const stateRes = await getJson(`/api/threads/${encodeURIComponent(args.threadId)}/state`);
         if (stateRes.status >= 200 && stateRes.status < 300) {
           const recovered =
@@ -678,23 +906,57 @@ async function runDecisionCoachWait(args: {
             extractClarificationFromRunPayload(stateRes.json).trim();
           if (recovered) {
             const sections = parseDecisionReplySections(recovered);
+            logDecisionMetric('state_fallback_hit', {
+              coachId: args.coachId,
+              threadId: args.threadId,
+              elapsedMs: Date.now() - startedAt,
+            });
+            logDecisionMetric('run_end', {
+              coachId: args.coachId,
+              threadId: args.threadId,
+              elapsedMs: Date.now() - startedAt,
+              via: 'state_fallback',
+            });
             return { ok: true, rawText: recovered, sections };
           }
         }
       }
     }
     const detail = formatDecisionHttpError(status, json, text);
+    logDecisionMetric('run_error', {
+      coachId: args.coachId,
+      threadId: args.threadId,
+      elapsedMs: Date.now() - startedAt,
+      reason: detail,
+      status,
+    });
     return { ok: false, errorText: `请求失败：${detail}` };
   }
 
+  let sawPathLikeOutput = false;
   let rawText = extractAiTextFromRunPayload(json).trim();
+  if (looksLikePathOnlyText(rawText)) {
+    sawPathLikeOutput = true;
+    rawText = '';
+  }
   if (!rawText) {
-    for (let attempt = 0; attempt < 3 && !rawText; attempt += 1) {
-      if (attempt > 0) await sleep(1200);
+    for (let attempt = 0; attempt < DECISION_STATE_RECOVER_POLL_COUNT && !rawText; attempt += 1) {
+      if (attempt > 0) await sleep(DECISION_STATE_RECOVER_POLL_INTERVAL_MS);
       const stateRes = await getJson(`/api/threads/${encodeURIComponent(args.threadId)}/state`);
       if (stateRes.status >= 200 && stateRes.status < 300) {
         rawText = extractAiTextFromRunPayload(stateRes.json).trim();
+        if (looksLikePathOnlyText(rawText)) {
+          sawPathLikeOutput = true;
+          rawText = '';
+        }
         if (!rawText) rawText = extractClarificationFromRunPayload(stateRes.json).trim();
+        if (rawText) {
+          logDecisionMetric('state_fallback_hit', {
+            coachId: args.coachId,
+            threadId: args.threadId,
+            elapsedMs: Date.now() - startedAt,
+          });
+        }
       }
       if (__DEV__ && !rawText) {
         console.log('[decision] state poll no text', {
@@ -706,6 +968,10 @@ async function runDecisionCoachWait(args: {
     }
   }
   if (!rawText) rawText = extractClarificationFromRunPayload(json).trim();
+  if (looksLikePathOnlyText(rawText)) {
+    sawPathLikeOutput = true;
+    rawText = '';
+  }
   if (!rawText) {
     const runErrorHint = extractRunErrorHint(json);
     if (__DEV__) {
@@ -716,14 +982,28 @@ async function runDecisionCoachWait(args: {
         runResponseKeys: Object.keys(asRecord(json) ?? {}),
       });
     }
+    logDecisionMetric('run_error', {
+      coachId: args.coachId,
+      threadId: args.threadId,
+      elapsedMs: Date.now() - startedAt,
+      reason: runErrorHint || 'empty_result',
+    });
     return {
       ok: false,
       errorText: runErrorHint
         ? `教练暂未返回有效内容：${runErrorHint}`
-        : '未收到回复，请稍后重试（可补充更多上下文）',
+        : sawPathLikeOutput
+          ? '教练返回了文件路径而非正文，已自动忽略，请稍后重试'
+          : '未收到回复，请稍后重试（可补充更多上下文）',
     };
   }
   const sections = parseDecisionReplySections(rawText);
+  logDecisionMetric('run_end', {
+    coachId: args.coachId,
+    threadId: args.threadId,
+    elapsedMs: Date.now() - startedAt,
+    via: 'runs_wait',
+  });
   return { ok: true, rawText, sections };
 }
 
@@ -739,19 +1019,35 @@ export async function runDecisionTurn(args: {
     result: RunDecisionCoachResult;
   }) => void;
 }): Promise<Record<string, RunDecisionCoachResult>> {
-  const map = await ensureDecisionCoachThreads(args.coachIds);
+  const uniqueCoachIds = [...new Set(args.coachIds)];
+  const validCoachIdSet = new Set(DECISION_COACHES.map((c) => c.id));
+  const normalizedCoachIds = uniqueCoachIds.filter((id) => validCoachIdSet.has(id));
+  const invalidCoachIds = uniqueCoachIds.filter((id) => !validCoachIdSet.has(id));
+  logDecisionMetric('decision_send_start', {
+    coachIds: normalizedCoachIds,
+    invalidCoachIds,
+    requestedCoachCount: uniqueCoachIds.length,
+    effectiveCoachCount: normalizedCoachIds.length,
+  });
+  const map = await ensureDecisionCoachThreads(normalizedCoachIds);
   const localThreadMap: Record<string, string> = { ...map };
   if (__DEV__) {
     console.log('[decision] runDecisionTurn start', {
-      coachIds: args.coachIds,
+      coachIds: normalizedCoachIds,
       threadMap: map,
     });
   }
   const out: Record<string, RunDecisionCoachResult> = {};
-  await Promise.all(
-    args.coachIds.map(async (coachId) => {
+  for (const invalidId of invalidCoachIds) {
+    const err: RunDecisionCoachResult = { ok: false, errorText: `未知教练：${invalidId}` };
+    out[invalidId] = err;
+    args.onCoachResult?.({ coachId: invalidId, threadId: null, result: err });
+  }
+  const settled = await Promise.allSettled(
+    normalizedCoachIds.map(async (coachId) => {
       const threadId = localThreadMap[coachId];
       let res: RunDecisionCoachResult;
+      let callbackThreadId: string | null = threadId ?? null;
       if (!threadId) {
         res = { ok: false, errorText: '线程创建失败' };
       } else {
@@ -766,12 +1062,14 @@ export async function runDecisionTurn(args: {
         const shouldRetryWithFreshThread =
           !res.ok &&
           (res.errorText.includes('未收到回复') ||
+            res.errorText.includes('文件路径') ||
             res.errorText.includes('网关超时') ||
             res.errorText.includes('服务暂时不可用'));
         if (shouldRetryWithFreshThread) {
           try {
             const freshThreadId = await replaceDecisionCoachThread(coachId);
             localThreadMap[coachId] = freshThreadId;
+            callbackThreadId = freshThreadId;
             if (__DEV__) {
               console.log('[decision] retry with fresh coach thread', {
                 coachId,
@@ -806,8 +1104,78 @@ export async function runDecisionTurn(args: {
         });
       }
       out[coachId] = res;
-      args.onCoachResult?.({ coachId, threadId: threadId ?? null, result: res });
+      args.onCoachResult?.({ coachId, threadId: callbackThreadId, result: res });
     })
   );
+  settled.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      const coachId = normalizedCoachIds[index] ?? '';
+      const errorText =
+        result.reason instanceof Error ? result.reason.message : String(result.reason ?? '请求失败');
+      const fallbackResult: RunDecisionCoachResult = { ok: false, errorText };
+      out[coachId] = fallbackResult;
+      args.onCoachResult?.({
+        coachId,
+        threadId: localThreadMap[coachId] ?? null,
+        result: fallbackResult,
+      });
+      logDecisionMetric('run_error', {
+        coachId,
+        threadId: localThreadMap[coachId] ?? null,
+        reason: errorText,
+      });
+    }
+  });
   return out;
+}
+
+export function generateDecisionTitleFireForget(
+  pageThreadId: string,
+  question: string,
+  fallbackTitle: string
+): void {
+  void (async () => {
+    const session = await getAuthSession();
+    if (!session.userId || !session.tenantId || !session.workspaceId) return;
+    await persistDecisionPageState(pageThreadId, { title: fallbackTitle }).catch(() => {});
+    logDecisionMetric('title_persisted', { pageThreadId, mode: 'fallback' });
+    const created = await postJson('/api/threads', {
+      metadata: {
+        is_decision_title_gen: 'true',
+        user_id: session.userId,
+      },
+    }).catch(() => null);
+    if (!created || created.status < 200 || created.status >= 300) return;
+    const tempThreadId = (asRecord(created.json)?.thread_id as string | undefined) ?? '';
+    if (!tempThreadId) return;
+    try {
+      await postJson(`/api/threads/${encodeURIComponent(tempThreadId)}/runs/wait`, {
+        assistant_id: 'lead_agent',
+        input: { messages: [{ type: 'human', content: question }] },
+        config: { recursion_limit: 10 },
+        context: {
+          user_id: session.userId,
+          tenant_id: session.tenantId,
+          workspace_id: session.workspaceId,
+          thread_id: tempThreadId,
+          thinking_enabled: false,
+          is_plan_mode: false,
+          subagent_enabled: false,
+          custom_system_prompt:
+            '请根据用户的问题，生成一个简洁的中文标题（不超过15个字，直接输出标题，不加任何引号、括号或其他符号）。',
+        },
+      });
+      const stateRes = await getJson(`/api/threads/${encodeURIComponent(tempThreadId)}/state`);
+      if (stateRes.status >= 200 && stateRes.status < 300) {
+        const generated = extractAiTextFromRunPayload(stateRes.json).trim();
+        if (generated) {
+          const finalTitle = `[决策] ${generated.slice(0, 15)}${generated.length > 15 ? '…' : ''}`;
+          await persistDecisionPageState(pageThreadId, { title: finalTitle }).catch(() => {});
+          logDecisionMetric('title_persisted', { pageThreadId, mode: 'ai' });
+        }
+      }
+    } finally {
+      void requestJson('DELETE', `/api/threads/${encodeURIComponent(tempThreadId)}`).catch(() => {});
+    }
+  })();
 }

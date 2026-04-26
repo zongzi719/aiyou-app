@@ -7,7 +7,6 @@ import {
   Pressable,
   KeyboardAvoidingView,
   ScrollView,
-  ImageBackground,
   Image,
   useWindowDimensions,
   StyleSheet,
@@ -15,7 +14,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useThemeColors } from '@/app/contexts/ThemeColors';
 import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
 import { ChatInput, SelectedFile } from '@/components/ChatInput';
 import { Conversation, Message, type MessageFile } from '@/components/Conversation';
@@ -29,9 +27,12 @@ import ThemedText from '@/components/ThemedText';
 import { useGlobalFloatingTabBarExtraBottom } from '@/hooks/useGlobalFloatingTabBarInset';
 import { hasPrivateChatBackendSession } from '@/lib/authSession';
 import {
+  clearDecisionLocalSession,
   DECISION_COACHES,
   ensureDecisionPageThread,
   ensureDecisionCoachThreads,
+  generateDecisionTitleFireForget,
+  loadLatestDecisionTurnFromCoachThreads,
   loadDecisionPageState,
   persistDecisionPageState,
   runDecisionTurn,
@@ -53,10 +54,14 @@ import {
   uploadFilesToThreadFromSelection,
   type UploadedFileInfo,
 } from '@/lib/privateChatApi';
+import { parseDecisionReplySections } from '@/utils/decisionReplyParser';
 import { streamMessage, isConfigured, AIMessage } from '@/services/ai';
 import { getSelectedModelName } from '@/lib/privateChatUiModel';
 import { consumePendingHomeChatMessage } from '@/lib/pendingHomeChatMessage';
-import DecisionConversation, { type DecisionTurn } from '@/components/DecisionConversation';
+import DecisionConversation, {
+  type DecisionTurn,
+  FloatingCoachStack,
+} from '@/components/DecisionConversation';
 
 /** 将英文后端错误转为中文友好提示 */
 function friendlyError(raw: string): string {
@@ -179,7 +184,6 @@ const HomeScreen = () => {
   const navigation = useNavigation<NavigationProp<any>>();
   const insets = useSafeAreaInsets();
   const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
-  const colors = useThemeColors();
   const scrollViewRef = useRef<ScrollView>(null);
   const privateThreadIdRef = useRef<string | null>(null);
   const getPrivateThreadId = useCallback(() => privateThreadIdRef.current, []);
@@ -204,6 +208,15 @@ const HomeScreen = () => {
   const [decisionIsRunning, setDecisionIsRunning] = useState(false);
   const decisionPageThreadIdRef = useRef<string | null>(null);
   const restoringDecisionStateRef = useRef(false);
+  /** 与 `ChatInput` 共同用于 measureInWindow 计算底栏上沿，从而定位决策教练浮层 */
+  const homeInputLayoutParentRef = useRef<View | null>(null);
+  const [decisionCoachStackBottomPx, setDecisionCoachStackBottomPx] = useState<number | null>(null);
+  const handleHomeInputStripOffset = useCallback((px: number) => {
+    setDecisionCoachStackBottomPx((prev) => {
+      if (prev != null && Math.abs(prev - px) < 0.5) return prev;
+      return px;
+    });
+  }, []);
 
   const handleOpenDrawer = useCallback(() => {
     try {
@@ -258,9 +271,11 @@ const HomeScreen = () => {
   }, []);
   const params = useLocalSearchParams<{
     openThreadId?: string | string[];
+    openMode?: string | string[];
     newChat?: string | string[];
   }>();
   const openThreadIdParam = firstSearchParam(params.openThreadId);
+  const openModeParam = firstSearchParam(params.openMode);
   const newChatParam = firstSearchParam(params.newChat);
 
   useFocusEffect(
@@ -337,6 +352,7 @@ const HomeScreen = () => {
             thread_id: threadId,
             title: '新对话',
             updated_at: new Date().toISOString(),
+            mode: 'private',
           });
         }
 
@@ -542,6 +558,7 @@ const HomeScreen = () => {
       enabledCoachIds.includes(c.id)
     );
 
+    const shouldGenerateTitle = decisionTurns.length === 0;
     // 先把本轮插入 UI：每个 coach 先给一个 loading card
     const turnId = `${Date.now()}`;
     const newTurn: DecisionTurn = {
@@ -597,6 +614,11 @@ const HomeScreen = () => {
           decision_coach_thread_ids: coachThreadMap,
           decision_selected_coach_ids: selectedCoachIds,
         }).catch(() => {});
+        if (shouldGenerateTitle) {
+          const question = prompt || (files && files.length > 0 ? '文件决策分析' : '新决策');
+          const fallbackTitle = `[决策] ${question.slice(0, 15)}${question.length > 15 ? '…' : ''}`;
+          generateDecisionTitleFireForget(pageThreadId, question, fallbackTitle);
+        }
       }
 
       const results = await runDecisionTurn({
@@ -695,10 +717,217 @@ const HomeScreen = () => {
 
   handleSendMessageRef.current = handleSendMessage;
 
+  const restoreDecisionStateFromThread = useCallback(async (pageThreadId: string) => {
+    if (__DEV__) {
+      console.log('[decision] restoreDecisionStateFromThread:start', { pageThreadId });
+    }
+    decisionPageThreadIdRef.current = pageThreadId;
+    const state = await loadDecisionPageState(pageThreadId).catch(() => null);
+    if (!state) {
+      if (__DEV__) {
+        console.log('[decision] restoreDecisionStateFromThread:no-state', { pageThreadId });
+      }
+      setDecisionTurns([]);
+      setDecisionStarted(false);
+      return;
+    }
+    if (Array.isArray(state.decision_selected_coach_ids) && state.decision_selected_coach_ids.length > 0) {
+      setSelectedCoachIds(state.decision_selected_coach_ids);
+    }
+    const normalizedTurns: unknown[] = (() => {
+      const raw = state.decision_turns;
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    })();
+    if (normalizedTurns.length === 0) {
+      const coachMap = state.decision_coach_thread_ids ?? {};
+      const hasCoachMap = Object.keys(coachMap).length > 0;
+      if (hasCoachMap) {
+        const fallbackTurn = await loadLatestDecisionTurnFromCoachThreads({
+          coachThreadIds: coachMap,
+          selectedCoachIds: state.decision_selected_coach_ids,
+        }).catch(() => null);
+        if (fallbackTurn) {
+          const coachMetaMap = new Map(
+            DECISION_COACHES.map((c) => [c.id, { name: c.name, role: c.roleLabel }] as const)
+          );
+          const rebuiltCards = fallbackTurn.replies.map((reply) => {
+            const coachMeta = coachMetaMap.get(reply.coachId);
+            const sections = parseDecisionReplySections(reply.content);
+            return {
+              coachId: reply.coachId,
+              coachName: coachMeta?.name || reply.coachId || '教练',
+              coachRole: coachMeta?.role ?? '',
+              enabled: true,
+              loading: false,
+              decisionAdvice: sections.decisionAdvice,
+              keyQuestions: sections.keyQuestions,
+              riskWarnings: sections.riskWarnings,
+              rawText: reply.content,
+              errorText: reply.error ?? '',
+            };
+          });
+          setDecisionTurns([
+            {
+              id: `${Date.now()}-rebuilt`,
+              userText: fallbackTurn.question,
+              coachCards: rebuiltCards,
+              createdAt: new Date(),
+            },
+          ]);
+          setDecisionStarted(true);
+          if (__DEV__) {
+            console.log('[decision] restoreDecisionStateFromThread:rebuilt-from-coach-state', {
+              pageThreadId,
+              rebuiltCards: rebuiltCards.length,
+            });
+          }
+          return;
+        }
+      }
+      if (__DEV__) {
+        console.log('[decision] restoreDecisionStateFromThread:empty-turns', {
+          pageThreadId,
+          hasCoachMap,
+          selectedCoachIds: state.decision_selected_coach_ids ?? [],
+        });
+      }
+      setDecisionTurns([]);
+      setDecisionStarted(false);
+      return;
+    }
+    const coachMetaMap = new Map(
+      DECISION_COACHES.map((c) => [c.id, { name: c.name, role: c.roleLabel }] as const)
+    );
+    const turns = normalizedTurns
+      .map((t) => {
+        const row = t as Record<string, unknown>;
+        const id = typeof row.id === 'string' ? row.id : `${Date.now()}-${Math.random()}`;
+        const userText =
+          typeof row.userText === 'string'
+            ? row.userText
+            : typeof row.question === 'string'
+              ? row.question
+              : '';
+        const createdAtRaw =
+          typeof row.createdAt === 'string'
+            ? row.createdAt
+            : typeof row.created_at === 'string'
+              ? row.created_at
+              : '';
+        const createdAt = createdAtRaw ? new Date(createdAtRaw) : new Date();
+        let coachCards = Array.isArray(row.coachCards)
+          ? (row.coachCards as DecisionTurn['coachCards'])
+          : [];
+        // 兼容后端/文档结构：decision_turns[].replies
+        if (coachCards.length === 0 && Array.isArray(row.replies)) {
+          coachCards = row.replies
+            .map((reply) => {
+              const r = reply as Record<string, unknown>;
+              const coachId = typeof r.coachId === 'string' ? r.coachId : '';
+              const coachMeta = coachMetaMap.get(coachId);
+              const content = typeof r.content === 'string' ? r.content : '';
+              const error = typeof r.error === 'string' ? r.error : '';
+              return {
+                coachId,
+                coachName: coachMeta?.name || coachId || '教练',
+                coachRole: coachMeta?.role ?? '',
+                enabled: true,
+                loading: !!r.isLoading,
+                decisionAdvice: content,
+                keyQuestions: '',
+                riskWarnings: '',
+                rawText: content,
+                errorText: error,
+              };
+            })
+            .filter((card) => card.coachId || card.rawText || card.errorText);
+        }
+        return { id, userText, createdAt, coachCards };
+      })
+      .filter((t) => t.userText.trim().length > 0 || t.coachCards.length > 0);
+    if (__DEV__) {
+      console.log('[decision] restoreDecisionStateFromThread:parsed', {
+        pageThreadId,
+        sourceTurnsLen: normalizedTurns.length,
+        parsedTurnsLen: turns.length,
+      });
+    }
+    setDecisionTurns(turns);
+    setDecisionStarted(turns.length > 0);
+  }, []);
+
   useEffect(() => {
     const run = async () => {
       if (typeof openThreadIdParam === 'string' && openThreadIdParam.length > 0) {
         const tid = openThreadIdParam;
+        const modeHint = openModeParam === 'decision' ? 'decision' : 'private';
+        if (__DEV__) {
+          console.log('[decision] openThread effect', {
+            tid,
+            openModeParam,
+            modeHint,
+          });
+        }
+        const tryRestoreDecision = async (): Promise<boolean> => {
+          if (!(await hasPrivateChatBackendSession())) return false;
+          const decisionState = await loadDecisionPageState(tid).catch(() => null);
+          const hasDecisionTurns =
+            !!decisionState &&
+            Array.isArray(decisionState.decision_turns) &&
+            decisionState.decision_turns.length > 0;
+          const hasDecisionCoachMap =
+            !!decisionState &&
+            !!decisionState.decision_coach_thread_ids &&
+            Object.keys(decisionState.decision_coach_thread_ids).length > 0;
+          if (__DEV__) {
+            console.log('[decision] tryRestoreDecision state summary', {
+              tid,
+              hasDecisionState: !!decisionState,
+              hasDecisionTurns,
+              hasDecisionCoachMap,
+              decisionTurnsType: decisionState
+                ? Array.isArray(decisionState.decision_turns)
+                  ? 'array'
+                  : typeof decisionState.decision_turns
+                : 'none',
+              decisionTurnsLen:
+                decisionState && Array.isArray(decisionState.decision_turns)
+                  ? decisionState.decision_turns.length
+                  : -1,
+            });
+          }
+          if (!hasDecisionTurns && !hasDecisionCoachMap) return false;
+          setHomeMode('decision');
+          await ensureDecisionPageThread(tid).catch(() => null);
+          await restoreDecisionStateFromThread(tid);
+          setMessages([]);
+          privateThreadIdRef.current = null;
+          return true;
+        };
+
+        if (modeHint === 'decision') {
+          if (await tryRestoreDecision()) return;
+          // 决策历史兜底：即使暂时拿不到 turns，也不要回到欢迎页
+          setHomeMode('decision');
+          decisionPageThreadIdRef.current = tid;
+          setDecisionStarted(true);
+          setDecisionTurns([]);
+          return;
+        } else {
+          const restored = await tryRestoreDecision();
+          if (restored) return;
+        }
+
+        setHomeMode('private');
         privateThreadIdRef.current = tid;
         if (!(await hasPrivateChatBackendSession())) return;
         try {
@@ -712,9 +941,15 @@ const HomeScreen = () => {
       if (newChatParam === '1') {
         privateUiEpochRef.current += 1;
         privateThreadIdRef.current = null;
+        decisionPageThreadIdRef.current = null;
         setMessages([]);
         setDecisionTurns([]);
         setDecisionStarted(false);
+        setDecisionIsRunning(false);
+        setSelectedCoachIds(['strategy']);
+        setCoachEnabledMap({ strategy: true });
+        await clearDecisionLocalSession().catch(() => {});
+        setHomeMode('private');
         const pending = consumePendingHomeChatMessage();
         router.replace('/');
         if (pending) {
@@ -725,43 +960,22 @@ const HomeScreen = () => {
       }
     };
     void run();
-  }, [newChatParam, openThreadIdParam]);
+  }, [newChatParam, openModeParam, openThreadIdParam, restoreDecisionStateFromThread]);
 
   useEffect(() => {
     if (homeMode !== 'decision') return;
     if (restoringDecisionStateRef.current) return;
     restoringDecisionStateRef.current = true;
     void (async () => {
-      const pageThreadId = await ensureDecisionPageThread().catch(() => null);
+      const pageThreadId = await ensureDecisionPageThread(decisionPageThreadIdRef.current ?? undefined).catch(
+        () => null
+      );
       if (!pageThreadId) return;
-      decisionPageThreadIdRef.current = pageThreadId;
-      const state = await loadDecisionPageState(pageThreadId).catch(() => null);
-      if (!state) return;
-      if (Array.isArray(state.decision_selected_coach_ids) && state.decision_selected_coach_ids.length > 0) {
-        setSelectedCoachIds(state.decision_selected_coach_ids);
-      }
-      const rawTurns = state.decision_turns;
-      if (Array.isArray(rawTurns) && rawTurns.length > 0) {
-        const turns = rawTurns
-          .map((t) => {
-            const row = t as Record<string, unknown>;
-            const id = typeof row.id === 'string' ? row.id : `${Date.now()}`;
-            const userText = typeof row.userText === 'string' ? row.userText : '';
-            const createdAtRaw = typeof row.createdAt === 'string' ? row.createdAt : '';
-            const createdAt = createdAtRaw ? new Date(createdAtRaw) : new Date();
-            const coachCards = Array.isArray(row.coachCards) ? (row.coachCards as DecisionTurn['coachCards']) : [];
-            return { id, userText, createdAt, coachCards };
-          })
-          .filter((t) => t.userText.trim().length > 0 || t.coachCards.length > 0);
-        if (turns.length > 0) {
-          setDecisionTurns(turns);
-          setDecisionStarted(true);
-        }
-      }
+      await restoreDecisionStateFromThread(pageThreadId);
     })().finally(() => {
       restoringDecisionStateRef.current = false;
     });
-  }, [homeMode]);
+  }, [homeMode, restoreDecisionStateFromThread]);
 
   useEffect(() => {
     if (homeMode !== 'decision') return;
@@ -781,6 +995,11 @@ const HomeScreen = () => {
   const hasDecisionMessages = decisionTurns.length > 0;
 
   useEffect(() => {
+    if (homeMode === 'decision' && (decisionStarted || hasDecisionMessages)) return;
+    setDecisionCoachStackBottomPx(null);
+  }, [homeMode, decisionStarted, hasDecisionMessages]);
+
+  useEffect(() => {
     if (!hasMessages) setSuggestionBatchIndex(0);
   }, [hasMessages]);
 
@@ -793,10 +1012,15 @@ const HomeScreen = () => {
     (homeMode === 'private' || decisionStarted || hasDecisionMessages) && !aiRecordModalVisible;
   const { width: winW, height: winH } = useWindowDimensions();
   const isPrivateEmptyHome = homeMode === 'private' && !hasMessages;
+  const decisionCoachStackBottom =
+    decisionCoachStackBottomPx ?? insets.bottom + floatingTabExtra + 80;
 
   const mainContent = (
           <KeyboardAvoidingView behavior={undefined} keyboardVerticalOffset={0} style={{ flex: 1 }}>
-            <View style={{ flex: 1 }}>
+            <View
+              ref={homeInputLayoutParentRef}
+              collapsable={false}
+              style={{ flex: 1 }}>
               <View
                 className="flex-row items-center justify-between px-6"
                 style={{ paddingTop: insets.top + 10 }}>
@@ -923,7 +1147,6 @@ const HomeScreen = () => {
                     setCoachEnabledMap((prev) => ({ ...prev, [coachId]: enabled }))
                   }
                   isRunning={decisionIsRunning}
-                  onOpenCoachPicker={() => setCoachPickerOpen(true)}
                 />
               ) : (
                 <DecisionWelcome
@@ -937,7 +1160,32 @@ const HomeScreen = () => {
                 />
               )}
               {shouldShowChatInput ? (
-                <ChatInput onSendMessage={handleSendMessage} variant="home" />
+                <ChatInput
+                  onSendMessage={handleSendMessage}
+                  variant="home"
+                  homeInputMeasureParentRef={homeInputLayoutParentRef}
+                  onHomeInputStripOffsetFromParentBottom={
+                    homeMode === 'decision' && (decisionStarted || hasDecisionMessages)
+                      ? handleHomeInputStripOffset
+                      : undefined
+                  }
+                />
+              ) : null}
+              {homeMode === 'decision' && (decisionStarted || hasDecisionMessages) ? (
+                <View
+                  pointerEvents="box-none"
+                  style={{
+                    position: 'absolute',
+                    right: 18,
+                    bottom: decisionCoachStackBottom,
+                    zIndex: 1000,
+                    elevation: Platform.OS === 'android' ? 1000 : undefined,
+                  }}>
+                  <FloatingCoachStack
+                    onOpenCoachPicker={() => setCoachPickerOpen(true)}
+                    selectedCoachIds={selectedCoachIds}
+                  />
+                </View>
               ) : null}
             </View>
           </KeyboardAvoidingView>
@@ -956,20 +1204,7 @@ const HomeScreen = () => {
           <View style={{ flex: 1, zIndex: 3 }}>{mainContent}</View>
         </View>
       ) : (
-        <ImageBackground
-          source={require('@/assets/images/login-bg.png')}
-          resizeMode="cover"
-          style={{ flex: 1 }}>
-          <View className="relative flex-1 bg-[#1D1D1D]">
-            <LinearGradient
-              style={{ width: '100%', display: 'flex', flex: 1, flexDirection: 'column' }}
-              colors={['rgba(10,32,52,0.38)', 'transparent', colors.gradient]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}>
-              {mainContent}
-            </LinearGradient>
-          </View>
-        </ImageBackground>
+        <View className="relative flex-1 bg-[#1D1D1D]">{mainContent}</View>
       )}
 
       <DecisionCoachPickerModal

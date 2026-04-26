@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  ScrollView,
   Dimensions,
   Image,
 } from 'react-native';
@@ -100,10 +101,10 @@ interface FolderCardProps {
   onLongPress: () => void;
 }
 
-// 3列 grid，每格宽度 = (屏幕宽 - 水平padding*2 - 列间距*2) / 3
+// 横向滑动：每格仍按「一屏 3 个」视觉宽度，与列表区 paddingHorizontal(16) 一致
 const GRID_COLS = 3;
 const GRID_GAP = 12;
-const GRID_H_PADDING = 16; // px-global
+const GRID_H_PADDING = 16; // 与 FlatList contentContainerStyle 一致
 const FOLDER_ITEM_WIDTH =
   (SCREEN_WIDTH - GRID_H_PADDING * 2 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
 
@@ -114,7 +115,7 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.75}
-      style={{ width: FOLDER_ITEM_WIDTH, marginBottom: GRID_GAP }}>
+      style={{ width: FOLDER_ITEM_WIDTH }}>
       <View
         className="relative mb-1.5 items-center justify-center overflow-hidden rounded-2xl bg-secondary p-2"
         style={{ height: cardH }}>
@@ -785,7 +786,7 @@ export default function KnowledgeBaseScreen() {
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       className="mr-2">
       <ThemedText className="text-base text-primary">
-        {selectionMode ? '取消' : '批量选择'}
+        {selectionMode ? '返回' : '批量选择'}
       </ThemedText>
     </TouchableOpacity>
   );
@@ -826,9 +827,20 @@ export default function KnowledgeBaseScreen() {
         )}
       </View>
 
-      {/* 文件夹 3列 grid */}
+      {/* 文件夹：单行左右滑动 */}
       {folders.length > 0 && !searchQuery && (
-        <View className="mb-2 flex-row flex-wrap" style={{ gap: GRID_GAP }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          nestedScrollEnabled
+          className="mb-2"
+          contentContainerStyle={{
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: GRID_GAP,
+            paddingRight: 4,
+          }}
+          keyboardShouldPersistTaps="handled">
           {folders.map((folder) => (
             <FolderCard
               key={folder.id}
@@ -837,7 +849,7 @@ export default function KnowledgeBaseScreen() {
               onLongPress={() => handleFolderLongPress(folder)}
             />
           ))}
-        </View>
+        </ScrollView>
       )}
 
       <View className="mb-3 mt-1 flex-row gap-2">

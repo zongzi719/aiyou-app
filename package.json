@@ -1,6 +1,6 @@
 {
   "name": "luna",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "scripts": {
     "android": "expo run:android",
     "android:device": "expo run:android --device",

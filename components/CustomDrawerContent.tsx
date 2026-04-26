@@ -81,14 +81,9 @@ function groupThreadsByDate(threads: ThreadSummary[]): ThreadGroup[] {
     .sort((a, b) => b.sortTs - a.sortTs);
 }
 
-/** 侧边栏「音色调试 / 专家通话调试」等；生产包可设 EXPO_PUBLIC_ENABLE_SIDEBAR_DEBUG=true */
-const SHOW_SIDEBAR_DEBUG_ENTRIES =
-  (typeof __DEV__ !== 'undefined' && __DEV__) ||
-  process.env.EXPO_PUBLIC_ENABLE_SIDEBAR_DEBUG === 'true';
-
-const SHOW_NLS_RT_DEBUG =
-  (typeof __DEV__ !== 'undefined' && __DEV__) ||
-  process.env.EXPO_PUBLIC_ENABLE_NLS_DEBUG === 'true';
+/** 产品要求：侧边栏隐藏所有调试入口 */
+const SHOW_SIDEBAR_DEBUG_ENTRIES = false;
+const SHOW_NLS_RT_DEBUG = false;
 
 function filterThreadsByQuery(threads: ThreadSummary[], query: string): ThreadSummary[] {
   const q = query.trim().toLowerCase();
@@ -249,6 +244,20 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
 
         <View className="border-border/70 mb-3 border-b" />
 
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => {
+            drawerNavigation.closeDrawer();
+            router.replace({
+              pathname: '/',
+              params: { newChat: '1' },
+            });
+          }}
+          className="mb-3 flex-row items-center justify-center rounded-2xl border border-white/10 bg-[#1A2635] px-4 py-3">
+          <Icon name="Plus" size={16} color="rgba(255,255,255,0.9)" />
+          <ThemedText className="ml-2 text-sm font-semibold text-white">创建新对话</ThemedText>
+        </TouchableOpacity>
+
         {SHOW_SIDEBAR_DEBUG_ENTRIES ? (
           <>
             <TouchableOpacity
@@ -335,9 +344,20 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
                     className="py-2 pr-2"
                     onPress={() => {
                       drawerNavigation.closeDrawer();
+                      const guessedMode =
+                        t.mode ?? (t.title.startsWith('[决策]') ? 'decision' : 'private');
+                      if (__DEV__) {
+                        console.log('[drawer] open thread pressed', {
+                          threadId: t.thread_id,
+                          title: t.title,
+                          modeFromData: t.mode,
+                          guessedMode,
+                          updatedAt: t.updated_at,
+                        });
+                      }
                       router.replace({
                         pathname: '/',
-                        params: { openThreadId: t.thread_id },
+                        params: { openThreadId: t.thread_id, openMode: guessedMode },
                       });
                     }}>
                     <ThemedText

@@ -28,6 +28,16 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+function isTruthyFlag(v: unknown): boolean {
+  if (v === true) return true;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes';
+  }
+  if (typeof v === 'number') return v === 1;
+  return false;
+}
+
 function detailFromHttpBody(status: number, text: string, json: unknown): string {
   const o = asRecord(json);
   const detail = o?.detail;
@@ -87,6 +97,7 @@ export type ThreadSummary = {
   thread_id: string;
   title: string;
   updated_at?: string;
+  mode: 'private' | 'decision';
 };
 
 /** 将线程列表行里的多种时间字段统一为可 ISO 解析的字符串（供侧栏分组与排序） */
@@ -145,7 +156,7 @@ function unwrapThreadSearchRows(json: unknown): unknown[] | null {
   return null;
 }
 
-/** POST /api/threads/search — 私人模式历史列表（按 user_id 过滤） */
+/** POST /api/threads/search — 历史列表（客户端过滤出可展示线程） */
 export async function searchPrivateThreads(opts?: {
   limit?: number;
   offset?: number;
@@ -167,15 +178,24 @@ export async function searchPrivateThreads(opts?: {
     const tid = typeof o.thread_id === 'string' ? o.thread_id : '';
     if (!tid) continue;
     const meta = asRecord(o.metadata);
-    if (meta?.is_decision_coach === 'true') continue;
+    const isDecisionCoach = isTruthyFlag(meta?.is_decision_coach);
+    const isDecisionTitleGen = isTruthyFlag(meta?.is_decision_title_gen);
+    const isDecisionPage = isTruthyFlag(meta?.is_decision_page);
+    if (isDecisionCoach || isDecisionTitleGen) continue;
 
     const values = asRecord(o.values);
-    const title =
+    const rawTitle =
       (typeof values?.title === 'string' && values.title.trim()) ||
       (typeof meta?.title === 'string' && meta.title.trim()) ||
-      '新对话';
+      '';
+    const title = rawTitle || (isDecisionPage ? '[决策] 新对话' : '新对话');
     const updated_at = coerceThreadUpdatedAt(o, values);
-    out.push({ thread_id: tid, title, updated_at });
+    out.push({
+      thread_id: tid,
+      title,
+      updated_at,
+      mode: isDecisionPage ? 'decision' : 'private',
+    });
   }
   return out;
 }
@@ -187,7 +207,7 @@ export async function countPrivateThreads(): Promise<number> {
   let total = 0;
   for (;;) {
     const batch = await searchPrivateThreads({ limit: pageSize, offset });
-    total += batch.length;
+    total += batch.filter((t) => t.mode === 'private').length;
     if (batch.length < pageSize) break;
     offset += pageSize;
     if (offset > 200_000) break;
