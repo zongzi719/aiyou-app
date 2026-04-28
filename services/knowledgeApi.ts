@@ -512,6 +512,13 @@ export const knowledgeApi = {
   deleteFile: (fileId: string) =>
     request<{ deleted: boolean }>(`/files/${fileId}`, { method: 'DELETE' }),
 
+  /** 将文件移动到指定文件夹（folder_id 为空表示移出文件夹） */
+  moveFileToFolder: (fileId: string, folderId: string | null) =>
+    request<{ updated: boolean }>(`/files/${encodeURIComponent(fileId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ folder_id: folderId }),
+    }),
+
   /**
    * 下载原始文件到应用缓存目录（GET /files/{id}/download，需服务端提供）。
    * 成功后返回本地 `file://` URI，可配合 expo-sharing 交给系统「存储到文件」等。

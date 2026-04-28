@@ -74,6 +74,8 @@ const FALLBACK_AVATAR_LOCAL = require('@/assets/img/thomino.jpg');
 /** 专家通话：转写超过该时长无更新时，自动截断并发送（毫秒） */
 const EXPERT_ASR_IDLE_MS = 1000;
 const DEFAULT_TTS_PLAYBACK_VOLUME = 1;
+/** iOS 中文输入法候选栏/预览条额外占位（避免底部输入条被挡） */
+const IOS_KEYBOARD_PREVIEW_EXTRA = 33;
 
 function resolveTtsPlaybackVolume(): number {
   const raw = process.env.EXPO_PUBLIC_TTS_PLAYBACK_VOLUME?.trim();
@@ -181,6 +183,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const [expertCallLines, setExpertCallLines] = useState<ExpertCallLine[]>([]);
   const [expertVoiceId, setExpertVoiceId] = useState('');
   const [expertWorkflowLoading, setExpertWorkflowLoading] = useState(false);
+  const [modalKeyboardHeight, setModalKeyboardHeight] = useState(0);
   const ttsPlaybackVolume = useMemo(() => resolveTtsPlaybackVolume(), []);
 
   const expertLinesRef = useRef<ExpertCallLine[]>([]);
@@ -291,6 +294,43 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   }, [visible]);
 
   useEffect(() => {
+    if (!visible) return;
+    const setHeight = (h: number) => {
+      setModalKeyboardHeight(Math.max(0, h));
+    };
+    if (Platform.OS === 'ios') {
+      const onWillShow = Keyboard.addListener('keyboardWillShow', (event) => {
+        setHeight(event.endCoordinates?.height ?? 0);
+      });
+      const onDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
+        setHeight(event.endCoordinates?.height ?? 0);
+      });
+      const onWillHide = Keyboard.addListener('keyboardWillHide', () => {
+        setHeight(0);
+      });
+      const onDidHide = Keyboard.addListener('keyboardDidHide', () => {
+        setHeight(0);
+      });
+      return () => {
+        onWillShow.remove();
+        onDidShow.remove();
+        onWillHide.remove();
+        onDidHide.remove();
+      };
+    }
+    const onDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      setHeight(event.endCoordinates?.height ?? 0);
+    });
+    const onDidHide = Keyboard.addListener('keyboardDidHide', () => {
+      setHeight(0);
+    });
+    return () => {
+      onDidShow.remove();
+      onDidHide.remove();
+    };
+  }, [visible]);
+
+  useEffect(() => {
     return () => {
       soundRef.current?.unloadAsync().catch(() => {});
       soundRef.current = null;
@@ -306,6 +346,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     async (text: string) => {
       const normalized = text.trim();
       if (!normalized || sending || saving) return;
+      Keyboard.dismiss();
       const userMessage: TuneMessage = {
         id: `u-${Date.now()}`,
         role: 'user',
@@ -1022,6 +1063,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   const voiceInputBusy = holdIsStreaming || sending;
   const isCloneIntroState = messages.length === 1;
+  const modalKeyboardLift = Math.max(0, modalKeyboardHeight - insets.bottom);
+  const iosKeyboardPreviewLift =
+    Platform.OS === 'ios' && modalKeyboardLift > 0 && inputMode === 'text'
+      ? IOS_KEYBOARD_PREVIEW_EXTRA
+      : 0;
+  const mainInputBottomPadding =
+    Platform.OS === 'ios'
+      ? (
+          modalKeyboardLift > 0
+            ? 8 + modalKeyboardLift + iosKeyboardPreviewLift
+            : Math.max(insets.bottom, 8)
+        )
+      : Math.max(insets.bottom, 8) + modalKeyboardLift;
 
   return (
     <Modal
@@ -1031,7 +1085,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       statusBarTranslucent
       onRequestClose={onRequestClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={undefined}
         className="flex-1">
         <View className="flex-1 bg-black/50">
           <Pressable className="flex-1" onPress={onRequestClose} />
@@ -1213,7 +1267,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
             {!expertCallOpen ? (
               <View
                 className="mb-3 mt-2 flex-row items-center px-4"
-                style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
+                style={{ paddingBottom: mainInputBottomPadding }}>
                 <Pressable
                   className="mr-1.5 h-12 w-12 items-center justify-center rounded-full bg-[#29303B]"
                   disabled={saving || !!pendingMemory}
@@ -1232,7 +1286,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 {inputMode === 'text' ? (
                   <View className="h-12 flex-1 flex-row items-center rounded-full border border-[#60626A] bg-[#2A2C33] px-4">
                     <TextInput
-                      className="flex-1 text-base text-white"
+                      className="flex-1 py-0 text-base text-white"
                       placeholder="发消息..."
                       placeholderTextColor="#8A8F99"
                       value={draft}
@@ -1242,6 +1296,10 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                         handleSend().catch(() => {});
                       }}
                       returnKeyType="send"
+                      style={{
+                        lineHeight: 20,
+                        textAlignVertical: 'center',
+                      }}
                     />
                   </View>
                 ) : (

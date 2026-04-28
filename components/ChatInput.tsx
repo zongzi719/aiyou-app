@@ -85,6 +85,7 @@ type ChatInputProps = {
 export const ChatInput = (props: ChatInputProps) => {
   const HOME_INPUT_MIN_HEIGHT = 60;
   const HOME_INPUT_MAX_HEIGHT = 156;
+  const isHomeVariant = props.variant === 'home';
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const floatingTabExtra = useGlobalFloatingTabBarExtraBottom();
@@ -104,6 +105,7 @@ export const ChatInput = (props: ChatInputProps) => {
   const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([]);
   const [loadingKnowledgeFiles, setLoadingKnowledgeFiles] = useState(false);
   const [homeInputHeight, setHomeInputHeight] = useState(HOME_INPUT_MIN_HEIGHT);
+  const [isHomeInputFocused, setIsHomeInputFocused] = useState(false);
   const lottieRef = useRef<LottieView>(null);
   const inputRef = useRef<any>(null);
   const homePillBlockRef = useRef<View | null>(null);
@@ -205,6 +207,8 @@ export const ChatInput = (props: ChatInputProps) => {
         const normalized = finalText.trim();
         homePendingAutoSendRef.current = false;
         if (normalized.length > 0) {
+          Keyboard.dismiss();
+          inputRef.current?.blur?.();
           props.onSendMessage?.(
             normalized,
             selectedImages.length > 0 ? selectedImages : undefined,
@@ -646,10 +650,51 @@ export const ChatInput = (props: ChatInputProps) => {
     setHomeInputHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next));
   };
 
+  const handleHomeInputFocus = () => {
+    setIsHomeInputFocused(true);
+    if (props.variant !== 'home') return;
+
+    // iOS: 点击输入框时优先退出语音面板态，避免键盘先盖住输入条
+    if (showHomeRecordPanel || homeVoiceSheetDismissed === false) {
+      LayoutAnimation.configureNext(
+        LayoutAnimation.create(
+          180,
+          LayoutAnimation.Types.easeInEaseOut,
+          LayoutAnimation.Properties.opacity
+        )
+      );
+      setHomeVoiceSheetDismissed(true);
+      setShowHomeRecordPanel(false);
+    }
+
+    // 若仍在录音，聚焦输入框时停止录音流程，避免与键盘态冲突
+    if (isRecordingUI && !isStoppingHomeRecording) {
+      setIsStoppingHomeRecording(true);
+      homePendingAutoSendRef.current = false;
+      stopStreaming()
+        .catch(() => {
+          // 静默处理，避免打断输入
+        })
+        .finally(() => {
+          setIsStoppingHomeRecording(false);
+        });
+    }
+
+    // iOS 某些场景 keyboard 事件到达较晚，先用 metrics 兜底一次
+    if (Platform.OS === 'ios') {
+      const metrics = Keyboard.metrics?.();
+      if (metrics?.height && metrics.height > 0) {
+        setIosKeyboardHeight(metrics.height);
+      }
+    }
+  };
+
   const handleSendMessage = () => {
     if (isRecordingUI) return;
     const hasContent = inputText.trim() || selectedImages.length > 0 || selectedFiles.length > 0;
     if (props.onSendMessage && hasContent) {
+      Keyboard.dismiss();
+      inputRef.current?.blur?.();
       homePendingAutoSendRef.current = false;
       props.onSendMessage(
         inputText,
@@ -662,7 +707,6 @@ export const ChatInput = (props: ChatInputProps) => {
     }
   };
 
-  const isHomeVariant = props.variant === 'home';
   /** 顶部输入条是否与底部大面板同属「语音会话」态（点✅收起面板后切回紧凑条） */
   const homeInputVoiceSessionUi =
     (showHomeRecordPanel || isRecordingUI) && !homeVoiceSheetDismissed;
@@ -953,10 +997,13 @@ export const ChatInput = (props: ChatInputProps) => {
                         className="flex-1 py-0 text-[14px] text-white"
                         value={inputText}
                         onChangeText={setInputText}
+                        onFocus={handleHomeInputFocus}
+                        onBlur={() => setIsHomeInputFocused(false)}
                         onSubmitEditing={handleSendMessage}
                         returnKeyType="send"
+                        enterKeyHint="send"
                         multiline
-                        blurOnSubmit={false}
+                        submitBehavior="submit"
                         textAlignVertical={homeInputExpanded ? 'top' : 'center'}
                         onContentSizeChange={(event) => {
                           handleHomeInputContentSizeChange(event.nativeEvent.contentSize.height + 18);
@@ -1003,7 +1050,7 @@ export const ChatInput = (props: ChatInputProps) => {
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
-                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-end pt-2' : 'items-center'}`}
+                      className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-center pt-1.5' : 'items-center'}`}
                       style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
                       <TextInput
                         ref={inputRef}
@@ -1012,10 +1059,13 @@ export const ChatInput = (props: ChatInputProps) => {
                         className="flex-1 py-0 text-[14px] text-white"
                         value={inputText}
                         onChangeText={setInputText}
+                        onFocus={handleHomeInputFocus}
+                        onBlur={() => setIsHomeInputFocused(false)}
                         onSubmitEditing={handleSendMessage}
                         returnKeyType="send"
+                        enterKeyHint="send"
                         multiline
-                        blurOnSubmit={false}
+                        submitBehavior="submit"
                         textAlignVertical={homeInputExpanded ? 'top' : 'center'}
                         onContentSizeChange={(event) => {
                           handleHomeInputContentSizeChange(event.nativeEvent.contentSize.height + 18);
@@ -1028,32 +1078,35 @@ export const ChatInput = (props: ChatInputProps) => {
                           paddingBottom: homeInputExpanded ? 8 : 0,
                         }}
                       />
-                      <View className="mb-1 flex-row items-center gap-2">
-                        {inputText.trim().length > 0 ? (
+                      <View className="flex-row items-center justify-center gap-2">
+                        {inputText.trim().length > 0 || isHomeInputFocused ? (
                           <Pressable
                             onPress={handleSendMessage}
-                            disabled={isRecordingUI}
-                            className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
+                            disabled={inputText.trim().length === 0 || isRecordingUI}
+                            className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${inputText.trim().length === 0 || isRecordingUI ? 'opacity-45' : ''}`}
                             accessibilityRole="button"
                             accessibilityLabel="提交">
                             <Icon name="ArrowUp" size={17} color="white" />
                           </Pressable>
-                        ) : null}
-                        <Pressable
-                          onPress={openHomeRecordPanel}
-                          disabled={isRecordingUI}
-                          className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${homeInputExpanded ? '-mt-0.5' : ''} ${isRecordingUI ? 'opacity-45' : ''}`}
-                          accessibilityRole="button"
-                          accessibilityLabel="录音">
-                          <Icon name="Mic" size={17} color="white" />
-                        </Pressable>
-                        <Pressable
-                          onPress={openImageCaptureMenu}
-                          className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${homeInputExpanded ? '-mt-0.5' : ''}`}
-                          accessibilityRole="button"
-                          accessibilityLabel="拍照或相册上传">
-                          <Icon name="Camera" size={17} color="white" />
-                        </Pressable>
+                        ) : (
+                          <>
+                            <Pressable
+                              onPress={openHomeRecordPanel}
+                              disabled={isRecordingUI}
+                              className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
+                              accessibilityRole="button"
+                              accessibilityLabel="录音">
+                              <Icon name="Mic" size={17} color="white" />
+                            </Pressable>
+                            <Pressable
+                              onPress={openImageCaptureMenu}
+                              className="border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border"
+                              accessibilityRole="button"
+                              accessibilityLabel="拍照或相册上传">
+                              <Icon name="Camera" size={17} color="white" />
+                            </Pressable>
+                          </>
+                        )}
                       </View>
                     </ImageBackground>
                   </View>
@@ -1095,6 +1148,10 @@ export const ChatInput = (props: ChatInputProps) => {
                       className={`px-6 py-5 ${isHomeVariant ? 'text-white' : 'text-text'}`}
                       value={inputText}
                       onChangeText={setInputText}
+                      onSubmitEditing={handleSendMessage}
+                      returnKeyType="send"
+                      enterKeyHint="send"
+                      submitBehavior="submit"
                       style={{ minHeight: 60 }}
                       multiline
                     />
@@ -1351,7 +1408,7 @@ export const ChatInput = (props: ChatInputProps) => {
                       <ThemedText className="text-[14px] text-white" numberOfLines={1}>
                         {item.filename}
                       </ThemedText>
-                      <ThemedText className="mt-1 text-[12px] text-white/60" numberOfLines={1}>
+                      <ThemedText className="mt-1 text-[14px] text-white/60" numberOfLines={1}>
                         {[
                           item.mime_type,
                           item.status === 'processing'
@@ -1385,7 +1442,7 @@ const FileAttachmentBadge = ({ file, onRemove }: { file: SelectedFile; onRemove:
       <View className="bg-highlight h-7 w-7 items-center justify-center rounded-lg">
         <Text className="text-[9px] font-bold text-white">{ext.slice(0, 4)}</Text>
       </View>
-      <Text className="max-w-[120px] text-xs font-medium text-primary" numberOfLines={1}>
+      <Text className="max-w-[120px] text-[14px] font-medium text-primary" numberOfLines={1}>
         {displayName}
       </Text>
       <Pressable onPress={onRemove} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

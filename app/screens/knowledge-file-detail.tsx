@@ -1,7 +1,7 @@
 import { Audio } from 'expo-av';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   FlatList,
@@ -11,6 +11,7 @@ import {
   Alert,
   Image,
   RefreshControl,
+  PanResponder,
 } from 'react-native';
 
 import useThemeColors from '@/app/contexts/ThemeColors';
@@ -45,7 +46,7 @@ function ChunkContent({ content }: { content: string }) {
       const t = text.slice(last, m.index);
       if (t) {
         parts.push(
-          <ThemedText key={`t-${k++}`} className="text-sm leading-6 text-primary">
+          <ThemedText key={`t-${k++}`} className="text-base leading-6 text-primary">
             {t}
           </ThemedText>
         );
@@ -66,7 +67,7 @@ function ChunkContent({ content }: { content: string }) {
     const t = text.slice(last);
     if (t) {
       parts.push(
-        <ThemedText key={`t-${k++}`} className="text-sm leading-6 text-primary">
+        <ThemedText key={`t-${k++}`} className="text-base leading-6 text-primary">
           {t}
         </ThemedText>
       );
@@ -128,6 +129,10 @@ export default function KnowledgeFileDetailScreen() {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPositionMs, setAudioPositionMs] = useState(0);
   const [audioDurationMs, setAudioDurationMs] = useState(0);
+  const [audioTrackWidth, setAudioTrackWidth] = useState(0);
+  const [meetingDetailTab, setMeetingDetailTab] = useState<'transcript' | 'analysis'>('transcript');
+  const audioTrackWidthRef = useRef(0);
+  const seekAudioToRatioRef = useRef<(ratio: number) => Promise<void>>(async () => {});
 
   const PAGE_SIZE = 20;
   const isMeeting =
@@ -357,13 +362,13 @@ export default function KnowledgeFileDetailScreen() {
         <View
           style={{ backgroundColor: color }}
           className="mr-3 h-12 w-12 items-center justify-center rounded-xl">
-          <ThemedText className="text-xs font-bold text-white">{label}</ThemedText>
+          <ThemedText className="text-sm font-bold text-white">{label}</ThemedText>
         </View>
         <View className="min-w-0 flex-1">
-          <ThemedText className="text-base font-semibold text-primary" numberOfLines={2}>
+          <ThemedText className="text-lg font-semibold text-primary" numberOfLines={2}>
             {file.filename}
           </ThemedText>
-          <ThemedText className="mt-1 text-xs text-subtext">
+          <ThemedText className="mt-1 text-sm text-subtext">
             {label} · {formatFileSize(file.file_size)} · {formatDate(file.created_at)}
           </ThemedText>
         </View>
@@ -371,7 +376,7 @@ export default function KnowledgeFileDetailScreen() {
 
       <View className="mt-4 flex-row items-center justify-between border-t border-border py-3">
         <View className="flex-row items-center gap-2">
-          <ThemedText className="text-sm text-subtext">状态</ThemedText>
+          <ThemedText className="text-base text-subtext">状态</ThemedText>
           {file.status === 'done' ? (
             <Icon name="CheckCircle2" size={18} color="#22c55e" />
           ) : file.status === 'error' ? (
@@ -379,9 +384,9 @@ export default function KnowledgeFileDetailScreen() {
           ) : (
             <ActivityIndicator size="small" />
           )}
-          <ThemedText className="text-sm text-primary">{statusLabel}</ThemedText>
+          <ThemedText className="text-base text-primary">{statusLabel}</ThemedText>
         </View>
-        <ThemedText className="text-sm text-subtext">
+        <ThemedText className="text-base text-subtext">
           {file.chunk_count > 0
             ? `${file.chunk_count} 个分块`
             : chunksTotal > 0
@@ -393,8 +398,8 @@ export default function KnowledgeFileDetailScreen() {
       {file.status === 'processing' && (
         <View className="mt-2">
           <View className="mb-1 flex-row justify-between">
-            <ThemedText className="text-xs text-subtext">解析与向量化…</ThemedText>
-            <ThemedText className="text-xs text-subtext">
+            <ThemedText className="text-sm text-subtext">解析与向量化…</ThemedText>
+            <ThemedText className="text-sm text-subtext">
               {Math.round((file.progress ?? 0) * 100)}%
             </ThemedText>
           </View>
@@ -410,29 +415,29 @@ export default function KnowledgeFileDetailScreen() {
       {file.status === 'error' && (
         <View className="mt-3 flex-row flex-wrap items-center gap-2">
           <Icon name="AlertCircle" size={16} color="#E53935" />
-          <ThemedText className="text-xs" style={{ color: '#E53935' }}>
+          <ThemedText className="text-sm" style={{ color: '#E53935' }}>
             处理失败，可尝试重新处理
           </ThemedText>
           <TouchableOpacity
             onPress={() => void handleReindex()}
             className="rounded-lg bg-secondary px-3 py-1.5">
-            <ThemedText className="text-xs text-primary">重新处理</ThemedText>
+            <ThemedText className="text-sm text-primary">重新处理</ThemedText>
           </TouchableOpacity>
         </View>
       )}
 
       {file.status === 'done' && (
-        <ThemedText className="mb-2 mt-4 text-sm font-semibold text-primary">
+        <ThemedText className="mb-2 mt-4 text-base font-semibold text-primary">
           预览模式 | 共 {chunksTotal || file.chunk_count} 个分块
         </ThemedText>
       )}
 
       {file.status !== 'done' && file.status !== 'error' && (
-        <ThemedText className="mt-3 text-xs text-subtext">处理完成后可查看 RAG 分块内容</ThemedText>
+        <ThemedText className="mt-3 text-sm text-subtext">处理完成后可查看 RAG 分块内容</ThemedText>
       )}
 
       {chunksError && file.status === 'done' && (
-        <ThemedText className="mt-2 text-sm text-red-500">{chunksError}</ThemedText>
+        <ThemedText className="mt-2 text-base text-red-500">{chunksError}</ThemedText>
       )}
     </View>
   );
@@ -444,9 +449,9 @@ export default function KnowledgeFileDetailScreen() {
       <View className="bg-secondary/50 mx-4 mb-3 rounded-2xl border border-border p-3">
         <View className="mb-2 flex-row items-center justify-between">
           <View className="rounded-md border border-border bg-background px-2 py-0.5">
-            <ThemedText className="text-xs text-subtext">#{displayIndex}</ThemedText>
+            <ThemedText className="text-sm text-subtext">#{displayIndex}</ThemedText>
           </View>
-          <ThemedText className="text-xs text-subtext">
+          <ThemedText className="text-sm text-subtext">
             {charCount} 字符 · {item.token_count} tokens
           </ThemedText>
         </View>
@@ -473,29 +478,44 @@ export default function KnowledgeFileDetailScreen() {
     return 0;
   };
 
-  const togglePlayAudio = async () => {
-    if (!meetingDetail?.audioUrl) return;
-    try {
-      if (!sound) {
-        const { sound: next } = await Audio.Sound.createAsync(
-          { uri: meetingDetail.audioUrl },
-          { shouldPlay: true },
-          (status) => {
-            if (!status.isLoaded) return;
-            setAudioPlaying(status.isPlaying);
-            setAudioPositionMs(status.positionMillis ?? 0);
-            setAudioDurationMs(status.durationMillis ?? 0);
+  const ensureMeetingSound = useCallback(
+    async (shouldPlay: boolean) => {
+      if (!meetingDetail?.audioUrl) return null;
+      if (sound) {
+        if (shouldPlay) {
+          const status = await sound.getStatusAsync();
+          if (status.isLoaded && !status.isPlaying) {
+            await sound.playAsync();
           }
-        );
-        setSound(next);
-        return;
+        }
+        return sound;
       }
-      const status = await sound.getStatusAsync();
+      const { sound: next } = await Audio.Sound.createAsync(
+        { uri: meetingDetail.audioUrl },
+        { shouldPlay },
+        (status) => {
+          if (!status.isLoaded) return;
+          setAudioPlaying(status.isPlaying);
+          setAudioPositionMs(status.positionMillis ?? 0);
+          setAudioDurationMs(status.durationMillis ?? 0);
+        }
+      );
+      setSound(next);
+      return next;
+    },
+    [meetingDetail?.audioUrl, sound]
+  );
+
+  const togglePlayAudio = async () => {
+    try {
+      const player = await ensureMeetingSound(true);
+      if (!player) return;
+      const status = await player.getStatusAsync();
       if (!status.isLoaded) return;
       if (status.isPlaying) {
-        await sound.pauseAsync();
+        await player.pauseAsync();
       } else {
-        await sound.playAsync();
+        await player.playAsync();
       }
     } catch {
       Alert.alert('播放失败', '当前录音暂不可播放');
@@ -503,15 +523,53 @@ export default function KnowledgeFileDetailScreen() {
   };
 
   const seekAudioBy = async (deltaMs: number) => {
-    if (!sound) return;
-    const status = await sound.getStatusAsync();
+    if (!meetingDetail?.audioUrl) return;
+    const player = await ensureMeetingSound(false);
+    if (!player) return;
+    const status = await player.getStatusAsync();
     if (!status.isLoaded) return;
     const next = Math.max(
       0,
       Math.min((status.positionMillis ?? 0) + deltaMs, status.durationMillis ?? 0)
     );
-    await sound.setPositionAsync(next);
+    await player.setPositionAsync(next);
   };
+
+  const seekAudioToRatio = useCallback(
+    async (ratio: number) => {
+      if (!meetingDetail?.audioUrl) return;
+      const player = await ensureMeetingSound(false);
+      if (!player) return;
+      const status = await player.getStatusAsync();
+      if (!status.isLoaded) return;
+      const duration = status.durationMillis ?? audioDurationMs;
+      if (!duration || duration <= 0) return;
+      const clampedRatio = Math.max(0, Math.min(1, ratio));
+      await player.setPositionAsync(Math.floor(duration * clampedRatio));
+    },
+    [audioDurationMs, ensureMeetingSound, meetingDetail?.audioUrl]
+  );
+
+  useEffect(() => {
+    seekAudioToRatioRef.current = seekAudioToRatio;
+  }, [seekAudioToRatio]);
+
+  const audioTrackPanResponder = useState(() =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        if (audioTrackWidthRef.current <= 0) return;
+        const ratio = evt.nativeEvent.locationX / audioTrackWidthRef.current;
+        seekAudioToRatioRef.current(ratio).catch(() => null);
+      },
+      onPanResponderMove: (evt) => {
+        if (audioTrackWidthRef.current <= 0) return;
+        const ratio = evt.nativeEvent.locationX / audioTrackWidthRef.current;
+        seekAudioToRatioRef.current(ratio).catch(() => null);
+      },
+    })
+  )[0];
 
   return (
     <View className="flex-1 bg-background">
@@ -551,60 +609,71 @@ export default function KnowledgeFileDetailScreen() {
               </View>
             ) : meetingError ? (
               <View className="rounded-2xl border border-border bg-secondary p-4">
-                <ThemedText className="text-sm text-red-500">{meetingError}</ThemedText>
+                <ThemedText className="text-base text-red-500">{meetingError}</ThemedText>
               </View>
             ) : (
               <>
                 <View className="rounded-2xl bg-secondary p-4">
-                  <ThemedText className="text-xl font-bold text-primary">
+                  <ThemedText className="text-[22px] font-bold text-primary">
                     {meetingDetail?.title || file.filename}
                   </ThemedText>
-                  <ThemedText className="mt-2 text-sm text-subtext">
+                  <ThemedText className="mt-2 text-base text-subtext">
                     会议时间：{meetingDetail?.date || formatDate(file.created_at)}
                   </ThemedText>
-                  <ThemedText className="mt-1 text-sm text-subtext">
+                  <ThemedText className="mt-1 text-base text-subtext">
                     会议时长：
                     {meetingDetail?.audioDuration ||
                       meetingDetail?.duration ||
                       file.meeting_duration ||
                       '--'}
                   </ThemedText>
-                  <ThemedText className="mt-1 text-sm text-subtext">
+                  <ThemedText className="mt-1 text-base text-subtext">
                     参与人数：{meetingDetail?.participants ?? file.meeting_participants ?? 0}
                   </ThemedText>
                 </View>
 
                 <View className="mt-4 rounded-2xl bg-secondary p-4">
-                  <ThemedText className="text-base font-semibold text-primary">会议录音</ThemedText>
-                  <View className="mt-3 h-1.5 overflow-hidden rounded-full bg-border">
-                    <View
-                      className="h-1.5 rounded-full bg-[#F4B400]"
-                      style={{
-                        width: `${Math.max(
-                          0,
-                          Math.min(
-                            100,
-                            (audioDurationMs > 0 ? (audioPositionMs / audioDurationMs) * 100 : 0) ||
-                              0
-                          )
-                        )}%`,
-                      }}
-                    />
+                  <ThemedText className="text-lg font-semibold text-primary">会议录音</ThemedText>
+                  <View
+                    className="mt-3 py-2"
+                    onLayout={(e) => {
+                      const w = e.nativeEvent.layout.width;
+                      setAudioTrackWidth(w);
+                      audioTrackWidthRef.current = w;
+                    }}
+                    {...audioTrackPanResponder.panHandlers}>
+                    <View className="h-1.5 overflow-hidden rounded-full bg-border">
+                      <View
+                        className="h-1.5 rounded-full bg-[#F4B400]"
+                        style={{
+                          width: `${Math.max(
+                            0,
+                            Math.min(
+                              100,
+                              (audioDurationMs > 0 ? (audioPositionMs / audioDurationMs) * 100 : 0) ||
+                                0
+                            )
+                          )}%`,
+                        }}
+                      />
+                    </View>
                   </View>
                   <View className="mt-2 flex-row items-center justify-between">
-                    <ThemedText className="text-xs text-subtext">
+                    <ThemedText className="text-sm text-subtext">
                       {toMsText(audioPositionMs)}
                     </ThemedText>
-                    <ThemedText className="text-xs text-subtext">
+                    <ThemedText className="text-sm text-subtext">
                       {toMsText(audioDurationMs || parseDurationToMs(meetingDetail?.audioDuration))}
                     </ThemedText>
                   </View>
                   <View className="mt-4 flex-row items-center justify-center gap-8">
                     <TouchableOpacity
+                      className="relative h-10 w-10 items-center justify-center"
                       onPress={() => {
                         seekAudioBy(-15_000).catch(() => null);
                       }}>
                       <Icon name="RotateCcw" size={22} />
+                      <ThemedText className="absolute text-[12px] font-semibold text-primary">15</ThemedText>
                     </TouchableOpacity>
                     <TouchableOpacity
                       className="h-12 w-12 items-center justify-center rounded-full bg-white/10"
@@ -614,68 +683,90 @@ export default function KnowledgeFileDetailScreen() {
                       <Icon name={audioPlaying ? 'Pause' : 'Play'} size={20} />
                     </TouchableOpacity>
                     <TouchableOpacity
+                      className="relative h-10 w-10 items-center justify-center"
                       onPress={() => {
                         seekAudioBy(15_000).catch(() => null);
                       }}>
                       <Icon name="RotateCw" size={22} />
+                      <ThemedText className="absolute text-[12px] font-semibold text-primary">15</ThemedText>
                     </TouchableOpacity>
                   </View>
                 </View>
 
                 <View className="mt-4 rounded-2xl bg-secondary p-4">
-                  <ThemedText className="text-base font-semibold text-primary">转写文本</ThemedText>
-                  {(meetingDetail?.transcript ?? []).length === 0 ? (
-                    <ThemedText className="mt-2 text-sm text-subtext">暂无转写内容</ThemedText>
-                  ) : (
-                    <View className="mt-3 gap-3">
-                      {(meetingDetail?.transcript ?? []).map((seg, idx) => (
-                        <View
-                          key={`${seg.speakerId}-${seg.startMs}-${idx}`}
-                          className="border-l border-border pl-3">
-                          <ThemedText className="text-sm font-semibold text-primary">
-                            发言人{seg.speakerId + 1} · {toMsText(seg.startMs)}
-                          </ThemedText>
-                          <ThemedText className="mt-1 text-sm leading-6 text-subtext">
-                            {seg.text}
-                          </ThemedText>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                  <View className="mb-3 flex-row rounded-xl bg-black/10 p-1">
+                    <TouchableOpacity
+                      className={`flex-1 items-center rounded-lg py-2 ${meetingDetailTab === 'transcript' ? 'bg-background' : ''}`}
+                      onPress={() => setMeetingDetailTab('transcript')}>
+                      <ThemedText
+                        className={`text-base font-semibold ${meetingDetailTab === 'transcript' ? 'text-primary' : 'text-subtext'}`}>
+                        转写文本
+                      </ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className={`flex-1 items-center rounded-lg py-2 ${meetingDetailTab === 'analysis' ? 'bg-background' : ''}`}
+                      onPress={() => setMeetingDetailTab('analysis')}>
+                      <ThemedText
+                        className={`text-base font-semibold ${meetingDetailTab === 'analysis' ? 'text-primary' : 'text-subtext'}`}>
+                        会议分析
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
 
-                <View className="mt-4 rounded-2xl bg-secondary p-4">
-                  <ThemedText className="text-base font-semibold text-primary">会议分析</ThemedText>
-                  {meetingDetail?.aiSummary?.summaryText ? (
-                    <ThemedText className="mt-2 text-sm leading-6 text-primary">
-                      {meetingDetail.aiSummary.summaryText}
-                    </ThemedText>
-                  ) : (
-                    <ThemedText className="mt-2 text-sm text-subtext">暂无分析内容</ThemedText>
-                  )}
-
-                  {[
-                    { title: '核心议题', data: meetingDetail?.aiSummary?.keyPoints ?? [] },
-                    { title: '关键决策', data: meetingDetail?.aiSummary?.decisions ?? [] },
-                    { title: '待解问题', data: meetingDetail?.aiSummary?.openQuestions ?? [] },
-                    { title: '待办事项', data: meetingDetail?.aiSummary?.todoItems ?? [] },
-                  ].map((section) =>
-                    section.data.length > 0 ? (
-                      <View key={section.title} className="mt-4">
-                        <ThemedText className="text-sm font-semibold text-primary">
-                          {section.title}
-                        </ThemedText>
-                        <View className="mt-2 gap-2">
-                          {section.data.map((text, idx) => (
-                            <ThemedText
-                              key={`${section.title}-${idx}`}
-                              className="text-sm text-subtext">
-                              • {text}
+                  {meetingDetailTab === 'transcript' ? (
+                    (meetingDetail?.transcript ?? []).length === 0 ? (
+                      <ThemedText className="mt-1 text-base text-subtext">暂无转写内容</ThemedText>
+                    ) : (
+                      <View className="gap-3">
+                        {(meetingDetail?.transcript ?? []).map((seg, idx) => (
+                          <View
+                            key={`${seg.speakerId}-${seg.startMs}-${idx}`}
+                            className="border-l border-border pl-3">
+                            <ThemedText className="text-base font-semibold text-primary">
+                              发言人{seg.speakerId + 1} · {toMsText(seg.startMs)}
                             </ThemedText>
-                          ))}
-                        </View>
+                            <ThemedText className="mt-1 text-base leading-6 text-subtext">
+                              {seg.text}
+                            </ThemedText>
+                          </View>
+                        ))}
                       </View>
-                    ) : null
+                    )
+                  ) : (
+                    <>
+                      <ThemedText className="mb-2 text-base font-semibold text-primary">AI摘要</ThemedText>
+                      {meetingDetail?.aiSummary?.summaryText ? (
+                        <ThemedText className="text-base leading-6 text-primary">
+                          {meetingDetail.aiSummary.summaryText}
+                        </ThemedText>
+                      ) : (
+                        <ThemedText className="text-base text-subtext">暂无分析内容</ThemedText>
+                      )}
+
+                      {[
+                        { title: '核心议题', data: meetingDetail?.aiSummary?.keyPoints ?? [] },
+                        { title: '关键决策', data: meetingDetail?.aiSummary?.decisions ?? [] },
+                        { title: '待解问题', data: meetingDetail?.aiSummary?.openQuestions ?? [] },
+                        { title: '待办事项', data: meetingDetail?.aiSummary?.todoItems ?? [] },
+                      ].map((section) =>
+                        section.data.length > 0 ? (
+                          <View key={section.title} className="mt-4">
+                            <ThemedText className="text-base font-semibold text-primary">
+                              {section.title}
+                            </ThemedText>
+                            <View className="mt-2 gap-2">
+                              {section.data.map((text, idx) => (
+                                <ThemedText
+                                  key={`${section.title}-${idx}`}
+                                  className="text-base text-subtext">
+                                  • {text}
+                                </ThemedText>
+                              ))}
+                            </View>
+                          </View>
+                        ) : null
+                      )}
+                    </>
                   )}
                 </View>
               </>
@@ -710,7 +801,7 @@ export default function KnowledgeFileDetailScreen() {
               </View>
             ) : (
               <View className="px-4 py-8">
-                <ThemedText className="text-center text-sm text-subtext">暂无分块数据</ThemedText>
+                <ThemedText className="text-center text-base text-subtext">暂无分块数据</ThemedText>
               </View>
             )
           }

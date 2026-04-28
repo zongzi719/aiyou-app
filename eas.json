@@ -6,6 +6,7 @@
   },
   "build": {
     "development": {
+      "environment": "development",
       "developmentClient": true,
       "distribution": "internal",
       "env": {
@@ -18,6 +19,7 @@
       }
     },
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "channel": "preview",
       "env": {
@@ -30,6 +32,7 @@
       }
     },
     "production": {
+      "environment": "production",
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_DEV_API_BASE_URL": "https://aiyou.ontuotu.com",
@@ -37,7 +40,7 @@
         "EXPO_PUBLIC_ALIYUN_NLS_APPKEY": "b99xFyuTgyFB8cOy"
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "apk"
       }
     }
   },

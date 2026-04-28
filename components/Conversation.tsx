@@ -456,7 +456,7 @@ const FileCard = ({ file }: { file: MessageFile }) => {
         <ThemedText className="text-sm font-medium text-primary" numberOfLines={2}>
           {file.name}
         </ThemedText>
-        <ThemedText className="mt-0.5 text-xs text-subtext">
+        <ThemedText className="mt-0.5 text-[14px] text-subtext">
           {fileTypeLabel(file.mimeType)}
         </ThemedText>
       </View>
@@ -490,8 +490,10 @@ const UserMessage = ({
         </View>
       )}
       {content.trim().length > 0 && (
-        <View style={shadowPresets.small} className="rounded-3xl bg-secondary p-global">
-          <ThemedText className="text-base">{content}</ThemedText>
+        <View style={shadowPresets.small} className="rounded-3xl bg-[#2B3239] p-global">
+          <ThemedText className="text-[16px] leading-[24px]">
+            {content}
+          </ThemedText>
         </View>
       )}
     </View>
@@ -515,7 +517,7 @@ const ThinkingBlock = ({ text }: { text: string }) => {
       style={{ backgroundColor: colors.secondary + 'CC' }}>
       <View className="flex-row items-center gap-2 px-3 py-2">
         <Icon name="Brain" size={14} color={colors.placeholder} />
-        <ThemedText className="flex-1 text-xs text-subtext" numberOfLines={1}>
+        <ThemedText className="flex-1 text-[14px] text-subtext" numberOfLines={1}>
           {summary}
           {summary.length <
           text
@@ -530,7 +532,7 @@ const ThinkingBlock = ({ text }: { text: string }) => {
       </View>
       {expanded && (
         <View className="border-t border-border px-3 pb-3 pt-1">
-          <ThemedText className="text-xs leading-5 text-subtext">{text.trim()}</ThemedText>
+          <ThemedText className="text-[14px] leading-5 text-subtext">{text.trim()}</ThemedText>
         </View>
       )}
     </Pressable>
@@ -575,15 +577,15 @@ function GeneratedDocumentCard({
       accessibilityRole="button"
       accessibilityLabel={`文档 ${doc.displayName}`}>
       <View className="h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-[#2563EB]">
-        <ThemedText className="text-[11px] font-semibold text-white">{doc.kindLabel}</ThemedText>
+        <ThemedText className="text-[14px] font-semibold text-white">{doc.kindLabel}</ThemedText>
       </View>
       <View className="min-w-0 flex-1">
         <ThemedText className="text-[15px] font-medium text-primary" numberOfLines={2}>
           {doc.displayName}
         </ThemedText>
-        <ThemedText className="mt-1 text-xs text-subtext">
+        <ThemedText className="mt-1 text-[14px] text-subtext">
           {metaTime}
-          <ThemedText className="text-xs text-subtext"> · 生成</ThemedText>
+          <ThemedText className="text-[14px] text-subtext"> · 生成</ThemedText>
         </ThemedText>
       </View>
     </Pressable>
@@ -647,7 +649,7 @@ function MessageActionToolbar({
   colors: ReturnType<typeof useThemeColors>;
 }) {
   return (
-    <View className="border-border/80 border-t pt-3">
+    <View className="border-t border-[#3B3939] pt-3">
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center gap-6">
           <Pressable
@@ -743,7 +745,7 @@ function CombinedChatTurn({
         <View className="max-w-[95%] self-start">
           <View
             style={shadowPresets.card}
-            className="overflow-hidden rounded-3xl border border-border bg-secondary px-4 py-4">
+            className="overflow-hidden rounded-3xl bg-secondary px-4 py-4">
             {thinking.map((t, i) => (
               <ThinkingBlock key={i} text={t} />
             ))}

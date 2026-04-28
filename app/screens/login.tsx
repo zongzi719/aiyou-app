@@ -1,5 +1,5 @@
 import { Link, router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Pressable,
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Icon from '@/components/Icon';
 import ThemedText from '@/components/ThemedText';
-import { persistAuthSession } from '@/lib/authSession';
+import { hasPrivateChatBackendSession, persistAuthSession } from '@/lib/authSession';
 import { putProfileCache } from '@/lib/profileCache';
 import { postUserLogin } from '@/lib/userLoginApi';
 import { fetchProfile, needsAiBossModelOnboarding } from '@/services/profileApi';
@@ -37,6 +37,17 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void hasPrivateChatBackendSession().then((loggedIn) => {
+      if (cancelled || !loggedIn) return;
+      router.replace('/');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const validateAccount = (value: string) => {
     const trimmed = value.trim();

@@ -77,7 +77,7 @@ export default function DecisionCoachPickerModal({
           <View className="flex-row items-center justify-between">
             <View className="min-w-0">
               <ThemedText className="text-[18px] font-semibold text-white">选择教练</ThemedText>
-              <ThemedText className="mt-1 text-[12px] text-[#6A7282]">
+              <ThemedText className="mt-1 text-[14px] text-[#6A7282]">
                 最多选择三个教练 ({selectedCount}/3)
               </ThemedText>
             </View>
@@ -107,12 +107,12 @@ export default function DecisionCoachPickerModal({
                           numberOfLines={1}>
                           {c.name}
                         </ThemedText>
-                        <ThemedText className="ml-2 text-[12px] text-white/60">
+                        <ThemedText className="ml-2 text-[14px] text-white/60">
                           {c.roleLabel}
                         </ThemedText>
                       </View>
                       <ThemedText
-                        className="mt-1 text-[12px] leading-[16px] text-[#A6A6A6]"
+                        className="mt-1 text-[14px] leading-[20px] text-[#A6A6A6]"
                         numberOfLines={2}>
                         {c.tagline}
                       </ThemedText>

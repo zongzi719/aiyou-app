@@ -177,7 +177,8 @@ export default function MemoryInspirationDetailScreen() {
     ]);
   };
 
-  const inputClass = 'rounded-xl border border-border bg-secondary px-3 py-3 text-sm text-primary';
+  const inputClass =
+    'rounded-xl border border-border bg-secondary px-3 py-3 text-[16px] text-primary';
 
   if (loading) {
     return (
@@ -195,7 +196,7 @@ export default function MemoryInspirationDetailScreen() {
       <View className="flex-1 bg-background">
         <Header title="灵感详情" showBackButton onBackPress={safeRouterBackOrHome} />
         <View className="flex-1 items-center justify-center px-global">
-          <ThemedText className="text-subtext">未找到该灵感笔记</ThemedText>
+          <ThemedText className="text-[18px] text-subtext">未找到该灵感笔记</ThemedText>
         </View>
       </View>
     );
@@ -259,7 +260,7 @@ export default function MemoryInspirationDetailScreen() {
         showsVerticalScrollIndicator={false}>
         {editing && d ? (
           <>
-            <ThemedText className="mb-1 text-xs font-semibold text-subtext">标题</ThemedText>
+            <ThemedText className="mb-1 text-[14px] font-semibold text-subtext">标题</ThemedText>
             <TextInput
               className={inputClass}
               value={d.title}
@@ -268,7 +269,7 @@ export default function MemoryInspirationDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">标签</ThemedText>
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">标签</ThemedText>
             <TextInput
               className={inputClass}
               value={d.tagsLine}
@@ -277,7 +278,7 @@ export default function MemoryInspirationDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">原文</ThemedText>
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">原文</ThemedText>
             <TextInput
               className={`${inputClass} min-h-[100px]`}
               value={d.raw_content}
@@ -288,7 +289,7 @@ export default function MemoryInspirationDetailScreen() {
               textAlignVertical="top"
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               整理内容
             </ThemedText>
             <TextInput
@@ -301,7 +302,7 @@ export default function MemoryInspirationDetailScreen() {
               textAlignVertical="top"
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               要点 / 洞察
             </ThemedText>
             <TextInput
@@ -314,7 +315,7 @@ export default function MemoryInspirationDetailScreen() {
               textAlignVertical="top"
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               关联录音 URL
             </ThemedText>
             <TextInput
@@ -329,8 +330,8 @@ export default function MemoryInspirationDetailScreen() {
           </>
         ) : (
           <>
-            <ThemedText className="text-xl font-bold text-primary">{note.title}</ThemedText>
-            <ThemedText className="mt-2 text-xs text-subtext">
+            <ThemedText className="text-[22px] font-bold text-primary">{note.title}</ThemedText>
+            <ThemedText className="mt-2 text-[14px] text-subtext">
               {formatMemoryDate(note.created_at)}
             </ThemedText>
 
@@ -340,7 +341,7 @@ export default function MemoryInspirationDetailScreen() {
                   <View
                     key={`${note.id}-${tag}`}
                     className="rounded-full border border-border bg-secondary px-3 py-1">
-                    <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                    <ThemedText className="text-[14px] text-subtext">#{tag}</ThemedText>
                   </View>
                 ))}
               </View>
@@ -348,10 +349,10 @@ export default function MemoryInspirationDetailScreen() {
 
             {note.raw_content?.trim() ? (
               <View className="mt-6">
-                <ThemedText className="mb-2 text-xs font-semibold uppercase text-subtext">
+                <ThemedText className="mb-2 text-[14px] font-semibold uppercase text-subtext">
                   原文
                 </ThemedText>
-                <ThemedText className="text-sm leading-6 text-primary">
+                <ThemedText className="text-[16px] leading-7 text-primary">
                   {note.raw_content}
                 </ThemedText>
               </View>
@@ -359,10 +360,10 @@ export default function MemoryInspirationDetailScreen() {
 
             {note.ai_content?.trim() ? (
               <View className="mt-6">
-                <ThemedText className="mb-2 text-xs font-semibold uppercase text-subtext">
+                <ThemedText className="mb-2 text-[14px] font-semibold uppercase text-subtext">
                   整理内容
                 </ThemedText>
-                <ThemedText className="text-sm leading-6 text-primary">
+                <ThemedText className="text-[16px] leading-7 text-primary">
                   {note.ai_content}
                 </ThemedText>
               </View>
@@ -370,10 +371,10 @@ export default function MemoryInspirationDetailScreen() {
 
             {note.ai_insights?.trim() ? (
               <View className="mt-6">
-                <ThemedText className="mb-2 text-xs font-semibold uppercase text-subtext">
+                <ThemedText className="mb-2 text-[14px] font-semibold uppercase text-subtext">
                   要点 / 洞察
                 </ThemedText>
-                <ThemedText className="text-sm leading-6 text-primary">
+                <ThemedText className="text-[16px] leading-7 text-primary">
                   {note.ai_insights}
                 </ThemedText>
               </View>
@@ -386,7 +387,7 @@ export default function MemoryInspirationDetailScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="打开语音链接">
                 <Icon name="Mic" size={20} color={colors.highlight} />
-                <ThemedText className="flex-1 text-sm text-primary">查看关联录音</ThemedText>
+                <ThemedText className="flex-1 text-[16px] text-primary">查看关联录音</ThemedText>
                 <Icon name="ExternalLink" size={18} color={colors.placeholder} />
               </TouchableOpacity>
             ) : null}

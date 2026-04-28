@@ -129,14 +129,14 @@ const TopSwitch = ({
             activeOpacity={0.85}
             className="rounded-full border border-[#B98C44]/60 bg-[#081A33] px-3 py-1.5"
             onPress={onInitModelPress}>
-            <ThemedText className="text-xs font-semibold text-[#F5DCA8]">初始化模型</ThemedText>
+            <ThemedText className="text-[14px] font-semibold text-[#F5DCA8]">初始化模型</ThemedText>
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity
           activeOpacity={0.85}
           className="rounded-full bg-secondary px-3 py-1.5"
           onPress={onTunePress}>
-          <ThemedText className="text-xs font-semibold text-primary">记忆微调</ThemedText>
+          <ThemedText className="text-[14px] font-semibold text-primary">记忆微调</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
@@ -211,11 +211,11 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
                 <View
                   key={tag}
                   className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5">
-                  <ThemedText className="text-xs text-white/75">{tag}</ThemedText>
+                  <ThemedText className="text-[14px] text-white/75">{tag}</ThemedText>
                 </View>
               ))}
             </View>
-            <ThemedText className="mt-2 text-xs leading-5 text-white/60">
+            <ThemedText className="mt-2 text-[14px] leading-5 text-white/60">
               {learningStats
                 ? formatAiLearningDataLine(learningStats.docs, learningStats.convs)
                 : '加载中…'}
@@ -225,7 +225,7 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
 
         <View className="mt-4 rounded-2xl border border-[#B98C44] bg-black/30 p-3">
           <View className="mb-2 flex-row items-center justify-between">
-            <ThemedText className="text-sm font-semibold text-[#F5DCA8]">对齐率</ThemedText>
+            <ThemedText className="text-[16px] font-semibold text-[#F5DCA8]">对齐率</ThemedText>
             <ThemedText className="text-2xl font-bold text-[#F5DCA8]">
               Lv.{AI_CEO_PROFILE.level}
             </ThemedText>
@@ -237,18 +237,18 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
             />
           </View>
           <View className="mb-2 flex-row items-center justify-between">
-            <ThemedText className="text-xs text-[#D4D9E5]">
+            <ThemedText className="text-[14px] text-[#D4D9E5]">
               预计再互动{AI_CEO_PROFILE.nextLevelMins}分钟可升至下一等级
             </ThemedText>
           </View>
           <View className="flex-row items-center justify-between border-t border-[#B98C44]/40 pt-2">
-            <ThemedText className="text-sm text-[#D4D9E5]">模型匹配度</ThemedText>
+            <ThemedText className="text-[16px] text-[#D4D9E5]">模型匹配度</ThemedText>
             <ThemedText className="text-xl font-bold text-[#F5DCA8]">
               {AI_CEO_PROFILE.match}%
             </ThemedText>
           </View>
           <View className="mt-1 flex-row items-center justify-between">
-            <ThemedText className="text-sm text-[#D4D9E5]">MBTI</ThemedText>
+            <ThemedText className="text-[16px] text-[#D4D9E5]">MBTI</ThemedText>
             <ThemedText className="text-xl font-bold text-[#F5DCA8]">
               {AI_CEO_PROFILE.mbti}
             </ThemedText>
@@ -256,8 +256,8 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
           <View className="mt-3 flex-row border-t border-[#B98C44]/40 pt-3">
             {AI_CEO_PROFILE.strengths.map((item) => (
               <View key={item} className="flex-1 items-center">
-                <ThemedText className="text-[11px] text-[#8A97AF]">核心关注</ThemedText>
-                <ThemedText className="mt-1 text-sm font-semibold text-white">{item}</ThemedText>
+                <ThemedText className="text-[14px] text-[#8A97AF]">核心关注</ThemedText>
+                <ThemedText className="mt-1 text-[16px] font-semibold text-white">{item}</ThemedText>
               </View>
             ))}
           </View>
@@ -273,14 +273,14 @@ const AiCeoTab = ({ contentBottomPad }: { contentBottomPad: number }) => {
           <ThemedText className="text-base text-subtext">战略方法</ThemedText>
           <ThemedText className="text-base text-subtext">决策逻辑</ThemedText>
         </View>
-        <ThemedText className="mb-4 text-sm text-[#D7B469]">模型完善度</ThemedText>
+        <ThemedText className="mb-4 text-[16px] text-[#D7B469]">模型完善度</ThemedText>
 
         <View className="bg-background/60 rounded-2xl p-4">
           {score.map((item) => (
             <View key={item.label} className="mb-3">
               <View className="mb-1 flex-row items-center justify-between">
-                <ThemedText className="text-sm text-primary">{item.label}</ThemedText>
-                <ThemedText className="text-sm font-semibold text-[#D7B469]">
+                <ThemedText className="text-[16px] text-primary">{item.label}</ThemedText>
+                <ThemedText className="text-[16px] font-semibold text-[#D7B469]">
                   {item.value}%
                 </ThemedText>
               </View>
@@ -327,7 +327,7 @@ const TabBar = ({ active, onChange }: TabBarProps) => {
                 : undefined
             }>
             <ThemedText
-              className={`text-sm font-semibold ${isActive ? 'text-primary' : 'text-subtext'}`}>
+              className={`text-[16px] font-semibold ${isActive ? 'text-primary' : 'text-subtext'}`}>
               {tab}
             </ThemedText>
           </TouchableOpacity>
@@ -351,7 +351,7 @@ const SearchBar = ({ value, onChangeText, placeholder }: SearchBarProps) => {
     <View className="mx-global mb-4 h-11 flex-row items-center rounded-full bg-secondary px-4">
       <Icon name="Search" size={18} />
       <TextInput
-        className="ml-2 flex-1 text-sm text-primary"
+        className="ml-2 flex-1 text-[16px] text-primary"
         placeholder={placeholder}
         placeholderTextColor={colors.placeholder}
         value={value}
@@ -410,7 +410,7 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
           <Icon name={iconName} size={18} color={iconColor} />
         </View>
         <View className="flex-1">
-          <ThemedText className="mb-1 text-sm font-bold text-primary">
+          <ThemedText className="mb-1 text-[16px] font-bold text-primary">
             {translateCategory(memory.category)}
           </ThemedText>
 
@@ -419,22 +419,22 @@ const MemoryCard = ({ memory, onDelete }: MemoryCardProps) => {
             <View className="mb-2 flex-row flex-wrap items-center gap-x-3">
               {confLabel ? (
                 <View className="flex-row items-center gap-x-1">
-                  <ThemedText className="text-xs text-subtext">置信度</ThemedText>
-                  <ThemedText className="text-xs font-semibold text-primary">
+                  <ThemedText className="text-[14px] text-subtext">置信度</ThemedText>
+                  <ThemedText className="text-[14px] font-semibold text-primary">
                     {confLabel}
                   </ThemedText>
                 </View>
               ) : null}
               {timeLabel ? (
                 <View className="flex-row items-center gap-x-1">
-                  <ThemedText className="text-xs text-subtext">创建时间</ThemedText>
-                  <ThemedText className="text-xs text-subtext">{timeLabel}</ThemedText>
+                  <ThemedText className="text-[14px] text-subtext">创建时间</ThemedText>
+                  <ThemedText className="text-[14px] text-subtext">{timeLabel}</ThemedText>
                 </View>
               ) : null}
             </View>
           ) : null}
 
-          <ThemedText className="text-sm leading-5 text-subtext">{memory.content}</ThemedText>
+          <ThemedText className="text-[16px] leading-6 text-subtext">{memory.content}</ThemedText>
         </View>
       </View>
     </TouchableOpacity>
@@ -772,8 +772,8 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
               className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
               <View className="flex-row items-start gap-2">
                 <View className="flex-1">
-                  <ThemedText className="text-sm font-bold text-primary">{note.title}</ThemedText>
-                  <ThemedText className="mt-1 text-xs text-subtext">
+                  <ThemedText className="text-[16px] font-bold text-primary">{note.title}</ThemedText>
+                  <ThemedText className="mt-1 text-[14px] text-subtext">
                     {formatMemoryDate(note.created_at)}
                   </ThemedText>
                 </View>
@@ -781,7 +781,7 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
                   <Icon name="Trash2" size={16} />
                 </TouchableOpacity>
               </View>
-              <ThemedText className="mt-2 text-sm leading-5 text-subtext">
+              <ThemedText className="mt-2 text-[16px] leading-6 text-subtext">
                 {note.ai_content || note.raw_content || '暂无内容'}
               </ThemedText>
               {note.tags.length > 0 ? (
@@ -790,7 +790,7 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
                     <View
                       key={`${note.id}-${tag}`}
                       className="rounded-full border border-border bg-background px-2 py-1">
-                      <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                      <ThemedText className="text-[14px] text-subtext">#{tag}</ThemedText>
                     </View>
                   ))}
                 </View>
@@ -813,15 +813,15 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
             className="mx-global mb-3 rounded-2xl bg-secondary px-4 py-4">
             <View className="flex-row items-start gap-2">
               <View className="flex-1">
-                <ThemedText className="text-sm font-bold text-primary">{schedule.title}</ThemedText>
-                <ThemedText className="mt-1 text-xs text-subtext">{scheduleTimeLabel}</ThemedText>
+                <ThemedText className="text-[16px] font-bold text-primary">{schedule.title}</ThemedText>
+                <ThemedText className="mt-1 text-[14px] text-subtext">{scheduleTimeLabel}</ThemedText>
               </View>
               <TouchableOpacity onPress={() => handleDeleteSchedule(schedule)}>
                 <Icon name="Trash2" size={16} />
               </TouchableOpacity>
             </View>
             {schedule.description ? (
-              <ThemedText className="mt-2 text-sm leading-5 text-subtext">
+              <ThemedText className="mt-2 text-[16px] leading-6 text-subtext">
                 {schedule.description}
               </ThemedText>
             ) : null}
@@ -842,7 +842,7 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
                       {task.is_completed ? <Icon name="Check" size={12} color="#fff" /> : null}
                     </View>
                     <ThemedText
-                      className={`text-sm ${task.is_completed ? 'text-subtext line-through' : 'text-primary'}`}>
+                      className={`text-[16px] ${task.is_completed ? 'text-subtext line-through' : 'text-primary'}`}>
                       {task.content}
                     </ThemedText>
                   </TouchableOpacity>
@@ -855,7 +855,7 @@ const InspirationListTab = ({ contentBottomPad, initialNotesTab }: InspirationLi
                   <View
                     key={`${schedule.id}-${tag}`}
                     className="rounded-full border border-border bg-background px-2 py-1">
-                    <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                    <ThemedText className="text-[14px] text-subtext">#{tag}</ThemedText>
                   </View>
                 ))}
               </View>
@@ -905,7 +905,7 @@ const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
       onPress={openDoc}
       className="mx-global mb-3 overflow-hidden rounded-2xl bg-secondary">
       <View style={{ backgroundColor: color }} className="flex-row items-center px-4 py-2.5">
-        <ThemedText className="flex-1 text-sm font-bold text-white" numberOfLines={1}>
+        <ThemedText className="flex-1 text-[16px] font-bold text-white" numberOfLines={1}>
           {doc.title}
         </ThemedText>
         <TouchableOpacity hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => {}}>
@@ -915,23 +915,23 @@ const DocumentCard = ({ doc, showTitleOnly }: DocumentCardProps) => {
       {!showTitleOnly && (
         <View className="flex-row px-4 py-3">
           <View className="mr-3 flex-1">
-            <ThemedText className="text-sm leading-5 text-subtext" numberOfLines={3}>
+            <ThemedText className="text-[16px] leading-6 text-subtext" numberOfLines={3}>
               {doc.preview}
             </ThemedText>
-            <ThemedText className="mt-2 text-xs text-subtext">
+            <ThemedText className="mt-2 text-[14px] text-subtext">
               {formatMemoryDate(doc.created_at)}
             </ThemedText>
           </View>
           <View
             style={{ backgroundColor: color }}
             className="h-16 w-14 items-center justify-center rounded-xl">
-            <ThemedText className="text-sm font-bold text-white">{label}</ThemedText>
+            <ThemedText className="text-[16px] font-bold text-white">{label}</ThemedText>
           </View>
         </View>
       )}
       {showTitleOnly && (
         <View className="px-4 py-2">
-          <ThemedText className="text-xs text-subtext">
+          <ThemedText className="text-[14px] text-subtext">
             {formatMemoryDate(doc.created_at)}
           </ThemedText>
         </View>
@@ -1006,7 +1006,7 @@ const DocumentsTab = ({ contentBottomPad }: DocumentsTabProps) => {
           <View className="mb-3 flex-row items-center justify-between px-global">
             <ThemedText className="text-base font-bold">近30天</ThemedText>
             <TouchableOpacity onPress={() => setShowTitleOnly((v) => !v)}>
-              <ThemedText className="text-sm text-subtext">
+              <ThemedText className="text-[16px] text-subtext">
                 {showTitleOnly ? '显示详情' : '只显示标题'}
               </ThemedText>
             </TouchableOpacity>
@@ -1097,10 +1097,10 @@ export default function MemoryScreen() {
             shadowOffset: { width: 0, height: 16 },
           }}>
           <View className="mt-3 flex-row items-center">
-            <ThemedText className="text-[14px] text-[#FECF9A]">私密记忆更新</ThemedText>
+            <ThemedText className="text-[16px] text-[#FECF9A]">私密记忆更新</ThemedText>
             <Icon name="Lock" size={14} color="#FECF9A" style={{ marginLeft: 6 }} />
           </View>
-          <ThemedText className="mt-2 text-[12px] leading-[17px] text-white" numberOfLines={2}>
+          <ThemedText className="mt-2 text-[14px] leading-[20px] text-white" numberOfLines={2}>
             {pendingReview.content}
           </ThemedText>
           <View className="mt-4 flex-row justify-between">
@@ -1108,7 +1108,7 @@ export default function MemoryScreen() {
               disabled={reviewDeleting}
               onPress={handleAcceptPendingReview}
               className="h-6 w-[145px] items-center justify-center rounded-xl bg-[#AA873C]">
-              <ThemedText className="text-[12px] text-black">接受</ThemedText>
+              <ThemedText className="text-[14px] text-black">接受</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               disabled={reviewDeleting}
@@ -1116,7 +1116,7 @@ export default function MemoryScreen() {
                 handleCancelPendingReview().catch(() => {});
               }}
               className="h-6 w-[145px] items-center justify-center rounded-xl bg-white">
-              <ThemedText className="text-[12px] text-black">取消</ThemedText>
+              <ThemedText className="text-[14px] text-black">取消</ThemedText>
             </TouchableOpacity>
           </View>
         </View>

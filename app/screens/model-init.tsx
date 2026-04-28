@@ -4,7 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -16,6 +16,7 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
   Text,
@@ -82,8 +83,8 @@ const MODEL_INIT_VOICE_SCREEN_BG = require('@/assets/images/backgrounds/model-in
 const MODEL_INIT_COMPLETE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-complete-screen.png');
 /** 「深度访谈采集」引导页全屏背景（设计 PNG） */
 const MODEL_INIT_INTERVIEW_PREAMBLE_SCREEN_BG = require('@/assets/images/backgrounds/model-init-interview-preamble.png');
-/** Figma Group 491 光效（intro 正中） */
-const MODEL_INIT_INTRO_GLOW = require('@/assets/images/model-init-intro-glow.png');
+/** Figma Group 491 光效（intro 正中，文件为 JPEG） */
+const MODEL_INIT_INTRO_GLOW = require('@/assets/images/model-init-intro-glow.jpg');
 const VOICE_MIC_PAUSE_IMG = require('@/assets/images/home-record/mic-paused.png');
 const VOICE_MIC_SPEAK_IMG = require('@/assets/images/home-record/mic-speaking.png');
 
@@ -198,6 +199,32 @@ async function buildAvatarUploadCandidates(inputUri: string): Promise<string[]> 
     candidates.push(inputUri);
   }
   return candidates;
+}
+
+function extractGeneratedImageUrl(payload: {
+  data?: Array<{ url?: string; b64_json?: string; revised_prompt?: string }> | unknown;
+}): string {
+  const data = Array.isArray(payload.data) ? (payload.data as Array<Record<string, unknown>>) : [];
+  if (data.length === 0) return '';
+  const first = data[0] ?? {};
+  const direct =
+    (typeof first.url === 'string' && first.url.trim()) ||
+    (typeof first.image_url === 'string' && first.image_url.trim()) ||
+    (typeof first.output_url === 'string' && first.output_url.trim()) ||
+    (typeof first.oss_url === 'string' && first.oss_url.trim()) ||
+    '';
+  if (direct) return direct;
+  const nested = first.data;
+  if (nested && typeof nested === 'object') {
+    const n = nested as Record<string, unknown>;
+    return (
+      (typeof n.url === 'string' && n.url.trim()) ||
+      (typeof n.image_url === 'string' && n.image_url.trim()) ||
+      (typeof n.output_url === 'string' && n.output_url.trim()) ||
+      ''
+    );
+  }
+  return '';
 }
 
 function parseStatusCodeFromErrorMessage(message: string): number | null {
@@ -588,8 +615,6 @@ async function persistOnboardingInterviewFact(content: string, category: string)
 }
 
 export default function ModelInitScreen() {
-  const { postLogin } = useLocalSearchParams<{ postLogin?: string }>();
-  const isPostLoginOnboarding = postLogin === '1';
   const insets = useSafeAreaInsets();
   const { width: layoutW, height: layoutH } = useWindowDimensions();
   const [phase, setPhase] = useState<Phase>('intro');
@@ -613,10 +638,12 @@ export default function ModelInitScreen() {
   /** 完成页标题：与资料页一致，优先 display_name */
   const [profileDisplayName, setProfileDisplayName] = useState('用户');
   const [interviewInput, setInterviewInput] = useState('');
+  const [interviewKeyboardHeight, setInterviewKeyboardHeight] = useState(0);
   const [interviewRound, setInterviewRound] = useState(0);
   const [chatRows, setChatRows] = useState<ChatRow[]>([]);
   const [portraitGuideVisible, setPortraitGuideVisible] = useState(false);
   const [portraitGuideStep, setPortraitGuideStep] = useState<1 | 2>(1);
+  const interviewScrollRef = useRef<ScrollView | null>(null);
 
   const closePortraitGuide = useCallback(() => {
     setPortraitGuideVisible(false);
@@ -705,6 +732,44 @@ export default function ModelInitScreen() {
     const n = p?.display_name?.trim() || p?.username?.trim();
     if (n) setProfileDisplayName(n);
   }, [phase]);
+
+  useEffect(() => {
+    const updateKeyboardHeight = (height: number) => {
+      setInterviewKeyboardHeight(Math.max(0, height));
+    };
+
+    if (Platform.OS === 'ios') {
+      const willShow = Keyboard.addListener('keyboardWillShow', (event) => {
+        updateKeyboardHeight(event.endCoordinates?.height ?? 0);
+      });
+      const didShow = Keyboard.addListener('keyboardDidShow', (event) => {
+        updateKeyboardHeight(event.endCoordinates?.height ?? 0);
+      });
+      const willHide = Keyboard.addListener('keyboardWillHide', () => {
+        updateKeyboardHeight(0);
+      });
+      const didHide = Keyboard.addListener('keyboardDidHide', () => {
+        updateKeyboardHeight(0);
+      });
+      return () => {
+        willShow.remove();
+        didShow.remove();
+        willHide.remove();
+        didHide.remove();
+      };
+    }
+
+    const didShow = Keyboard.addListener('keyboardDidShow', (event) => {
+      updateKeyboardHeight(event.endCoordinates?.height ?? 0);
+    });
+    const didHide = Keyboard.addListener('keyboardDidHide', () => {
+      updateKeyboardHeight(0);
+    });
+    return () => {
+      didShow.remove();
+      didHide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isRecording || isPaused) {
@@ -941,7 +1006,7 @@ export default function ModelInitScreen() {
     try {
       setVoiceSubmitting(true);
       setVoiceStatusText('正在保存录音');
-      const recordedUri = isRecording ? await stopRecording() : null;
+      const recordedUri = isRecording || isPaused || recordSeconds > 0 ? await stopRecording() : null;
       if (!recordedUri) {
         throw new Error('请先完成录音再继续。');
       }
@@ -1150,6 +1215,7 @@ export default function ModelInitScreen() {
       const maxMs = 75_000;
       const startedAt = Date.now();
       let lastUrl: string | undefined;
+      let completedWithoutUrlCount = 0;
 
       while (Date.now() - startedAt < maxMs) {
         if (controller.signal.aborted) throw new Error('已取消');
@@ -1157,9 +1223,18 @@ export default function ModelInitScreen() {
         const status = (q.status || '').toLowerCase();
 
         if (status === 'completed') {
-          lastUrl = q.data?.[0]?.url;
-          if (!lastUrl) throw new Error('生成已完成，但未返回图片地址');
-          break;
+          const extractedUrl = extractGeneratedImageUrl(q);
+          if (extractedUrl) {
+            lastUrl = extractedUrl;
+            break;
+          }
+          // 兼容后端「先 completed、后补 URL」的短暂窗口，避免偶发误报。
+          completedWithoutUrlCount += 1;
+          if (completedWithoutUrlCount >= 4) {
+            throw new Error('生成已完成，但未返回图片地址');
+          }
+          await sleep(1200);
+          continue;
         }
         if (status === 'failed' || status === 'canceled') {
           throw new Error('生成失败，请更换照片或稍后重试');
@@ -1223,6 +1298,7 @@ export default function ModelInitScreen() {
   const sendInterview = useCallback(() => {
     const text = interviewInput.trim();
     if (!text) return;
+    Keyboard.dismiss();
     setInterviewInput('');
 
     const userId = `u-${Date.now()}`;
@@ -1288,6 +1364,30 @@ export default function ModelInitScreen() {
       );
     }, 400);
   }, [interviewInput, interviewRound]);
+
+  const interviewKeyboardLift = Math.max(0, interviewKeyboardHeight - insets.bottom);
+  const isIosInterviewKeyboardOpen =
+    Platform.OS === 'ios' && phase === 'interview' && interviewKeyboardHeight > 0;
+  const interviewInputBottomPadding =
+    Platform.OS === 'ios'
+      ? (isIosInterviewKeyboardOpen ? 12 : insets.bottom + 12)
+      : insets.bottom + 12 + interviewKeyboardLift;
+
+  const scrollInterviewToEnd = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      interviewScrollRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'interview') return;
+    scrollInterviewToEnd(false);
+  }, [phase, scrollInterviewToEnd]);
+
+  useEffect(() => {
+    if (phase !== 'interview') return;
+    scrollInterviewToEnd(true);
+  }, [chatRows, interviewKeyboardHeight, phase, scrollInterviewToEnd]);
 
   const sampleAvatar = require('@/assets/img/thomino.jpg');
 
@@ -1402,7 +1502,10 @@ export default function ModelInitScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View
           className="flex-1"
-          style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 16 }}>
+          style={{
+            paddingTop: insets.top + 8,
+            paddingBottom: isIosInterviewKeyboardOpen ? 0 : insets.bottom + 16,
+          }}>
           {phase === 'intro' ? (
             <View className="h-3" />
           ) : (
@@ -1471,6 +1574,7 @@ export default function ModelInitScreen() {
           ) : null}
 
           <ScrollView
+            ref={phase === 'interview' ? interviewScrollRef : undefined}
             className={`mt-4 flex-1 ${phase === 'intro' || phase === 'voice' || phase === 'image' || phase === 'avatarLoading' || phase === 'avatarDone' || phase === 'complete' || isInterviewPreambleLayout ? '' : 'px-4'}`}
             style={
               phase === 'complete' || isInterviewPreambleLayout
@@ -1514,6 +1618,11 @@ export default function ModelInitScreen() {
               phase !== 'interviewPreamble' &&
               phase !== 'interviewPreamble2'
             }
+            onContentSizeChange={() => {
+              if (phase === 'interview') {
+                scrollInterviewToEnd(true);
+              }
+            }}
             showsVerticalScrollIndicator={false}>
             {phase === 'intro' ? (
               <View
@@ -2197,11 +2306,7 @@ export default function ModelInitScreen() {
                   <ImageStepPrimaryButton
                     label="开始"
                     onPress={() => {
-                      if (isPostLoginOnboarding) {
-                        router.replace('/');
-                        return;
-                      }
-                      router.back();
+                      router.replace('/screens/memory?tab=ceo');
                     }}
                   />
                 </View>
@@ -2212,7 +2317,7 @@ export default function ModelInitScreen() {
           {phase === 'interview' && interviewRound < 2 ? (
             <View
               className="border-t border-white/10 bg-black/30 px-4 pt-3"
-              style={{ paddingBottom: insets.bottom + 12 }}>
+              style={{ paddingBottom: interviewInputBottomPadding }}>
               <View className="flex-row items-center gap-2 rounded-2xl bg-white/10 px-4 py-2">
                 <TextInput
                   className="min-h-[44px] flex-1 text-base text-white"
@@ -2220,6 +2325,9 @@ export default function ModelInitScreen() {
                   placeholderTextColor="rgba(255,255,255,0.35)"
                   value={interviewInput}
                   onChangeText={setInterviewInput}
+                  onFocus={() => {
+                    scrollInterviewToEnd(false);
+                  }}
                   onSubmitEditing={sendInterview}
                   returnKeyType="send"
                 />

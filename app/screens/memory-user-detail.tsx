@@ -188,7 +188,8 @@ export default function MemoryUserDetailScreen() {
     ]);
   };
 
-  const inputClass = 'rounded-xl border border-border bg-secondary px-3 py-3 text-sm text-primary';
+  const inputClass =
+    'rounded-xl border border-border bg-secondary px-3 py-3 text-[16px] text-primary';
 
   if (loading) {
     return (
@@ -206,7 +207,7 @@ export default function MemoryUserDetailScreen() {
       <View className="flex-1 bg-background">
         <Header title="记忆详情" showBackButton onBackPress={safeRouterBackOrHome} />
         <View className="flex-1 items-center justify-center px-global">
-          <ThemedText className="text-subtext">未找到该条记忆</ThemedText>
+          <ThemedText className="text-[18px] text-subtext">未找到该条记忆</ThemedText>
         </View>
       </View>
     );
@@ -278,7 +279,7 @@ export default function MemoryUserDetailScreen() {
         showsVerticalScrollIndicator={false}>
         {!editable ? (
           <View className="mb-4 rounded-xl border border-border bg-secondary/80 px-3 py-2">
-            <ThemedText className="text-xs leading-5 text-subtext">
+            <ThemedText className="text-[14px] leading-6 text-subtext">
               此条为画像汇总展示，客户端不支持修改与删除。
             </ThemedText>
           </View>
@@ -291,16 +292,16 @@ export default function MemoryUserDetailScreen() {
             <Icon name={iconName} size={20} color={iconColor} />
           </View>
           <View className="flex-1">
-            <ThemedText className="text-base font-bold text-primary">
+            <ThemedText className="text-[18px] font-bold text-primary">
               {translateCategory(memory.category)}
             </ThemedText>
             {(confLabel || timeLabel) && !editing ? (
               <View className="mt-1 flex-row flex-wrap gap-x-3">
                 {confLabel ? (
-                  <ThemedText className="text-xs text-subtext">置信度 {confLabel}</ThemedText>
+                  <ThemedText className="text-[14px] text-subtext">置信度 {confLabel}</ThemedText>
                 ) : null}
                 {timeLabel ? (
-                  <ThemedText className="text-xs text-subtext">更新 {timeLabel}</ThemedText>
+                  <ThemedText className="text-[14px] text-subtext">更新 {timeLabel}</ThemedText>
                 ) : null}
               </View>
             ) : null}
@@ -309,7 +310,7 @@ export default function MemoryUserDetailScreen() {
 
         {editing && d ? (
           <>
-            <ThemedText className="mb-1 text-xs font-semibold text-subtext">分类键</ThemedText>
+            <ThemedText className="mb-1 text-[14px] font-semibold text-subtext">分类键</ThemedText>
             <TextInput
               className={inputClass}
               value={d.category}
@@ -319,7 +320,7 @@ export default function MemoryUserDetailScreen() {
               autoCapitalize="none"
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               置信度（0～1，可选）
             </ThemedText>
             <TextInput
@@ -331,7 +332,7 @@ export default function MemoryUserDetailScreen() {
               keyboardType="decimal-pad"
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">内容</ThemedText>
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">内容</ThemedText>
             <TextInput
               className={`${inputClass} min-h-[160px]`}
               value={d.content}
@@ -343,7 +344,7 @@ export default function MemoryUserDetailScreen() {
             />
           </>
         ) : (
-          <ThemedText className="text-sm leading-6 text-primary">{memory.content}</ThemedText>
+          <ThemedText className="text-[16px] leading-7 text-primary">{memory.content}</ThemedText>
         )}
       </ScrollView>
     </View>

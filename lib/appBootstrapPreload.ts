@@ -18,7 +18,7 @@ const LOCAL_IMAGE_MODULES = [
   require('@/assets/images/record-pause-custom.png'),
   require('@/assets/images/backgrounds/welcome-bg.jpg'),
   require('@/assets/images/backgrounds/login-bg-v2.png'),
-  require('@/assets/images/model-init-intro-glow.png'),
+  require('@/assets/images/model-init-intro-glow.jpg'),
   require('@/assets/images/backgrounds/model-init-home-bg.png'),
   require('@/assets/images/backgrounds/model-init-voice-screen-bg.jpg'),
   require('@/assets/images/model-init-voice/voice-mic-speak.png'),

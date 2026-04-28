@@ -42,9 +42,9 @@ export const Chip = ({
 }: ChipProps) => {
   // Size mappings
   const sizeClasses = {
-    xs: 'px-1.5 py-0.5 text-xs',
-    sm: 'px-2 py-0.5 text-xs',
-    md: 'px-3 py-1 text-sm',
+    xs: 'px-1.5 py-0.5 text-[14px]',
+    sm: 'px-2 py-0.5 text-[14px]',
+    md: 'px-3 py-1 text-[16px]',
     lg: 'px-4 py-1.5 text-base',
     xl: 'px-5 py-2 text-lg',
     xxl: 'px-6 py-2.5 text-xl',

@@ -188,6 +188,8 @@ export async function searchPrivateThreads(opts?: {
       (typeof values?.title === 'string' && values.title.trim()) ||
       (typeof meta?.title === 'string' && meta.title.trim()) ||
       '';
+    // 决策页线程若尚无标题，多为仅创建、未产生任何问答的占位记录（与 web 侧 untitled 一致），不在移动端列表展示
+    if (isDecisionPage && !rawTitle) continue;
     const title = rawTitle || (isDecisionPage ? '[决策] 新对话' : '新对话');
     const updated_at = coerceThreadUpdatedAt(o, values);
     out.push({

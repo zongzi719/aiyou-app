@@ -1,6 +1,6 @@
 {
   "name": "luna",
-  "version": "1.2.8",
+  "version": "1.2.12",
   "scripts": {
     "android": "expo run:android",
     "android:device": "expo run:android --device",
@@ -27,6 +27,9 @@
     "release:android:prod:patch": "npm run version:bump:patch && npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
     "release:android:prod:minor": "npm run version:bump:minor && npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
     "build:android:prod": "npx --yes eas-cli build -p android --profile production --freeze-credentials --non-interactive",
+    "eas:env:sync-prod:dry-run": "node scripts/eas-sync-expo-public-to-eas.mjs --dry-run",
+    "eas:env:sync-prod": "node scripts/eas-sync-expo-public-to-eas.mjs --apply",
+    "eas:env:pull:production": "npx --yes eas-cli env:pull --environment production",
     "eas:submit:ios": "npx eas-cli submit --platform ios --latest",
     "postinstall": "patch-package"
   },

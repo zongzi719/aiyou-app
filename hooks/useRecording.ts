@@ -62,11 +62,11 @@ export function useRecording() {
     try {
       console.log('Stopping, isRecording:', recorder.isRecording);
 
-      if (!recorder.isRecording) {
-        console.log('Recording was not active, checking for uri anyway...');
+      if (recorder.isRecording) {
+        await recorder.stop();
+      } else {
+        console.log('Recording was not active, attempting to reuse existing uri');
       }
-
-      await recorder.stop();
       setIsPaused(false);
 
       // Wait for file to be written

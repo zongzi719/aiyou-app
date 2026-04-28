@@ -1,17 +1,27 @@
-import React, { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Switch, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Switch,
+  View,
+  type ImageSourcePropType,
+} from 'react-native';
 import Markdown from 'react-native-markdown-display';
 
 import Icon from '@/components/Icon';
 import StarFloatingLoader from '@/components/StarFloatingLoader';
 import ThemedText from '@/components/ThemedText';
+import { useThemeColors } from '@/app/contexts/ThemeColors';
 import { shadowPresets } from '@/utils/useShadow';
 
 const decisionCoachSectionMarkdownStyles = StyleSheet.create({
   body: {
     color: '#B5B5B5',
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 21,
   },
   paragraph: {
     marginTop: 0,
@@ -28,12 +38,23 @@ const decisionCoachSectionMarkdownStyles = StyleSheet.create({
   },
   bullet_list: {
     marginVertical: 4,
+    marginLeft: 0,
+    paddingLeft: 0,
   },
   ordered_list: {
     marginVertical: 4,
   },
   list_item: {
     marginVertical: 2,
+    marginLeft: 0,
+    paddingLeft: 0,
+  },
+  bullet_list_content: {
+    marginLeft: 0,
+    paddingLeft: 0,
+  },
+  bullet_list_icon: {
+    marginRight: 8,
   },
   link: {
     color: '#B5B5B5',
@@ -68,19 +89,19 @@ const decisionCoachSectionMarkdownStyles = StyleSheet.create({
   },
   heading1: {
     color: '#B5B5B5',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     marginVertical: 4,
   },
   heading2: {
     color: '#B5B5B5',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     marginVertical: 4,
   },
   heading3: {
     color: '#B5B5B5',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '600',
     marginVertical: 4,
   },
@@ -91,6 +112,18 @@ const decisionCoachSectionMarkdownStyles = StyleSheet.create({
     marginVertical: 6,
   },
 });
+
+const DECISION_SECTION_ICON_CONFIG = {
+  decisionAdvice: {
+    source: require('@/assets/images/decision-coach-icons/decision-advice.png') as ImageSourcePropType,
+  },
+  keyQuestions: {
+    source: require('@/assets/images/decision-coach-icons/key-question.png') as ImageSourcePropType,
+  },
+  riskWarnings: {
+    source: require('@/assets/images/decision-coach-icons/risk-warning.png') as ImageSourcePropType,
+  },
+} as const;
 
 export type DecisionCoachCardModel = {
   coachId: string;
@@ -109,6 +142,7 @@ type Props = {
   model: DecisionCoachCardModel;
   onToggleEnabled: (next: boolean) => void;
   defaultExpanded?: boolean;
+  showFooterActionBar?: boolean;
 };
 
 function CoachAvatar({ name }: { name: string }) {
@@ -130,35 +164,48 @@ function CoachAvatar({ name }: { name: string }) {
 
 function SectionBlock({
   title,
-  icon,
-  tone,
+  iconType,
   text,
 }: {
   title: string;
-  icon: 'Sparkles' | 'HelpCircle' | 'ShieldAlert';
-  tone: 'purple' | 'cyan' | 'orange';
+  iconType: keyof typeof DECISION_SECTION_ICON_CONFIG;
   text: string;
 }) {
-  const bg =
-    tone === 'purple' ? 'bg-[#5B21B6]/20' : tone === 'cyan' ? 'bg-[#0EA5E9]/16' : 'bg-[#F59E0B]/16';
-  const border =
-    tone === 'purple'
-      ? 'border-[#8B5CF6]/25'
-      : tone === 'cyan'
-        ? 'border-[#38BDF8]/25'
-        : 'border-[#FBBF24]/25';
-  const titleColor =
-    tone === 'purple' ? 'text-[#C4B5FD]' : tone === 'cyan' ? 'text-[#7DD3FC]' : 'text-[#FCD34D]';
+  const colors = useThemeColors();
+  const iconConfig = DECISION_SECTION_ICON_CONFIG[iconType];
+  const sectionMarkdownStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        ...decisionCoachSectionMarkdownStyles,
+        body: {
+          ...decisionCoachSectionMarkdownStyles.body,
+          color: colors.text,
+        },
+        strong: {
+          ...decisionCoachSectionMarkdownStyles.strong,
+          color: colors.text,
+        },
+        em: {
+          ...decisionCoachSectionMarkdownStyles.em,
+          color: colors.text,
+        },
+        link: {
+          ...decisionCoachSectionMarkdownStyles.link,
+          color: colors.text,
+        },
+      }),
+    [colors.text]
+  );
 
   return (
-    <View className={`rounded-2xl border ${bg} ${border} px-4 py-3`}>
+    <View className="rounded-2xl border border-border bg-secondary px-4 py-3">
       <View className="flex-row items-center gap-2">
-        <Icon name={icon} size={16} color="rgba(255,255,255,0.9)" />
-        <ThemedText className={`text-[14px] font-semibold ${titleColor}`}>{title}</ThemedText>
+        <Image source={iconConfig.source} className="h-4 w-4" resizeMode="contain" />
+        <ThemedText className="text-[16px] font-semibold text-primary">{title}</ThemedText>
       </View>
       <View className="mt-2">
         <Markdown
-          style={decisionCoachSectionMarkdownStyles}
+          style={sectionMarkdownStyles}
           onLinkPress={(url) => {
             Linking.openURL(url);
             return false;
@@ -170,7 +217,13 @@ function SectionBlock({
   );
 }
 
-export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpanded = false }: Props) {
+export default function DecisionCoachCard({
+  model,
+  onToggleEnabled,
+  defaultExpanded = false,
+  showFooterActionBar = false,
+}: Props) {
+  const colors = useThemeColors();
   const dimmed = !model.enabled;
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -181,15 +234,15 @@ export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpan
   return (
     <View
       style={shadowPresets.card}
-      className={`bg-[#2A2C32]/85 rounded-3xl border border-white/10 px-5 py-4 ${dimmed ? 'opacity-45' : 'opacity-100'}`}>
+      className={`rounded-3xl border border-border bg-secondary px-5 py-4 ${dimmed ? 'opacity-45' : 'opacity-100'}`}>
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center gap-3">
           <CoachAvatar name={model.coachName} />
           <View className="min-w-0">
-            <ThemedText className="text-[15px] font-semibold text-white" numberOfLines={1}>
+            <ThemedText className="text-[15px] font-semibold text-primary" numberOfLines={1}>
               {model.coachName}
             </ThemedText>
-            <ThemedText className="mt-0.5 text-[12px] text-white" numberOfLines={1}>
+            <ThemedText className="mt-0.5 text-[14px] text-subtext" numberOfLines={1}>
               {model.coachRole}
             </ThemedText>
           </View>
@@ -206,15 +259,11 @@ export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpan
       <View className="mt-3">
         <Pressable
           onPress={() => setExpanded((v) => !v)}
-          className="flex-row items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+          className="flex-row items-center justify-between rounded-xl border border-border bg-background px-3 py-2"
           accessibilityRole="button"
           accessibilityLabel={expanded ? '收起回答' : '展开回答'}>
-          <ThemedText className="text-[12px] text-white/75">{expanded ? '收起' : '展开'}</ThemedText>
-          <Icon
-            name={expanded ? 'ChevronUp' : 'ChevronDown'}
-            size={14}
-            color="rgba(255,255,255,0.72)"
-          />
+          <ThemedText className="text-[14px] text-primary">{expanded ? '收起' : '展开'}</ThemedText>
+          <Icon name={expanded ? 'ChevronUp' : 'ChevronDown'} size={14} color={colors.text} />
         </Pressable>
       </View>
 
@@ -246,20 +295,17 @@ export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpan
             <>
               <SectionBlock
                 title="决策建议"
-                icon="Sparkles"
-                tone="purple"
+                iconType="decisionAdvice"
                 text={model.decisionAdvice.trim() || '暂无内容'}
               />
               <SectionBlock
                 title="关键问题"
-                icon="HelpCircle"
-                tone="cyan"
+                iconType="keyQuestions"
                 text={model.keyQuestions.trim() || '暂无内容'}
               />
               <SectionBlock
                 title="风险提示"
-                icon="ShieldAlert"
-                tone="orange"
+                iconType="riskWarnings"
                 text={model.riskWarnings.trim() || '暂无内容'}
               />
             </>
@@ -267,14 +313,14 @@ export default function DecisionCoachCard({ model, onToggleEnabled, defaultExpan
         </View>
       ) : null}
 
-      {model.rawText && !model.loading && !model.errorText ? (
+      {showFooterActionBar && model.rawText && !model.loading && !model.errorText ? (
         <Pressable
           onPress={() => undefined}
           className="mt-3 flex-row items-center gap-2 self-start"
           accessibilityRole="button"
           accessibilityLabel="查看原文">
           <Icon name="AlignLeft" size={14} color="rgba(255,255,255,0.6)" />
-          <ThemedText className="text-white/55 text-[12px]">原文</ThemedText>
+          <ThemedText className="text-white/55 text-[14px]">原文</ThemedText>
         </Pressable>
       ) : null}
     </View>

@@ -450,7 +450,7 @@ export default function DecisionWelcome({
             className="mt-8 h-10 w-[219px] items-center justify-center rounded-[26px] border border-white bg-white"
             accessibilityRole="button"
             accessibilityLabel="开始对话">
-            <ThemedText className="text-[12px] font-semibold text-[#111]">开始对话</ThemedText>
+            <ThemedText className="text-[14px] font-semibold text-[#111]">开始对话</ThemedText>
           </Pressable>
         </View>
       </View>
@@ -462,7 +462,7 @@ function FeatureItem({ text }: { text: string }) {
   return (
     <View className="flex-row items-center gap-2">
       <Icon name="CircleCheck" size={16} color="rgba(255,255,255,0.95)" />
-      <ThemedText className="text-[12px] text-white">{text}</ThemedText>
+      <ThemedText className="text-[14px] text-white">{text}</ThemedText>
     </View>
   );
 }
@@ -479,11 +479,11 @@ function CoachCardContent({ coach }: { coach: DecisionCoachProfile }) {
               <ThemedText className="text-[14px] font-semibold text-white" numberOfLines={1}>
                 {coach.name}
               </ThemedText>
-              <ThemedText className="text-[12px] text-white" numberOfLines={1}>
+              <ThemedText className="text-[14px] text-white" numberOfLines={1}>
                 {coach.roleLabel || '默认教练'}
               </ThemedText>
             </View>
-            <ThemedText className="mt-1 text-[10px] text-[#A6A6A6]" numberOfLines={2}>
+            <ThemedText className="mt-1 text-[14px] text-[#A6A6A6]" numberOfLines={2}>
               {coach.tagline || '拥有多模型推理能力'}
             </ThemedText>
           </View>
@@ -492,7 +492,7 @@ function CoachCardContent({ coach }: { coach: DecisionCoachProfile }) {
 
       <View className="mt-3 flex-row items-center gap-2">
         <Icon name="Eye" size={16} color="rgba(255,255,255,0.85)" />
-        <ThemedText className="text-[12px] text-white/90">我擅长</ThemedText>
+        <ThemedText className="text-[14px] text-white/90">我擅长</ThemedText>
       </View>
       <View className="mt-2 h-[100px]">
         <ThemedText className="text-[14px] leading-[20px] text-white/90" numberOfLines={5}>

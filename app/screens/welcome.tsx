@@ -1,13 +1,25 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ImageBackground, Pressable, SafeAreaView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ThemedText from '@/components/ThemedText';
+import { hasPrivateChatBackendSession } from '@/lib/authSession';
 
 export default function OnboardingScreen() {
   const [agreed, setAgreed] = useState(true);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    let cancelled = false;
+    void hasPrivateChatBackendSession().then((loggedIn) => {
+      if (cancelled || !loggedIn) return;
+      router.replace('/');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <SafeAreaView className="flex-1 bg-black" style={{ paddingTop: insets.top }}>
@@ -29,7 +41,7 @@ export default function OnboardingScreen() {
             <Pressable
               onPress={() => {
                 if (!agreed) return;
-                router.push('/screens/login');
+                router.replace('/screens/login');
               }}
               className={`items-center rounded-full border border-white/35 py-4 ${agreed ? 'bg-white' : 'bg-white/70'}`}>
               <ThemedText className={`text-xl font-medium ${agreed ? 'text-black' : 'text-black/60'}`}>

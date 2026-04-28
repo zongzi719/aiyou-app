@@ -78,7 +78,7 @@ function SectionTitle({ title }: { title: string }) {
   return (
     <View className="mb-3 mt-1 flex-row items-center">
       <View className="mr-2 h-4 w-1 rounded-full bg-[#C9A227]" />
-      <ThemedText className="text-base font-semibold">{title}</ThemedText>
+      <ThemedText className="text-lg font-semibold">{title}</ThemedText>
     </View>
   );
 }
@@ -261,7 +261,7 @@ export default function ProfileScreen() {
                 <ActivityIndicator />
               ) : (
                 <>
-                  <ThemedText className="text-2xl font-bold tracking-wide">
+                  <ThemedText className="text-[26px] font-bold tracking-wide">
                     {displayName}
                   </ThemedText>
                   <View className="mt-2 flex-row flex-wrap gap-2">
@@ -273,11 +273,11 @@ export default function ProfileScreen() {
                             ? 'rounded-full border border-white/10 bg-white/10 px-3 py-1.5'
                             : 'rounded-full border border-black/10 bg-black/5 px-3 py-1.5'
                         }>
-                        <ThemedText className="text-xs text-subtext">{tag}</ThemedText>
+                        <ThemedText className="text-sm text-subtext">{tag}</ThemedText>
                       </View>
                     ))}
                   </View>
-                  <ThemedText className="mt-2 text-xs leading-5 text-subtext">
+                  <ThemedText className="mt-2 text-sm leading-5 text-subtext">
                     {learningStats
                       ? formatAiLearningDataLine(learningStats.docs, learningStats.convs)
                       : '加载中…'}
@@ -295,14 +295,14 @@ export default function ProfileScreen() {
             className={`mb-4 flex-row items-center justify-between rounded-2xl px-4 py-3 ${cardBg}`}>
             <View className="flex-row items-center gap-2">
               <Icon name="NotebookPen" size={18} />
-              <ThemedText className="text-sm font-semibold">灵感笔记与日程</ThemedText>
+              <ThemedText className="text-base font-semibold">灵感笔记与日程</ThemedText>
             </View>
             <Icon name="ChevronRight" size={18} className="text-subtext" />
           </TouchableOpacity>
 
           <SectionTitle title="待处理事务" />
           <View className="mb-6 flex-row items-center gap-3">
-            <ThemedText className="min-w-[40px] text-sm font-semibold text-[#C9A227]">
+            <ThemedText className="min-w-[40px] text-base font-semibold text-[#C9A227]">
               {PENDING_PROGRESS.percent}%
             </ThemedText>
             <View className={`h-2 flex-1 overflow-hidden rounded-full ${progressTrack}`}>
@@ -311,41 +311,41 @@ export default function ProfileScreen() {
                 style={{ width: `${PENDING_PROGRESS.percent}%` }}
               />
             </View>
-            <ThemedText className="text-sm font-semibold text-[#C9A227]">
+            <ThemedText className="text-base font-semibold text-[#C9A227]">
               {PENDING_PROGRESS.done}/{PENDING_PROGRESS.total}
             </ThemedText>
           </View>
 
           <View className="mt-4">
             <SectionTitle title="今日任务" />
-            <ThemedText className="-mt-2 mb-3 text-xs text-subtext">今日完整日程安排</ThemedText>
+            <ThemedText className="-mt-2 mb-3 text-sm text-subtext">今日完整日程安排</ThemedText>
           </View>
 
           {TODAY_TASKS.map((task) => (
             <View key={task.id} className={`mb-3 rounded-2xl p-4 ${cardBg}`}>
               <View className="flex-row items-start justify-between gap-2">
-                <ThemedText className="flex-1 text-base font-semibold text-[#D4AF37]">
+                <ThemedText className="flex-1 text-lg font-semibold text-[#D4AF37]">
                   {task.title}
                 </ThemedText>
                 <View className="shrink-0 flex-row items-center gap-1">
                   <Icon name="Clock" size={14} color={isDark ? '#a3a3a3' : '#737373'} />
-                  <ThemedText className="text-xs text-subtext">{task.timeRange}</ThemedText>
+                  <ThemedText className="text-sm text-subtext">{task.timeRange}</ThemedText>
                 </View>
               </View>
               <View className="mt-3 gap-1.5">
                 {task.bullets.map((line) => (
-                  <ThemedText key={line} className="text-sm leading-5 text-subtext">
+                  <ThemedText key={line} className="text-base leading-5 text-subtext">
                     · {line}
                   </ThemedText>
                 ))}
               </View>
               <View className="mt-4 flex-row items-center justify-between">
                 <View className={`rounded-full px-3 py-1 ${priorityPillClass(task.priority)}`}>
-                  <ThemedText className={`text-xs font-medium ${priorityTextClass(task.priority)}`}>
+                  <ThemedText className={`text-sm font-medium ${priorityTextClass(task.priority)}`}>
                     {task.priorityLabel}
                   </ThemedText>
                 </View>
-                <ThemedText className="text-xs text-subtext">
+                <ThemedText className="text-sm text-subtext">
                   {task.doneSub} / {task.totalSub} 完成
                 </ThemedText>
               </View>

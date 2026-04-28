@@ -15,6 +15,7 @@ import {
   ScrollView,
   Dimensions,
   Image,
+  InteractionManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -90,7 +91,7 @@ const FileBadge = ({ mimeType }: FileBadgeProps) => {
     <View
       style={{ backgroundColor: color }}
       className="h-12 w-12 items-center justify-center rounded-xl">
-      <ThemedText className="text-xs font-bold text-white">{label}</ThemedText>
+      <ThemedText className="text-sm font-bold text-white">{label}</ThemedText>
     </View>
   );
 };
@@ -126,10 +127,10 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
         />
         {/* 文件数角标 */}
         <View className="bg-background/70 absolute right-2 top-2 rounded-md px-1.5 py-0.5">
-          <ThemedText className="text-[10px] text-subtext">{folder.count}</ThemedText>
+          <ThemedText className="text-[12px] text-subtext">{folder.count}</ThemedText>
         </View>
       </View>
-      <ThemedText className="px-1 text-center text-xs text-primary" numberOfLines={1}>
+      <ThemedText className="px-1 text-center text-sm text-primary" numberOfLines={1}>
         {folder.name}
       </ThemedText>
     </TouchableOpacity>
@@ -160,10 +161,10 @@ const FileRow = ({ file, onPress, selectionMode, selected, onToggleSelect }: Fil
       )}
       <FileBadge mimeType={file.mime_type} />
       <View className="ml-3 flex-1">
-        <ThemedText className="text-sm font-medium text-primary" numberOfLines={1}>
+        <ThemedText className="text-base font-medium text-primary" numberOfLines={1}>
           {file.filename}
         </ThemedText>
-        <ThemedText className="mt-0.5 text-xs text-subtext">
+        <ThemedText className="mt-0.5 text-sm text-subtext">
           {formatDate(file.created_at)}
         </ThemedText>
       </View>
@@ -200,9 +201,9 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
     <Modal visible={visible} animationType="fade" transparent presentationStyle="overFullScreen">
       <View className="flex-1 justify-center px-8" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
         <View className="rounded-2xl bg-background p-6">
-          <ThemedText className="mb-4 text-lg font-bold">新建文件夹</ThemedText>
+          <ThemedText className="mb-4 text-xl font-bold">新建文件夹</ThemedText>
           <TextInput
-            className="mb-4 rounded-xl bg-secondary px-4 py-3 text-base text-primary"
+            className="mb-4 rounded-xl bg-secondary px-4 py-3 text-lg text-primary"
             placeholder="文件夹名称"
             placeholderTextColor={colors.placeholder}
             value={name}
@@ -218,12 +219,12 @@ const NewFolderModal = ({ visible, onClose, onCreate }: NewFolderModalProps) => 
                 onClose();
               }}
               className="flex-1 items-center rounded-xl bg-secondary py-3">
-              <ThemedText className="text-base font-semibold">取消</ThemedText>
+              <ThemedText className="text-lg font-semibold">取消</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleCreate}
               className="bg-white/15 flex-1 items-center rounded-xl border border-white/30 py-3">
-              <ThemedText className="text-base font-semibold text-primary">创建</ThemedText>
+              <ThemedText className="text-lg font-semibold text-primary">创建</ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -252,6 +253,19 @@ interface UploadActionSheetProps {
 
 const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadActionSheetProps) => {
   const insets = useSafeAreaInsets();
+  const runAfterSheetClose = (fn: () => void | Promise<void>) => {
+    onClose();
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(async () => {
+        try {
+          await fn();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : '请稍后重试';
+          Alert.alert('操作失败', msg);
+        }
+      }, 360);
+    });
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent presentationStyle="overFullScreen">
@@ -266,8 +280,7 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
               <TouchableOpacity
                 key={index}
                 onPress={() => {
-                  onClose();
-                  setTimeout(action.onPress, 250);
+                  runAfterSheetClose(action.onPress);
                 }}
                 activeOpacity={action.disabled ? 1 : 0.7}
                 className={`flex-row items-center px-4 py-4 ${
@@ -279,10 +292,10 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
                   <Icon name={action.icon} size={22} color="white" />
                 </View>
                 <View className="flex-1">
-                  <ThemedText className="text-base font-semibold text-primary">
+                  <ThemedText className="text-lg font-semibold text-primary">
                     {action.title}
                   </ThemedText>
-                  <ThemedText className="mt-0.5 text-xs text-subtext">{action.subtitle}</ThemedText>
+                  <ThemedText className="mt-0.5 text-sm text-subtext">{action.subtitle}</ThemedText>
                 </View>
               </TouchableOpacity>
             ))}
@@ -291,8 +304,7 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
           <View className="mx-4 overflow-hidden rounded-2xl bg-secondary">
             <TouchableOpacity
               onPress={() => {
-                onClose();
-                setTimeout(folderAction.onPress, 250);
+                runAfterSheetClose(folderAction.onPress);
               }}
               activeOpacity={0.7}
               className="flex-row items-center px-4 py-4">
@@ -300,14 +312,83 @@ const UploadActionSheet = ({ visible, onClose, actions, folderAction }: UploadAc
                 <Icon name="FolderPlus" size={22} color="#0EA5E9" />
               </View>
               <View className="flex-1">
-                <ThemedText className="text-base font-semibold text-primary">
+                <ThemedText className="text-lg font-semibold text-primary">
                   {folderAction.title}
                 </ThemedText>
-                <ThemedText className="mt-0.5 text-xs text-subtext">
+                <ThemedText className="mt-0.5 text-sm text-subtext">
                   {folderAction.subtitle}
                 </ThemedText>
               </View>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
+interface AddToKnowledgeBaseSheetProps {
+  visible: boolean;
+  folders: (KnowledgeFolder & { source?: 'knowledge' | 'meeting' | 'both' })[];
+  onClose: () => void;
+  onSelectFolder: (folderId: string) => void;
+  onCreateFolder: () => void;
+}
+
+const AddToKnowledgeBaseSheet = ({
+  visible,
+  folders,
+  onClose,
+  onSelectFolder,
+  onCreateFolder,
+}: AddToKnowledgeBaseSheetProps) => {
+  const insets = useSafeAreaInsets();
+  const selectableFolders = folders.filter((f) => f.source !== 'meeting');
+  return (
+    <Modal visible={visible} animationType="fade" transparent presentationStyle="overFullScreen">
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        className="flex-1 justify-end"
+        style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+        <TouchableOpacity activeOpacity={1}>
+          <View
+            className="max-h-[75%] rounded-t-[28px] border-t border-white/10 bg-[#1F2127] px-4 pt-3"
+            style={{ paddingBottom: insets.bottom + 12 }}>
+            <View className="mb-2 flex-row items-center justify-between px-1 py-1">
+              <View />
+              <ThemedText className="text-[30px] font-semibold text-white">添加到其他知识库</ThemedText>
+              <TouchableOpacity onPress={onClose} className="h-9 w-9 items-center justify-center">
+                <Icon name="X" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {selectableFolders.map((folder) => (
+                <TouchableOpacity
+                  key={folder.id}
+                  className="flex-row items-center border-b border-white/10 py-4"
+                  onPress={() => onSelectFolder(folder.id)}>
+                  <View className="mr-3 h-12 w-12 items-center justify-center rounded-xl bg-[#2C3038]">
+                    <Icon name="Folder" size={22} color="#9DB4FF" />
+                  </View>
+                  <View className="flex-1">
+                    <ThemedText className="text-[19px] font-semibold text-white">{folder.name}</ThemedText>
+                    <ThemedText className="mt-1 text-[16px] text-white/45">
+                      {folder.count} 个文件
+                    </ThemedText>
+                  </View>
+                  <Icon name="ChevronRight" size={18} color="rgba(255,255,255,0.4)" />
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                className="mt-2 flex-row items-center py-4"
+                onPress={onCreateFolder}>
+                <View className="mr-3 h-12 w-12 items-center justify-center rounded-xl bg-[#2C3038]">
+                  <Icon name="FolderPlus" size={22} color="#fff" />
+                </View>
+                <ThemedText className="text-[19px] font-semibold text-white">新建文件夹</ThemedText>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -335,6 +416,7 @@ export default function KnowledgeBaseScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  const [addToKbSheetVisible, setAddToKbSheetVisible] = useState(false);
 
   const normalizeMeetingStatus = (status: MeetingRecord['asrStatus']): KnowledgeFile['status'] => {
     if (status === 'done') return 'done';
@@ -541,35 +623,45 @@ export default function KnowledgeBaseScreen() {
   };
 
   const handlePickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('需要相册权限', '请在设置中允许访问相册');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      quality: 0.85,
-    });
-    if (!result.canceled) {
-      for (const asset of result.assets) {
-        const filename = asset.fileName ?? `image_${Date.now()}.jpg`;
-        const mimeType = asset.mimeType ?? 'image/jpeg';
-        await uploadFile(asset.uri, filename, mimeType);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('需要相册权限', '请在设置中允许访问相册');
+        return;
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.85,
+      });
+      if (!result.canceled) {
+        for (const asset of result.assets) {
+          const filename = asset.fileName ?? `image_${Date.now()}.jpg`;
+          const mimeType = asset.mimeType ?? 'image/jpeg';
+          await uploadFile(asset.uri, filename, mimeType);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '无法打开相册';
+      Alert.alert('打开相册失败', msg);
     }
   };
 
   const handlePickDocument = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: '*/*',
-      multiple: true,
-      copyToCacheDirectory: true,
-    });
-    if (!result.canceled) {
-      for (const asset of result.assets) {
-        await uploadFile(asset.uri, asset.name, asset.mimeType ?? 'application/octet-stream');
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled) {
+        for (const asset of result.assets) {
+          await uploadFile(asset.uri, asset.name, asset.mimeType ?? 'application/octet-stream');
+        }
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '无法打开文件选择器';
+      Alert.alert('打开文件失败', msg);
     }
   };
 
@@ -682,6 +774,37 @@ export default function KnowledgeBaseScreen() {
     }
   };
 
+  const handleBatchAddToKnowledgeBase = async (targetFolderId: string) => {
+    if (selectedIds.length === 0) return;
+    const ids = [...selectedIds];
+    const selectedFolderName = folders.find((f) => f.id === targetFolderId)?.name ?? '目标文件夹';
+    const prevFiles = files;
+    setBatchBusy(true);
+    setAddToKbSheetVisible(false);
+    setFiles((prev) =>
+      prev.map((f) =>
+        ids.includes(f.id) && (f.source ?? 'knowledge') === 'knowledge'
+          ? { ...f, folder_id: targetFolderId }
+          : f
+      )
+    );
+    setSelectedIds([]);
+    setSelectionMode(false);
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          knowledgeApi.moveFileToFolder(id, targetFolderId)
+        )
+      );
+      Alert.alert('已添加', `已将所选文件添加到「${selectedFolderName}」`);
+    } catch {
+      setFiles(prevFiles);
+      Alert.alert('操作失败', '添加到知识库失败，请稍后重试');
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   const handleMockUpload = () => {
     const mocks = [
       {
@@ -785,7 +908,7 @@ export default function KnowledgeBaseScreen() {
       }}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       className="mr-2">
-      <ThemedText className="text-base text-primary">
+      <ThemedText className="text-lg text-primary">
         {selectionMode ? '返回' : '批量选择'}
       </ThemedText>
     </TouchableOpacity>
@@ -803,7 +926,7 @@ export default function KnowledgeBaseScreen() {
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       className="flex-row items-center">
       <Icon name="Plus" size={16} />
-      <ThemedText className="ml-0.5 text-base font-medium">新建</ThemedText>
+      <ThemedText className="ml-0.5 text-lg font-medium">新建</ThemedText>
     </TouchableOpacity>
   );
 
@@ -813,7 +936,7 @@ export default function KnowledgeBaseScreen() {
       <View className="mb-4 h-11 flex-row items-center rounded-full bg-secondary px-4">
         <Icon name="Search" size={18} />
         <TextInput
-          className="ml-2 flex-1 text-sm text-primary"
+          className="ml-2 flex-1 text-base text-primary"
           placeholder="搜索文件"
           placeholderTextColor={colors.placeholder}
           value={searchQuery}
@@ -864,7 +987,7 @@ export default function KnowledgeBaseScreen() {
               key={item.key}
               onPress={() => setFileTypeFilter(item.key as 'all' | 'knowledge' | 'meeting_record')}
               className={`rounded-full px-3 py-1.5 ${active ? 'bg-white/15' : 'bg-secondary'}`}>
-              <ThemedText className={`text-sm ${active ? 'text-primary' : 'text-subtext'}`}>
+              <ThemedText className={`text-base ${active ? 'text-primary' : 'text-subtext'}`}>
                 {item.label}
               </ThemedText>
             </TouchableOpacity>
@@ -874,13 +997,13 @@ export default function KnowledgeBaseScreen() {
 
       {/* 文件列表标题行 */}
       <View className="mb-2 mt-1 flex-row items-center justify-between">
-        <ThemedText className="text-base font-bold">
+        <ThemedText className="text-lg font-bold">
           {selectedFolderId
             ? (folders.find((f) => f.id === selectedFolderId)?.name ?? '文件列表')
             : '近30天'}
         </ThemedText>
         <TouchableOpacity onPress={() => setSelectedFolderId(null)}>
-          <ThemedText className="text-sm text-subtext">
+          <ThemedText className="text-base text-subtext">
             {selectedFolderId ? '显示全部' : '显示正文'}
           </ThemedText>
         </TouchableOpacity>
@@ -950,10 +1073,33 @@ export default function KnowledgeBaseScreen() {
         )}
         ListEmptyComponent={
           <View className="items-center py-16">
-            <Icon name="FolderOpen" size={48} />
-            <ThemedText className="mt-3 text-subtext">
-              {fileTypeFilter === 'meeting_record' ? '暂无会议记录' : '暂无文件'}
-            </ThemedText>
+            {selectedFolderId && fileTypeFilter !== 'meeting_record' ? (
+              <>
+                <Image
+                  source={FOLDER_ILLUSTRATION}
+                  resizeMode="contain"
+                  style={{ width: 180, height: 120, opacity: 0.92 }}
+                />
+                <ThemedText className="mt-4 text-[26px] font-semibold text-primary">
+                  该文件夹暂无内容
+                </ThemedText>
+                <ThemedText className="mt-2 text-[18px] text-subtext">
+                  上传内容，让材料触手可及
+                </ThemedText>
+                <TouchableOpacity
+                  className="mt-5 rounded-xl bg-[#1D7BFF] px-8 py-3"
+                  onPress={() => setUploadSheetVisible(true)}>
+                  <ThemedText className="text-lg font-semibold text-white">添加内容</ThemedText>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Icon name="FolderOpen" size={48} />
+                <ThemedText className="mt-3 text-subtext">
+                  {fileTypeFilter === 'meeting_record' ? '暂无会议记录' : '暂无文件'}
+                </ThemedText>
+              </>
+            )}
           </View>
         }
       />
@@ -975,6 +1121,19 @@ export default function KnowledgeBaseScreen() {
         }}
       />
 
+      <AddToKnowledgeBaseSheet
+        visible={addToKbSheetVisible}
+        folders={folders}
+        onClose={() => setAddToKbSheetVisible(false)}
+        onSelectFolder={(folderId) => {
+          handleBatchAddToKnowledgeBase(folderId).catch(() => null);
+        }}
+        onCreateFolder={() => {
+          setAddToKbSheetVisible(false);
+          setNewFolderVisible(true);
+        }}
+      />
+
       {selectionMode && (
         <View
           className="absolute bottom-0 left-0 right-0 flex-row gap-3 border-t border-border bg-background px-4 pt-3"
@@ -986,8 +1145,8 @@ export default function KnowledgeBaseScreen() {
             className={`flex-1 items-center rounded-xl bg-secondary py-3 ${
               batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
             }`}
-            onPress={handleBatchDownload}>
-            <ThemedText className="text-base font-semibold text-primary">批量下载</ThemedText>
+            onPress={() => setAddToKbSheetVisible(true)}>
+            <ThemedText className="text-lg font-semibold text-primary">添加到知识库</ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={batchBusy || selectedIds.length === 0}
@@ -995,7 +1154,7 @@ export default function KnowledgeBaseScreen() {
               batchBusy || selectedIds.length === 0 ? 'opacity-40' : ''
             }`}
             onPress={handleBatchDelete}>
-            <ThemedText className="text-base font-semibold text-red-500">批量删除</ThemedText>
+            <ThemedText className="text-lg font-semibold text-red-500">批量删除</ThemedText>
           </TouchableOpacity>
         </View>
       )}

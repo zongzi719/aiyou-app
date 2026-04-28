@@ -74,6 +74,15 @@ const STORAGE_KEY = 'luna_decision_coach_thread_map_v1';
 const PAGE_THREAD_STORAGE_KEY = 'luna_decision_page_thread_id_v1';
 const DECISION_REQUEST_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_DECISION_REQUEST_TIMEOUT_MS || 120_000);
 const DECISION_TIMEOUT_RETRY_COUNT = Number(process.env.EXPO_PUBLIC_DECISION_TIMEOUT_RETRY_COUNT || 1);
+const DECISION_GATEWAY_RETRY_COUNT = Number(process.env.EXPO_PUBLIC_DECISION_GATEWAY_RETRY_COUNT || 2);
+const DECISION_MAX_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.EXPO_PUBLIC_DECISION_MAX_CONCURRENCY || 2)
+);
+const DECISION_COACH_START_STAGGER_MS = Math.max(
+  0,
+  Number(process.env.EXPO_PUBLIC_DECISION_COACH_START_STAGGER_MS || 220)
+);
 const DECISION_STATE_RECOVER_POLL_COUNT = Number(
   process.env.EXPO_PUBLIC_DECISION_STATE_RECOVER_POLL_COUNT || 3
 );
@@ -92,6 +101,48 @@ function joinUrl(base: string, path: string): string {
   const b = base.replace(/\/$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${b}${p}`;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
+function computeRetryDelayMs(attempt: number, baseMs = 700): number {
+  const jitter = Math.floor(Math.random() * 220);
+  return baseMs * Math.max(1, attempt) + jitter;
+}
+
+function isRetryableFetchError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name ?? '';
+  if (name === 'AbortError') return true;
+  const msg = err instanceof Error ? err.message.toLowerCase() : String(err ?? '').toLowerCase();
+  return (
+    msg.includes('network request failed') ||
+    msg.includes('network error') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('socket') ||
+    msg.includes('econnreset')
+  );
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  worker: (item: T, index: number) => Promise<void>,
+  maxConcurrency = DECISION_MAX_CONCURRENCY
+): Promise<void> {
+  if (items.length === 0) return;
+  const concurrency = Math.min(Math.max(1, maxConcurrency), items.length);
+  let cursor = 0;
+  const runners = new Array(concurrency).fill(0).map(async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) break;
+      await worker(items[idx]!, idx);
+    }
+  });
+  await Promise.all(runners);
 }
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -203,7 +254,8 @@ async function requestJson(
   const headers = await getPrivateChatAuthHeaders();
   const url = joinUrl(base, path);
   let lastError: unknown = null;
-  for (let attempt = 0; attempt <= DECISION_TIMEOUT_RETRY_COUNT; attempt += 1) {
+  const maxAttempts = Math.max(1, DECISION_TIMEOUT_RETRY_COUNT + DECISION_GATEWAY_RETRY_COUNT + 1);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DECISION_REQUEST_TIMEOUT_MS);
     try {
@@ -220,14 +272,17 @@ async function requestJson(
       } catch {
         json = null;
       }
+      if (isRetryableStatus(res.status) && attempt < maxAttempts - 1) {
+        await sleep(computeRetryDelayMs(attempt + 1));
+        continue;
+      }
       return { status: res.status, json, text };
     } catch (err) {
       lastError = err;
-      const isTimeout = (err as { name?: string })?.name === 'AbortError';
-      if (!isTimeout || attempt >= DECISION_TIMEOUT_RETRY_COUNT) {
+      if (!isRetryableFetchError(err) || attempt >= maxAttempts - 1) {
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await sleep(computeRetryDelayMs(attempt + 1));
     } finally {
       clearTimeout(timeout);
     }
@@ -634,15 +689,21 @@ export async function ensureDecisionCoachThreads(
   const next = { ...map };
   const missingCoachIds = coachIds.filter((coachId) => !next[coachId]);
   if (missingCoachIds.length > 0) {
-    const created = await Promise.all(
-      missingCoachIds.map(async (coachId) => {
-        const tid = await createDecisionCoachThread(coachId);
-        return [coachId, tid] as const;
-      })
+    await runWithConcurrency(
+      missingCoachIds,
+      async (coachId) => {
+        try {
+          const tid = await createDecisionCoachThread(coachId);
+          next[coachId] = tid;
+        } catch (err) {
+          logDecisionMetric('thread_create_error', {
+            coachId,
+            reason: err instanceof Error ? err.message : String(err ?? 'unknown'),
+          });
+        }
+      },
+      Math.min(2, DECISION_MAX_CONCURRENCY)
     );
-    for (const [coachId, tid] of created) {
-      next[coachId] = tid;
-    }
   }
   if (JSON.stringify(next) !== JSON.stringify(map)) {
     await saveThreadMap(next);
@@ -687,6 +748,18 @@ async function createDecisionPageThread(threadId: string): Promise<string> {
   return tid;
 }
 
+/**
+ * 仅读取本地持久化的决策页 thread id，不会在服务端创建线程。
+ * 进入决策模式但未发送过消息时应使用此函数，避免产生「空决策线程」污染历史列表。
+ */
+export async function getPersistedDecisionPageThreadId(): Promise<string | null> {
+  return loadPageThreadId();
+}
+
+/**
+ * 在已有 id（参数或本地）时复用并写回本地；否则在服务端创建新的决策页线程。
+ * 仅应在已产生真实对话流程时调用（例如首次发送决策消息），不应在「仅切换 Tab」时调用。
+ */
 export async function ensureDecisionPageThread(preferredThreadId?: string): Promise<string> {
   const existing = preferredThreadId?.trim() || (await loadPageThreadId());
   if (existing) {
@@ -1043,71 +1116,83 @@ export async function runDecisionTurn(args: {
     out[invalidId] = err;
     args.onCoachResult?.({ coachId: invalidId, threadId: null, result: err });
   }
-  const settled = await Promise.allSettled(
-    normalizedCoachIds.map(async (coachId) => {
-      const threadId = localThreadMap[coachId];
-      let res: RunDecisionCoachResult;
-      let callbackThreadId: string | null = threadId ?? null;
-      if (!threadId) {
-        res = { ok: false, errorText: '线程创建失败' };
-      } else {
-        res = await runDecisionCoachWait({
-          coachId,
-          threadId,
-          userText: args.userText,
-          modelName: args.modelName,
-          images: args.images,
-          files: args.files,
-        });
-        const shouldRetryWithFreshThread =
-          !res.ok &&
-          (res.errorText.includes('未收到回复') ||
-            res.errorText.includes('文件路径') ||
-            res.errorText.includes('网关超时') ||
-            res.errorText.includes('服务暂时不可用'));
-        if (shouldRetryWithFreshThread) {
-          try {
-            const freshThreadId = await replaceDecisionCoachThread(coachId);
-            localThreadMap[coachId] = freshThreadId;
-            callbackThreadId = freshThreadId;
-            if (__DEV__) {
-              console.log('[decision] retry with fresh coach thread', {
+  const settled: PromiseSettledResult<void>[] = new Array(normalizedCoachIds.length);
+  await runWithConcurrency(
+    normalizedCoachIds,
+    async (coachId, index) => {
+      try {
+        if (DECISION_COACH_START_STAGGER_MS > 0 && index > 0) {
+          await sleep(index * DECISION_COACH_START_STAGGER_MS);
+        }
+        const threadId = localThreadMap[coachId];
+        let res: RunDecisionCoachResult;
+        let callbackThreadId: string | null = threadId ?? null;
+        if (!threadId) {
+          res = { ok: false, errorText: '线程创建失败，请稍后重试' };
+        } else {
+          res = await runDecisionCoachWait({
+            coachId,
+            threadId,
+            userText: args.userText,
+            modelName: args.modelName,
+            images: args.images,
+            files: args.files,
+          });
+          const shouldRetryWithFreshThread =
+            !res.ok &&
+            (res.errorText.includes('未收到回复') ||
+              res.errorText.includes('文件路径') ||
+              res.errorText.includes('网关超时') ||
+              res.errorText.includes('服务暂时不可用'));
+          if (shouldRetryWithFreshThread) {
+            try {
+              const freshThreadId = await replaceDecisionCoachThread(coachId);
+              localThreadMap[coachId] = freshThreadId;
+              callbackThreadId = freshThreadId;
+              if (__DEV__) {
+                console.log('[decision] retry with fresh coach thread', {
+                  coachId,
+                  oldThreadId: threadId,
+                  freshThreadId,
+                });
+              }
+              res = await runDecisionCoachWait({
                 coachId,
-                oldThreadId: threadId,
-                freshThreadId,
+                threadId: freshThreadId,
+                userText: args.userText,
+                modelName: args.modelName,
+                images: args.images,
+                files: args.files,
               });
-            }
-            res = await runDecisionCoachWait({
-              coachId,
-              threadId: freshThreadId,
-              userText: args.userText,
-              modelName: args.modelName,
-              images: args.images,
-              files: args.files,
-            });
-          } catch (retryErr) {
-            if (__DEV__) {
-              console.warn('[decision] fresh thread retry failed', {
-                coachId,
-                error: retryErr instanceof Error ? retryErr.message : String(retryErr),
-              });
+            } catch (retryErr) {
+              if (__DEV__) {
+                console.warn('[decision] fresh thread retry failed', {
+                  coachId,
+                  error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+                });
+              }
             }
           }
         }
+        if (__DEV__) {
+          console.log('[decision] coach result', {
+            coachId,
+            threadId: threadId ?? null,
+            ok: res.ok,
+            errorText: res.ok ? undefined : res.errorText,
+          });
+        }
+        out[coachId] = res;
+        args.onCoachResult?.({ coachId, threadId: callbackThreadId, result: res });
+        settled[index] = { status: 'fulfilled', value: undefined };
+      } catch (err) {
+        settled[index] = { status: 'rejected', reason: err };
       }
-      if (__DEV__) {
-        console.log('[decision] coach result', {
-          coachId,
-          threadId: threadId ?? null,
-          ok: res.ok,
-          errorText: res.ok ? undefined : res.errorText,
-        });
-      }
-      out[coachId] = res;
-      args.onCoachResult?.({ coachId, threadId: callbackThreadId, result: res });
-    })
+    },
+    DECISION_MAX_CONCURRENCY
   );
   settled.forEach((result, index) => {
+    if (!result) return;
     if (result.status === 'rejected') {
       const coachId = normalizedCoachIds[index] ?? '';
       const errorText =

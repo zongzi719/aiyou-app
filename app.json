@@ -3,8 +3,8 @@
     "newArchEnabled": true,
     "name": "AIYOU",
     "slug": "luna-zhouyz719",
-    "version": "1.2.8",
-    "runtimeVersion": "1.2.8",
+    "version": "1.2.12",
+    "runtimeVersion": "1.2.12",
     "scheme": "luna",
     "experiments": {
       "tsconfigPaths": true
@@ -33,7 +33,7 @@
     ],
     "ios": {
       "bundleIdentifier": "com.lmrj.lmaiyou",
-      "buildNumber": "13",
+      "buildNumber": "17",
       "supportsTablet": true,
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
@@ -41,6 +41,9 @@
           "weixinULAPI"
         ],
         "NSMicrophoneUsageDescription": "This app uses the microphone for speech-to-text functionality.",
+        "NSCameraUsageDescription": "This app uses the camera to capture photos for knowledge files.",
+        "NSPhotoLibraryUsageDescription": "This app accesses your photo library to upload images to the knowledge base.",
+        "NSPhotoLibraryAddUsageDescription": "This app saves and manages selected media for knowledge uploads.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
@@ -65,7 +68,7 @@
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "usesCleartextTraffic": true,
-      "versionCode": 8
+      "versionCode": 12
     },
     "extra": {
       "router": {

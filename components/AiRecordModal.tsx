@@ -262,6 +262,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     if (voicePhase === 'finalizing') return;
     const fallbackText = draft.trim();
     try {
+      Keyboard.dismiss();
       if (isVoiceStreaming) {
         setVoicePhase('finalizing');
         await stopStreaming();

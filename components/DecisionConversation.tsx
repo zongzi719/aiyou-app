@@ -29,7 +29,7 @@ function UserBubble({ text }: { text: string }) {
       <View
         style={shadowPresets.small}
         className="max-w-[85%] self-end rounded-3xl bg-secondary p-global">
-        <ThemedText className="text-base">{text}</ThemedText>
+        <ThemedText className="text-[16px] leading-[24px]">{text}</ThemedText>
       </View>
     </AnimatedView>
   );
@@ -176,6 +176,7 @@ export default function DecisionConversation({
                   }}
                   onToggleEnabled={(next) => onToggleCoach(c.coachId, next)}
                   defaultExpanded={idx === 0}
+                  showFooterActionBar={idx === turn.coachCards.length - 1}
                 />
               ))}
             </View>

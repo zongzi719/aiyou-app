@@ -243,7 +243,8 @@ export default function MemoryScheduleDetailScreen() {
     }
   };
 
-  const inputClass = 'rounded-xl border border-border bg-secondary px-3 py-3 text-sm text-primary';
+  const inputClass =
+    'rounded-xl border border-border bg-secondary px-3 py-3 text-[16px] text-primary';
 
   if (loading) {
     return (
@@ -261,7 +262,7 @@ export default function MemoryScheduleDetailScreen() {
       <View className="flex-1 bg-background">
         <Header title="日程详情" showBackButton onBackPress={safeRouterBackOrHome} />
         <View className="flex-1 items-center justify-center px-global">
-          <ThemedText className="text-subtext">未找到该日程</ThemedText>
+          <ThemedText className="text-[18px] text-subtext">未找到该日程</ThemedText>
         </View>
       </View>
     );
@@ -331,7 +332,7 @@ export default function MemoryScheduleDetailScreen() {
         showsVerticalScrollIndicator={false}>
         {editing && d ? (
           <>
-            <ThemedText className="mb-1 text-xs font-semibold text-subtext">标题</ThemedText>
+            <ThemedText className="mb-1 text-[14px] font-semibold text-subtext">标题</ThemedText>
             <TextInput
               className={inputClass}
               value={d.title}
@@ -340,7 +341,7 @@ export default function MemoryScheduleDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               开始时间
             </ThemedText>
             <TextInput
@@ -351,7 +352,7 @@ export default function MemoryScheduleDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">
               结束时间
             </ThemedText>
             <TextInput
@@ -362,7 +363,7 @@ export default function MemoryScheduleDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-2 mt-4 text-xs font-semibold text-subtext">优先级</ThemedText>
+            <ThemedText className="mb-2 mt-4 text-[14px] font-semibold text-subtext">优先级</ThemedText>
             <View className="flex-row flex-wrap gap-2">
               {PRIORITIES.map((p) => (
                 <Chip
@@ -370,12 +371,12 @@ export default function MemoryScheduleDetailScreen() {
                   label={p}
                   isSelected={d.priority === p}
                   onPress={() => setDraft((prev) => (prev ? { ...prev, priority: p } : prev))}
-                  size="sm"
+                  size="md"
                 />
               ))}
             </View>
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">标签</ThemedText>
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">标签</ThemedText>
             <TextInput
               className={inputClass}
               value={d.tagsLine}
@@ -384,7 +385,7 @@ export default function MemoryScheduleDetailScreen() {
               placeholderTextColor={colors.placeholder}
             />
 
-            <ThemedText className="mb-1 mt-4 text-xs font-semibold text-subtext">说明</ThemedText>
+            <ThemedText className="mb-1 mt-4 text-[14px] font-semibold text-subtext">说明</ThemedText>
             <TextInput
               className={`${inputClass} min-h-[100px]`}
               value={d.description}
@@ -396,7 +397,7 @@ export default function MemoryScheduleDetailScreen() {
             />
 
             <View className="mt-4 flex-row items-center justify-between">
-              <ThemedText className="text-xs font-semibold text-subtext">待办</ThemedText>
+              <ThemedText className="text-[14px] font-semibold text-subtext">待办</ThemedText>
               <TouchableOpacity
                 onPress={() =>
                   setDraft((prev) =>
@@ -410,7 +411,7 @@ export default function MemoryScheduleDetailScreen() {
                 }
                 className="flex-row items-center gap-1 rounded-full bg-secondary px-3 py-1.5">
                 <Icon name="Plus" size={16} color={colors.highlight} />
-                <ThemedText className="text-xs font-medium text-primary">添加</ThemedText>
+                <ThemedText className="text-[14px] font-medium text-primary">添加</ThemedText>
               </TouchableOpacity>
             </View>
             {d.tasks.map((task, idx) => (
@@ -465,28 +466,28 @@ export default function MemoryScheduleDetailScreen() {
           </>
         ) : (
           <>
-            <ThemedText className="text-xl font-bold text-primary">{schedule.title}</ThemedText>
+            <ThemedText className="text-[22px] font-bold text-primary">{schedule.title}</ThemedText>
             <View className="mt-3 flex-row flex-wrap items-center gap-x-3 gap-y-1">
               <View className="flex-row items-center gap-1">
                 <Icon name="Clock" size={16} color={colors.placeholder} />
-                <ThemedText className="text-sm text-subtext">{timeLabel}</ThemedText>
+                <ThemedText className="text-[16px] text-subtext">{timeLabel}</ThemedText>
               </View>
               <View className="rounded-full bg-secondary px-2 py-0.5">
-                <ThemedText className="text-xs text-primary">
+                <ThemedText className="text-[14px] text-primary">
                   优先级 · {schedule.priority}
                 </ThemedText>
               </View>
             </View>
-            <ThemedText className="mt-2 text-xs text-subtext">
+            <ThemedText className="mt-2 text-[14px] text-subtext">
               更新于 {formatMemoryDate(schedule.updated_at)}
             </ThemedText>
 
             {schedule.description?.trim() ? (
               <View className="mt-6">
-                <ThemedText className="mb-2 text-xs font-semibold uppercase text-subtext">
+                <ThemedText className="mb-2 text-[14px] font-semibold uppercase text-subtext">
                   说明
                 </ThemedText>
-                <ThemedText className="text-sm leading-6 text-primary">
+                <ThemedText className="text-[16px] leading-7 text-primary">
                   {schedule.description}
                 </ThemedText>
               </View>
@@ -494,7 +495,7 @@ export default function MemoryScheduleDetailScreen() {
 
             {schedule.tasks.length > 0 ? (
               <View className="mt-6">
-                <ThemedText className="mb-3 text-xs font-semibold uppercase text-subtext">
+                <ThemedText className="mb-3 text-[14px] font-semibold uppercase text-subtext">
                   待办
                 </ThemedText>
                 {schedule.tasks.map((task, idx) => (
@@ -510,7 +511,7 @@ export default function MemoryScheduleDetailScreen() {
                       {task.is_completed ? <Icon name="Check" size={14} color="#fff" /> : null}
                     </View>
                     <ThemedText
-                      className={`flex-1 text-sm leading-5 ${
+                      className={`flex-1 text-[16px] leading-6 ${
                         task.is_completed ? 'text-subtext line-through' : 'text-primary'
                       }`}>
                       {task.content}
@@ -526,7 +527,7 @@ export default function MemoryScheduleDetailScreen() {
                   <View
                     key={`${schedule.id}-${tag}`}
                     className="rounded-full border border-border bg-secondary px-3 py-1">
-                    <ThemedText className="text-xs text-subtext">#{tag}</ThemedText>
+                    <ThemedText className="text-[14px] text-subtext">#{tag}</ThemedText>
                   </View>
                 ))}
               </View>

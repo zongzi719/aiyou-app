@@ -30,6 +30,7 @@ import {
   clearDecisionLocalSession,
   DECISION_COACHES,
   ensureDecisionPageThread,
+  getPersistedDecisionPageThreadId,
   ensureDecisionCoachThreads,
   generateDecisionTitleFireForget,
   loadLatestDecisionTurnFromCoachThreads,
@@ -237,16 +238,8 @@ const HomeScreen = () => {
     setDecisionTurns([]);
     setDecisionStarted(false);
     setDecisionIsRunning(false);
-    void (async () => {
-      const pageThreadId =
-        decisionPageThreadIdRef.current ?? (await ensureDecisionPageThread().catch(() => null));
-      if (!pageThreadId) return;
-      decisionPageThreadIdRef.current = pageThreadId;
-      await persistDecisionPageState(pageThreadId, {
-        decision_turns: [],
-        decision_selected_coach_ids: selectedCoachIds,
-      }).catch(() => {});
-    })();
+    decisionPageThreadIdRef.current = null;
+    void clearDecisionLocalSession().catch(() => {});
   }, [homeMode]);
 
   useEffect(() => {
@@ -916,11 +909,12 @@ const HomeScreen = () => {
 
         if (modeHint === 'decision') {
           if (await tryRestoreDecision()) return;
-          // 决策历史兜底：即使暂时拿不到 turns，也不要回到欢迎页
+          // 无效或空的决策页线程（无 turns / 无教练映射）：与 web untitled 占位一致，不假装已有会话
           setHomeMode('decision');
-          decisionPageThreadIdRef.current = tid;
-          setDecisionStarted(true);
+          decisionPageThreadIdRef.current = null;
+          setDecisionStarted(false);
           setDecisionTurns([]);
+          await clearDecisionLocalSession().catch(() => {});
           return;
         } else {
           const restored = await tryRestoreDecision();
@@ -967,10 +961,16 @@ const HomeScreen = () => {
     if (restoringDecisionStateRef.current) return;
     restoringDecisionStateRef.current = true;
     void (async () => {
-      const pageThreadId = await ensureDecisionPageThread(decisionPageThreadIdRef.current ?? undefined).catch(
-        () => null
-      );
-      if (!pageThreadId) return;
+      const pageThreadId =
+        decisionPageThreadIdRef.current ?? (await getPersistedDecisionPageThreadId());
+      if (!pageThreadId) {
+        setDecisionTurns([]);
+        setDecisionStarted(false);
+        return;
+      }
+      if (!decisionPageThreadIdRef.current) {
+        decisionPageThreadIdRef.current = pageThreadId;
+      }
       await restoreDecisionStateFromThread(pageThreadId);
     })().finally(() => {
       restoringDecisionStateRef.current = false;
@@ -1119,7 +1119,7 @@ const HomeScreen = () => {
                           className="mt-2 flex-row items-center gap-1 self-start"
                           accessibilityRole="button"
                           accessibilityLabel="换一批常见问题">
-                          <ThemedText className="text-[10px] text-white/60">换一批</ThemedText>
+                          <ThemedText className="text-[14px] text-white/60">换一批</ThemedText>
                           <Icon name="RefreshCw" size={11} color="rgba(255,255,255,0.65)" />
                         </Pressable>
                       </View>
@@ -1243,9 +1243,9 @@ const TipCard = ({
     <Pressable
       onPress={onPress}
       className="self-start rounded-full border border-white/60 bg-transparent px-3.5 py-1">
-      <ThemedText className="text-[12px] text-white/90" numberOfLines={1}>
+      <ThemedText className="text-[14px] text-white/90" numberOfLines={1}>
         {categoryLabel ? (
-          <ThemedText className="text-[11px] text-white/55">{categoryLabel} · </ThemedText>
+          <ThemedText className="text-[14px] text-white/55">{categoryLabel} · </ThemedText>
         ) : null}
         {title}
       </ThemedText>
