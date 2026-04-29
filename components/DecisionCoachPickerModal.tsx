@@ -133,10 +133,10 @@ export default function DecisionCoachPickerModal({
 
           <Pressable
             onPress={() => undefined}
-            className="bg-black/35 border-white/12 absolute bottom-6 right-6 h-11 w-11 items-center justify-center rounded-full border"
+            className="absolute bottom-6 right-6 h-11 w-11 items-center justify-center rounded-full border border-white bg-[#1A1A1A]"
             accessibilityRole="button"
             accessibilityLabel="新增教练">
-            <Icon name="Plus" size={22} color="rgba(255,255,255,0.92)" />
+            <Icon name="Plus" size={22} color="#FFFFFF" strokeWidth={2} />
           </Pressable>
         </Pressable>
       </Pressable>

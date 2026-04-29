@@ -1,3 +1,5 @@
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Link, router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -7,7 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   TextInput,
+  Image,
   ImageBackground,
+  StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -17,6 +21,21 @@ import { hasPrivateChatBackendSession, persistAuthSession } from '@/lib/authSess
 import { putProfileCache } from '@/lib/profileCache';
 import { postUserLogin } from '@/lib/userLoginApi';
 import { fetchProfile, needsAiBossModelOnboarding } from '@/services/profileApi';
+
+/** 在原先约 47px 行高基础上再缩小 20% */
+const LOGIN_INPUT_ROW_HEIGHT = Math.round(Math.round(36 * 1.3) * 0.8);
+
+const loginInputTextStyle = {
+  flex: 1,
+  height: LOGIN_INPUT_ROW_HEIGHT,
+  paddingVertical: 0,
+  paddingHorizontal: 0,
+  textAlign: 'left' as const,
+  textAlignVertical: 'center' as const,
+  fontSize: 14,
+  color: '#FFFFFF',
+  ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
+};
 
 function normalizeLoginErrorMessage(message: string): string {
   const raw = message.trim();
@@ -37,6 +56,8 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [accountFocused, setAccountFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +73,7 @@ export default function LoginScreen() {
   const validateAccount = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
-      setAccountError('请输入账号');
+      setAccountError('请输入手机号');
       return false;
     }
     setAccountError('');
@@ -122,33 +143,82 @@ export default function LoginScreen() {
   };
 
   const insets = useSafeAreaInsets();
+  /** 设计稿 402×874 下的绝对坐标，已按安全区顶部内边距换算到内容区 */
+  const wordmarkTop = Math.max(8, 244 - insets.top);
+  const formTop = Math.max(0, 356 - insets.top);
 
   return (
     <ImageBackground
       source={require('@/assets/images/backgrounds/login-bg-v2.png')}
       resizeMode="cover"
       className="flex-1 bg-black">
-      <View className="bg-black/55 flex-1" style={{ paddingTop: insets.top }}>
+      <View className="flex-1" style={{ paddingTop: insets.top }}>
+        {/* Rectangle 579：顶部压暗 */}
+        <LinearGradient
+          pointerEvents="none"
+          colors={['#000104', 'rgba(0, 0, 0, 0)']}
+          locations={[0.35, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 316, zIndex: 0 }}
+        />
+        {/* Rectangle 578：底部渐黑 */}
+        <LinearGradient
+          pointerEvents="none"
+          colors={['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.55)', '#000000']}
+          locations={[0, 0.38, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 420, zIndex: 0 }}
+        />
+        {/* Rectangle 580：轻微毛玻璃（近似 backdrop-blur） */}
+        <BlurView
+          pointerEvents="none"
+          intensity={Platform.OS === 'ios' ? 22 : 12}
+          tint="dark"
+          style={[StyleSheet.absoluteFillObject, { zIndex: 0, opacity: 0.35 }]}
+        />
+
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          className="flex-1 px-9"
+          className="flex-1"
+          style={{ zIndex: 1 }}
           keyboardVerticalOffset={16}>
-          <View className="flex-1">
-            <View className="items-center pt-36">
-              <ThemedText className="text-[42px] font-light tracking-[4px] text-white">AIYOU</ThemedText>
-              <ThemedText className="mt-2 text-base text-white/70">
-                你的思维，从此多一个你
-              </ThemedText>
+          <View className="relative flex-1">
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: wordmarkTop,
+                left: 0,
+                right: 0,
+                alignItems: 'center',
+                zIndex: 2,
+              }}>
+              <Image
+                source={require('@/assets/images/login-wordmark.png')}
+                resizeMode="contain"
+                style={{ width: Math.round(142 * 1.1), height: Math.round(38 * 1.1), opacity: 1 }}
+              />
             </View>
 
-            <View className="mt-28">
+            <View className="flex-1 px-[30px]" style={{ paddingTop: formTop }}>
               {!!apiError && (
-                <ThemedText className="mb-3 text-center text-sm text-red-300">
+                <ThemedText className="mb-3 text-center text-[16px] text-red-300">
                   {apiError}
                 </ThemedText>
               )}
 
-              <View className="mb-4 h-12 rounded-full bg-[#3F3F3F]/50 px-5">
+              <View
+                className="mb-3 flex-row items-center rounded-[30px] px-4"
+                style={{
+                  height: LOGIN_INPUT_ROW_HEIGHT,
+                  backgroundColor: accountFocused
+                    ? 'rgba(130, 130, 130, 0.58)'
+                    : '#3F3F3F80',
+                  borderWidth: accountFocused ? 1 : 0,
+                  borderColor: accountFocused ? '#FFFFFF' : 'transparent',
+                }}>
                 <TextInput
                   value={account}
                   onChangeText={(text) => {
@@ -156,21 +226,33 @@ export default function LoginScreen() {
                     if (accountError) validateAccount(text);
                     if (apiError) setApiError('');
                   }}
-                  className="h-12 text-base text-white"
-                  placeholder="账号"
-                  placeholderTextColor="rgba(255,255,255,0.72)"
+                  onFocus={() => setAccountFocused(true)}
+                  onBlur={() => setAccountFocused(false)}
+                  placeholder="手机号"
+                  placeholderTextColor="rgba(255,255,255,0.85)"
                   keyboardType={Platform.OS === 'ios' ? 'ascii-capable' : 'visible-password'}
                   autoCapitalize="none"
                   autoCorrect={false}
                   autoComplete="username"
                   textContentType="username"
+                  underlineColorAndroid="transparent"
+                  style={loginInputTextStyle}
                 />
               </View>
               {!!accountError && (
-                <ThemedText className="-mt-2 mb-2 text-xs text-red-300">{accountError}</ThemedText>
+                <ThemedText className="-mt-2 mb-2 text-[14px] text-red-300">{accountError}</ThemedText>
               )}
 
-              <View className="mb-4 h-12 flex-row items-center rounded-full bg-[#3F3F3F]/50 px-5">
+              <View
+                className="mb-3 flex-row items-center rounded-[30px] px-4"
+                style={{
+                  height: LOGIN_INPUT_ROW_HEIGHT,
+                  backgroundColor: passwordFocused
+                    ? 'rgba(130, 130, 130, 0.58)'
+                    : '#3F3F3F80',
+                  borderWidth: passwordFocused ? 1 : 0,
+                  borderColor: passwordFocused ? '#FFFFFF' : 'transparent',
+                }}>
                 <TextInput
                   value={password}
                   onChangeText={(text) => {
@@ -178,40 +260,64 @@ export default function LoginScreen() {
                     if (passwordError) validatePassword(text);
                     if (apiError) setApiError('');
                   }}
-                  className="h-12 flex-1 text-base text-white"
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
                   placeholder="密码"
-                  placeholderTextColor="rgba(255,255,255,0.72)"
+                  placeholderTextColor="rgba(255,255,255,0.85)"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  underlineColorAndroid="transparent"
+                  style={loginInputTextStyle}
                 />
-                <Pressable hitSlop={8} onPress={() => setShowPassword((prev) => !prev)}>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  className="justify-center"
+                  style={{ height: LOGIN_INPUT_ROW_HEIGHT }}>
                   <Icon
-                    name={showPassword ? 'EyeOff' : 'Eye'}
-                    size={20}
-                    color="rgba(255,255,255,0.9)"
+                    name={showPassword ? 'Eye' : 'EyeOff'}
+                    size={18}
+                    color="#FFFFFF"
                     strokeWidth={2}
                   />
                 </Pressable>
               </View>
               {!!passwordError && (
-                <ThemedText className="-mt-2 mb-2 text-xs text-red-300">{passwordError}</ThemedText>
+                <ThemedText className="-mt-2 mb-2 text-[14px] text-red-300">{passwordError}</ThemedText>
               )}
 
-              <View className="mb-7 flex-row items-center justify-between px-1">
+              <View className="mb-6 mt-3 flex-row items-center justify-between">
                 <Pressable
                   onPress={() => setRememberPassword((prev) => !prev)}
                   className="flex-row items-center"
                   hitSlop={8}>
-                  <View className="border-white/65 mr-2 h-3.5 w-3.5 items-center justify-center rounded-full border">
-                    {rememberPassword ? (
-                      <View className="h-2 w-2 rounded-full bg-white/90" />
-                    ) : null}
-                  </View>
-                  <ThemedText className="text-[#989898] text-base">记住密码</ThemedText>
+                  {rememberPassword ? (
+                    <View
+                      className="mr-2.5 items-center justify-center rounded-full border-2 border-white"
+                      style={{ width: 18, height: 18 }}>
+                      <View className="rounded-full bg-white" style={{ width: 7, height: 7 }} />
+                    </View>
+                  ) : (
+                    <View
+                      className="mr-2.5 rounded-full bg-transparent"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderWidth: 1.5,
+                        borderColor: '#B0B0B0',
+                      }}
+                    />
+                  )}
+                  <ThemedText
+                    className={`text-[14px] font-normal ${
+                      rememberPassword ? 'text-[#C4C4C4]' : 'text-[#B0B0B0]'
+                    }`}>
+                    记住密码
+                  </ThemedText>
                 </Pressable>
                 <Link href="/screens/forgot-password" asChild>
                   <Pressable hitSlop={8}>
-                    <ThemedText className="text-[#989898] text-base">忘记密码？</ThemedText>
+                    <ThemedText className="text-[14px] font-normal text-[#989898]">忘记密码？</ThemedText>
                   </Pressable>
                 </Link>
               </View>
@@ -219,8 +325,8 @@ export default function LoginScreen() {
               <Pressable
                 onPress={handleLogin}
                 disabled={isLoading}
-                className={`h-12 items-center justify-center rounded-full border border-white bg-white ${isLoading ? 'opacity-70' : ''}`}>
-                <ThemedText className="text-sm font-normal text-black">
+                className={`h-[42px] items-center justify-center rounded-[30px] bg-white ${isLoading ? 'opacity-70' : ''}`}>
+                <ThemedText className="text-[16px] font-normal text-black">
                   {isLoading ? '登录中...' : '登录'}
                 </ThemedText>
               </Pressable>

@@ -65,40 +65,36 @@ export default function GlobalBottomTabBar() {
         paddingBottom: Math.max(insets.bottom, 4),
         /** 必须高于 ChatInput（zIndex 999）等底部浮层，否则 Tab 点击会被吃掉 */
         zIndex: 5000,
-        elevation: 50,
+        /** 过高会在 Android 上形成厚重黑边感，保留足够盖住内容即可 */
+        elevation: 24,
       }}>
       <View style={[styles.barWrap, { width: barWidth }]}>
         <View
-          className="border-white/15 w-full overflow-hidden rounded-full border"
-          style={[styles.pillShadow, { height: BAR_HEIGHT }]}>
-          {Platform.OS === 'ios' ? (
-            <BlurView intensity={48} tint="dark" style={[styles.pillBlur, styles.pillInnerFill]}>
-              <SideTabsRow
-                active={active}
-                goChat={goChat}
-                goMemory={goMemory}
-                onCenterPress={onInspirationNotePress}
-                goKnowledge={goKnowledge}
-                goProfile={goProfile}
-              />
-            </BlurView>
-          ) : (
-            <View
-              style={[
-                styles.pillBlur,
-                styles.pillInnerFill,
-                { backgroundColor: 'rgba(44,44,44,0.96)' },
-              ]}>
-              <SideTabsRow
-                active={active}
-                goChat={goChat}
-                goMemory={goMemory}
-                onCenterPress={onInspirationNotePress}
-                goKnowledge={goKnowledge}
-                goProfile={goProfile}
-              />
-            </View>
-          )}
+          style={[
+            styles.pillShell,
+            {
+              height: BAR_HEIGHT,
+              width: '100%',
+              borderRadius: BAR_HEIGHT / 2,
+              borderWidth: 0.5,
+              borderColor: 'rgba(180, 180, 180, 0.42)',
+              overflow: 'hidden',
+            },
+          ]}>
+          <BlurView
+            intensity={Platform.OS === 'ios' ? 52 : 42}
+            tint="dark"
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            style={[styles.pillBlur, styles.pillInnerFill]}>
+            <SideTabsRow
+              active={active}
+              goChat={goChat}
+              goMemory={goMemory}
+              onCenterPress={onInspirationNotePress}
+              goKnowledge={goKnowledge}
+              goProfile={goProfile}
+            />
+          </BlurView>
         </View>
       </View>
     </View>
@@ -203,15 +199,16 @@ const styles = StyleSheet.create({
   barWrap: {
     overflow: 'visible',
   },
-  pillShadow: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.28,
+  /** 轻微浮起，避免纯黑描边感 */
+  pillShell: {
+    shadowColor: 'rgba(0,0,0,0.12)',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
     shadowRadius: 10,
-    elevation: 10,
+    elevation: Platform.OS === 'android' ? 6 : 8,
   },
   pillBlur: {
-    backgroundColor: Platform.OS === 'ios' ? 'rgba(30,30,30,0.62)' : undefined,
+    backgroundColor: 'rgba(38, 38, 40, 0.45)',
   },
   pillInnerFill: {
     height: BAR_HEIGHT,

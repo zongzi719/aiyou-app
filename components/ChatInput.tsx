@@ -973,23 +973,24 @@ export const ChatInput = (props: ChatInputProps) => {
                 }}
                 className="gap-2 pb-1">
                 {homeInputVoiceSessionUi ? (
-                  <View className="flex-row items-end">
+                  <View className="flex-row items-stretch">
                     <Pressable
                       onPress={() => setShowSourceMenu(true)}
-                      className="mr-2 h-[56px] w-[56px] items-center justify-center"
+                      className="mr-2 items-center justify-center"
+                      style={{ width: homeInputHeight, height: homeInputHeight, minHeight: HOME_INPUT_MIN_HEIGHT }}
                       accessibilityRole="button"
                       accessibilityLabel="添加来源">
                       <Image
                         source={require('@/assets/images/chat-link-btn.png')}
                         resizeMode="contain"
-                        className="h-[56px] w-[56px]"
+                        style={{ width: homeInputHeight, height: homeInputHeight }}
                       />
                     </Pressable>
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
                       className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-center pt-1.5' : 'items-center'}`}
-                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
+                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight, minWidth: 0 }}>
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -1019,7 +1020,7 @@ export const ChatInput = (props: ChatInputProps) => {
                       <Pressable
                         onPress={handleSendMessage}
                         disabled={inputText.trim().length === 0 || isRecordingUI}
-                        className="bg-white/18 h-[36px] w-[36px] items-center justify-center rounded-full"
+                        className="h-[36px] w-[36px] items-center justify-center rounded-full bg-[#4A4A4A]"
                         accessibilityRole="button"
                         accessibilityLabel="发送">
                         <Icon
@@ -1035,23 +1036,24 @@ export const ChatInput = (props: ChatInputProps) => {
                     </ImageBackground>
                   </View>
                 ) : (
-                  <View className="flex-row items-end">
+                  <View className="flex-row items-stretch">
                     <Pressable
                       onPress={() => setShowSourceMenu(true)}
-                      className="mr-2 h-[56px] w-[56px] items-center justify-center"
+                      className="mr-2 items-center justify-center"
+                      style={{ width: homeInputHeight, height: homeInputHeight, minHeight: HOME_INPUT_MIN_HEIGHT }}
                       accessibilityRole="button"
                       accessibilityLabel="添加来源">
                       <Image
                         source={require('@/assets/images/chat-link-btn.png')}
                         resizeMode="contain"
-                        className="h-[56px] w-[56px]"
+                        style={{ width: homeInputHeight, height: homeInputHeight }}
                       />
                     </Pressable>
                     <ImageBackground
                       source={require('@/assets/images/chat-input-normal-bg.png')}
                       resizeMode="stretch"
                       className={`flex-1 flex-row rounded-full bg-[#1A1F28]/95 pl-5 pr-3 ${homeInputExpanded ? 'items-center pt-1.5' : 'items-center'}`}
-                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight }}>
+                      style={{ minHeight: HOME_INPUT_MIN_HEIGHT, height: homeInputHeight, minWidth: 0 }}>
                       <TextInput
                         ref={inputRef}
                         placeholder="问一问AI YOU"
@@ -1083,7 +1085,7 @@ export const ChatInput = (props: ChatInputProps) => {
                           <Pressable
                             onPress={handleSendMessage}
                             disabled={inputText.trim().length === 0 || isRecordingUI}
-                            className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${inputText.trim().length === 0 || isRecordingUI ? 'opacity-45' : ''}`}
+                            className={`h-[34px] w-[34px] items-center justify-center rounded-full bg-[#4A4A4A] ${inputText.trim().length === 0 || isRecordingUI ? 'opacity-45' : ''}`}
                             accessibilityRole="button"
                             accessibilityLabel="提交">
                             <Icon name="ArrowUp" size={17} color="white" />
@@ -1093,14 +1095,14 @@ export const ChatInput = (props: ChatInputProps) => {
                             <Pressable
                               onPress={openHomeRecordPanel}
                               disabled={isRecordingUI}
-                              className={`border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border ${isRecordingUI ? 'opacity-45' : ''}`}
+                              className={`h-[34px] w-[34px] items-center justify-center rounded-full bg-[#4A4A4A] ${isRecordingUI ? 'opacity-45' : ''}`}
                               accessibilityRole="button"
                               accessibilityLabel="录音">
                               <Icon name="Mic" size={17} color="white" />
                             </Pressable>
                             <Pressable
                               onPress={openImageCaptureMenu}
-                              className="border-white/28 bg-black h-[34px] w-[34px] items-center justify-center rounded-full border"
+                              className="h-[34px] w-[34px] items-center justify-center rounded-full bg-[#4A4A4A]"
                               accessibilityRole="button"
                               accessibilityLabel="拍照或相册上传">
                               <Icon name="Camera" size={17} color="white" />

@@ -118,16 +118,31 @@ const FolderCard = ({ folder, onPress, onLongPress }: FolderCardProps) => {
       activeOpacity={0.75}
       style={{ width: FOLDER_ITEM_WIDTH }}>
       <View
-        className="relative mb-1.5 items-center justify-center overflow-hidden rounded-2xl bg-secondary p-2"
+        className="relative mb-1.5 items-center justify-center"
         style={{ height: cardH }}>
         <Image
           source={FOLDER_ILLUSTRATION}
           style={{ width: '100%', height: '100%' }}
           resizeMode="contain"
         />
-        {/* 文件数角标 */}
-        <View className="bg-background/70 absolute right-2 top-2 rounded-md px-1.5 py-0.5">
-          <ThemedText className="text-[12px] text-subtext">{folder.count}</ThemedText>
+        {/* 文件数：叠在文件夹插画右下角（contain 留白后需从格子右缘内收，不能用整格 right-2 + translate） */}
+        <View
+          className="absolute"
+          pointerEvents="none"
+          style={{
+            bottom: 10,
+            /** 插画 contain 居中后右侧留白约一格宽的 12%～15%，再略内收使数字落在文件夹前片上 */
+            right: Math.max(14, Math.round(FOLDER_ITEM_WIDTH * 0.12)),
+          }}>
+          <ThemedText
+            className="text-[12px] font-medium text-white"
+            style={{
+              textShadowColor: 'rgba(0,0,0,0.55)',
+              textShadowOffset: { width: 0, height: 1 },
+              textShadowRadius: 2,
+            }}>
+            {folder.count}
+          </ThemedText>
         </View>
       </View>
       <ThemedText className="px-1 text-center text-sm text-primary" numberOfLines={1}>
