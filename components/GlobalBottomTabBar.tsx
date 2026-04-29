@@ -1,7 +1,8 @@
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router, usePathname } from 'expo-router';
 import React from 'react';
-import { View, Pressable, Image, Platform, StyleSheet, Dimensions } from 'react-native';
+import { View, Pressable, Image, Platform, StyleSheet, Dimensions, PixelRatio } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
@@ -25,6 +26,30 @@ const BAR_WIDTH = 357;
 const BAR_HEIGHT = 60;
 const SIDE_ICON = 30;
 const CENTER_SIZE = 45;
+/** 与外壳圆角一致 */
+const PILL_RADIUS = 20;
+
+/** 顶/底沿水平聚光：整条有底光、中间略亮（提高 alpha 以便在 hairline 高度下仍可见） */
+const GLASS_EDGE_TOP_COLORS = [
+  'rgba(255,255,255,0.12)',
+  'rgba(255,255,255,0.26)',
+  'rgba(255,255,255,0.5)',
+  'rgba(255,255,255,0.26)',
+  'rgba(255,255,255,0.12)',
+] as const;
+const GLASS_EDGE_TOP_LOCATIONS = [0, 0.14, 0.5, 0.86, 1] as const;
+const GLASS_EDGE_BOTTOM_COLORS = [
+  'rgba(255,255,255,0.1)',
+  'rgba(255,255,255,0.2)',
+  'rgba(255,255,255,0.36)',
+  'rgba(255,255,255,0.2)',
+  'rgba(255,255,255,0.1)',
+] as const;
+const GLASS_EDGE_BOTTOM_LOCATIONS = [0, 0.14, 0.5, 0.86, 1] as const;
+/** 至少约 1px 物理像素，hairline 在部分机型/叠 blur 上过淡 */
+const GLASS_EDGE_STRIPE_H = Math.max(StyleSheet.hairlineWidth, PixelRatio.roundToNearestPixel(1));
+const GLASS_EDGE_TOP_H = GLASS_EDGE_STRIPE_H;
+const GLASS_EDGE_BOTTOM_H = GLASS_EDGE_STRIPE_H;
 
 export default function GlobalBottomTabBar() {
   const insets = useSafeAreaInsets();
@@ -75,9 +100,7 @@ export default function GlobalBottomTabBar() {
             {
               height: BAR_HEIGHT,
               width: '100%',
-              borderRadius: BAR_HEIGHT / 2,
-              borderWidth: 0.5,
-              borderColor: 'rgba(180, 180, 180, 0.42)',
+              borderRadius: PILL_RADIUS,
               overflow: 'hidden',
             },
           ]}>
@@ -95,6 +118,22 @@ export default function GlobalBottomTabBar() {
               goProfile={goProfile}
             />
           </BlurView>
+          <View pointerEvents="none" style={styles.glassEdgeOverlay}>
+            <LinearGradient
+              colors={[...GLASS_EDGE_BOTTOM_COLORS]}
+              locations={[...GLASS_EDGE_BOTTOM_LOCATIONS]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.glassEdgeStripeBottom, { height: GLASS_EDGE_BOTTOM_H }]}
+            />
+            <LinearGradient
+              colors={[...GLASS_EDGE_TOP_COLORS]}
+              locations={[...GLASS_EDGE_TOP_LOCATIONS]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.glassEdgeStripeTop, { height: GLASS_EDGE_TOP_H }]}
+            />
+          </View>
         </View>
       </View>
     </View>
@@ -206,13 +245,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 10,
     elevation: Platform.OS === 'android' ? 6 : 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.26)',
   },
   pillBlur: {
-    backgroundColor: 'rgba(38, 38, 40, 0.45)',
+    backgroundColor: 'rgba(127, 127, 127, 0.2)',
   },
   pillInnerFill: {
     height: BAR_HEIGHT,
     width: '100%',
+  },
+  glassEdgeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: PILL_RADIUS,
+    overflow: 'hidden',
+  },
+  glassEdgeStripeTop: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+  },
+  glassEdgeStripeBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   /** 与中间 45 同宽占位，五个槽视觉对称，space-evenly 间距更匀 */
   tabSlot: {
