@@ -4,6 +4,10 @@ export type PendingMemoryReview = {
   id: string;
   content: string;
   category: string;
+  /** 一次接受写入多条时，用于取消时批量删除 */
+  memoryIds?: string[];
+  /** 顶栏逐条展示（与 content 同步） */
+  lines?: string[];
 };
 
 type Listener = (next: PendingMemoryReview | null) => void;
@@ -15,11 +19,16 @@ export function getPendingMemoryReview(): PendingMemoryReview | null {
   return pendingMemoryReview;
 }
 
-export function setPendingMemoryReview(memory: UserMemory): void {
+export function setPendingMemoryReview(memory: UserMemory | UserMemory[]): void {
+  const memories = Array.isArray(memory) ? memory : [memory];
+  if (memories.length === 0) return;
+  const lines = memories.map((m) => m.content);
   pendingMemoryReview = {
-    id: memory.id,
-    content: memory.content,
-    category: memory.category,
+    id: memories[0].id,
+    content: lines.join('\n\n'),
+    category: memories[0].category,
+    memoryIds: memories.map((m) => m.id),
+    lines,
   };
   for (const l of listeners) l(pendingMemoryReview);
 }

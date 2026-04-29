@@ -6,7 +6,6 @@ import { View, Pressable, Image, Platform, StyleSheet, Dimensions, PixelRatio } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAiRecordModal } from '@/app/contexts/AiRecordModalContext';
-import Icon from '@/components/Icon';
 import { shouldShowGlobalBottomTabBar, getGlobalBottomTabKey } from '@/lib/globalBottomTabBar';
 import { useHomeRecordPanelVisible } from '@/lib/homeRecordPanelStore';
 
@@ -14,10 +13,10 @@ const CENTER_INSPIRATION_NOTE = require('@/assets/tabbar/add-center.png');
 const CHAT_ACTIVE = require('@/assets/tabbar/chat-active.png');
 const CHAT_INACTIVE = require('@/assets/tabbar/chat-inactive.png');
 const KNOWLEDGE_ACTIVE = require('@/assets/tabbar/knowledge-active.png');
+const KNOWLEDGE_INACTIVE = require('@/assets/tabbar/knowledge-inactive.png');
 const MEMORY_ACTIVE = require('@/assets/tabbar/memory-active.png');
-/** 设计资源：知识库_选中.png */
+const MEMORY_INACTIVE = require('@/assets/tabbar/memory-inactive.png');
 const PROFILE_ACTIVE = require('@/assets/tabbar/profile-active.png');
-/** 设计资源：我的.png */
 const PROFILE_INACTIVE = require('@/assets/tabbar/profile-inactive.png');
 /** 设计资源：灵感笔记+.png */
 
@@ -185,11 +184,11 @@ function SideTabsRow({
         accessibilityLabel="记忆库"
         hitSlop={8}
         style={styles.tabSlot}>
-        {active === 'memory' ? (
-          <Image source={MEMORY_ACTIVE} style={styles.sideImg} resizeMode="contain" />
-        ) : (
-          <Icon name="Brain" size={SIDE_ICON} color="#FFFFFF" strokeWidth={1.6} />
-        )}
+        <Image
+          source={active === 'memory' ? MEMORY_ACTIVE : MEMORY_INACTIVE}
+          style={styles.sideImg}
+          resizeMode="contain"
+        />
       </Pressable>
 
       <Pressable
@@ -211,11 +210,11 @@ function SideTabsRow({
         accessibilityLabel="知识库"
         hitSlop={8}
         style={styles.tabSlot}>
-        {active === 'knowledge' ? (
-          <Image source={KNOWLEDGE_ACTIVE} style={styles.sideImg} resizeMode="contain" />
-        ) : (
-          <Icon name="Folder" size={SIDE_ICON} color="#FFFFFF" strokeWidth={1.6} />
-        )}
+        <Image
+          source={active === 'knowledge' ? KNOWLEDGE_ACTIVE : KNOWLEDGE_INACTIVE}
+          style={styles.sideImg}
+          resizeMode="contain"
+        />
       </Pressable>
 
       <Pressable

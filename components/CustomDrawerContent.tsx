@@ -311,7 +311,7 @@ export default function CustomDrawerContent({ drawerNavigation }: Props) {
         ) : null}
 
         <View className="mb-3">
-          <View className="h-10 flex-row items-center rounded-full bg-[#1E2A39] px-4">
+          <View className="h-10 flex-row items-center rounded-full bg-secondary px-4">
             <Icon name="Search" size={16} color="rgba(255,255,255,0.4)" />
             <TextInput
               value={searchText}

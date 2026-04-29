@@ -1056,16 +1056,25 @@ export default function MemoryScreen() {
 
   const handleCancelPendingReview = useCallback(async () => {
     if (!pendingReview || reviewDeleting) return;
+    const idsToRemove = pendingReview.memoryIds?.length
+      ? pendingReview.memoryIds
+      : [pendingReview.id];
     setReviewDeleting(true);
     try {
-      if (!pendingReview.id.startsWith('local-')) {
-        await memoryApi.deleteMemory(pendingReview.id);
+      for (const id of idsToRemove) {
+        if (id.startsWith('local-')) continue;
+        try {
+          await memoryApi.deleteMemory(id);
+        } catch {
+          /* 单条失败仍继续删缓存 */
+        }
       }
     } catch {
       // ignore: cache 仍以本地删除为准，后续拉取会再对齐
     } finally {
       const current = peekMemoryMemories() ?? [];
-      const next = current.filter((m) => m.id !== pendingReview.id);
+      const idSet = new Set(idsToRemove);
+      const next = current.filter((m) => !idSet.has(m.id));
       putMemoryMemories(next);
       clearPendingMemoryReview();
       setPendingReview(null);
@@ -1087,36 +1096,46 @@ export default function MemoryScreen() {
 
       {activePage === 'memory' && pendingReview ? (
         <View
-          className="absolute left-4 right-4 z-30 rounded-[30px] border border-[#B98C44]/40 bg-[#1D1D1D] px-5"
+          className="absolute left-4 right-4 z-30 rounded-[30px] border border-[#B98C44]/40 bg-[#1D1D1D] px-4 pb-2.5 pt-2"
           style={{
             top: insets.top + 52,
-            height: 130,
+            maxHeight: 200,
             shadowColor: '#000',
             shadowOpacity: 0.25,
             shadowRadius: 30,
             shadowOffset: { width: 0, height: 16 },
           }}>
-          <View className="mt-3 flex-row items-center">
+          <View className="flex-row items-center">
             <ThemedText className="text-[16px] text-[#FECF9A]">私密记忆更新</ThemedText>
             <Icon name="Lock" size={14} color="#FECF9A" style={{ marginLeft: 6 }} />
           </View>
-          <ThemedText className="mt-2 text-[14px] leading-[20px] text-white" numberOfLines={2}>
-            {pendingReview.content}
-          </ThemedText>
-          <View className="mt-4 flex-row justify-between">
+          <ScrollView
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={pendingReview.lines && pendingReview.lines.length > 3}
+            style={{ maxHeight: 96 }}
+            className="mt-1.5">
+            {(pendingReview.lines ?? [pendingReview.content]).map((line, idx) => (
+              <ThemedText
+                key={`${idx}-${line.slice(0, 24)}`}
+                className="text-[14px] leading-[20px] text-white">
+                {line}
+              </ThemedText>
+            ))}
+          </ScrollView>
+          <View className="mt-2 flex-row justify-between gap-2">
             <TouchableOpacity
               disabled={reviewDeleting}
               onPress={handleAcceptPendingReview}
-              className="h-6 w-[145px] items-center justify-center rounded-xl bg-[#AA873C]">
-              <ThemedText className="text-[14px] text-black">接受</ThemedText>
+              className="h-8 min-w-0 flex-1 items-center justify-center rounded-xl bg-[#AA873C] px-2">
+              <ThemedText className="text-[13px] text-black">接受</ThemedText>
             </TouchableOpacity>
             <TouchableOpacity
               disabled={reviewDeleting}
               onPress={() => {
                 handleCancelPendingReview().catch(() => {});
               }}
-              className="h-6 w-[145px] items-center justify-center rounded-xl bg-white">
-              <ThemedText className="text-[14px] text-black">取消</ThemedText>
+              className="h-8 min-w-0 flex-1 items-center justify-center rounded-xl bg-white px-2">
+              <ThemedText className="text-[13px] text-black">取消</ThemedText>
             </TouchableOpacity>
           </View>
         </View>

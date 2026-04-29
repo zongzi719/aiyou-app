@@ -2,15 +2,16 @@ import { Audio } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
   type ImageSourcePropType,
   ImageBackground,
   Keyboard,
+  type KeyboardEvent,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -53,6 +54,14 @@ type TuneMessage = {
   };
 };
 
+/** 待「接受」写入记忆库的一条（可与多条并存） */
+type PendingMemoryEntry = {
+  messageId: string;
+  content: string;
+  category: string;
+  dimensionLabel: string;
+};
+
 type Props = {
   visible: boolean;
   onRequestClose: () => void;
@@ -76,6 +85,32 @@ const EXPERT_ASR_IDLE_MS = 1000;
 const DEFAULT_TTS_PLAYBACK_VOLUME = 1;
 /** iOS 中文输入法候选栏/预览条额外占位（避免底部输入条被挡） */
 const IOS_KEYBOARD_PREVIEW_EXTRA = 33;
+
+/** 用户气泡：显式浅灰描边，避免 Android 上 border 类名未着色时呈现黑框 */
+const memoryTuneStyles = StyleSheet.create({
+  userBubbleMain: {
+    maxWidth: '78%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: '#2F3036',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  userBubbleExpert: {
+    maxWidth: '82%',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(45,46,52,0.94)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  continueConvOutline: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.92)',
+  },
+});
 
 function resolveTtsPlaybackVolume(): number {
   const raw = process.env.EXPO_PUBLIC_TTS_PLAYBACK_VOLUME?.trim();
@@ -174,7 +209,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   const [holdAsrPreview, setHoldAsrPreview] = useState('');
   const [messages, setMessages] = useState<TuneMessage[]>([]);
   const [memories, setMemories] = useState<UserMemory[]>([]);
-  const [pendingMemory, setPendingMemory] = useState<TuneMessage['memory'] | null>(null);
+  const [pendingMemoryEntries, setPendingMemoryEntries] = useState<PendingMemoryEntry[]>([]);
+  const [editingMemoryMessageId, setEditingMemoryMessageId] = useState<string | null>(null);
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
   const [expertCallOpen, setExpertCallOpen] = useState(false);
@@ -245,7 +281,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     setVoiceWillCancel(false);
     setVoiceStartY(null);
     setHoldAsrPreview('');
-    setPendingMemory(null);
+    setPendingMemoryEntries([]);
+    setEditingMemoryMessageId(null);
     setInputMode('text');
     setAttachMenuVisible(false);
     setExpertCallOpen(false);
@@ -293,28 +330,42 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     };
   }, [visible]);
 
+  /** Modal 关闭时清空键盘抬升，避免下次打开仍保留上次的 modalKeyboardHeight */
+  useEffect(() => {
+    if (!visible) {
+      setModalKeyboardHeight(0);
+    }
+  }, [visible]);
+
   useEffect(() => {
     if (!visible) return;
     const setHeight = (h: number) => {
       setModalKeyboardHeight(Math.max(0, h));
     };
     if (Platform.OS === 'ios') {
-      const onWillShow = Keyboard.addListener('keyboardWillShow', (event) => {
-        setHeight(event.endCoordinates?.height ?? 0);
-      });
-      const onDidShow = Keyboard.addListener('keyboardDidShow', (event) => {
-        setHeight(event.endCoordinates?.height ?? 0);
-      });
-      const onWillHide = Keyboard.addListener('keyboardWillHide', () => {
-        setHeight(0);
-      });
+      /**
+       * iOS + Modal：仅依赖 willHide/didHide 时，部分收起路径（含交互式下滑）可能收不到 hide，
+       * 或 didShow 在 hide 之后乱序再次把高度写回。用 willChangeFrame 按与屏幕底部的交叠量同步。
+       */
+      const iosKeyboardOverlap = (event: KeyboardEvent) => {
+        const { screenY, height } = event.endCoordinates;
+        const winH = Dimensions.get('window').height;
+        if (!height || height <= 0) {
+          setHeight(0);
+          return;
+        }
+        if (screenY >= winH - 1) {
+          setHeight(0);
+          return;
+        }
+        setHeight(Math.max(0, winH - screenY));
+      };
+      const onChangeFrame = Keyboard.addListener('keyboardWillChangeFrame', iosKeyboardOverlap);
       const onDidHide = Keyboard.addListener('keyboardDidHide', () => {
         setHeight(0);
       });
       return () => {
-        onWillShow.remove();
-        onDidShow.remove();
-        onWillHide.remove();
+        onChangeFrame.remove();
         onDidHide.remove();
       };
     }
@@ -372,12 +423,23 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         },
       };
 
+      /** 与专家挂断路径一致，否则 canEditPending 为假，无法编辑/接受且输入栏被误锁 */
+      pendingMemoryMessageIdRef.current = memoryMessage.id;
+
       setMessages((prev) => [
         ...prev,
         memoryMessage,
         { id: `done-${Date.now()}`, role: 'clone', text: '记住啦。' },
       ]);
-      setPendingMemory(memoryMessage.memory ?? null);
+      setPendingMemoryEntries((prev) => [
+        ...prev,
+        {
+          messageId: memoryMessage.id,
+          content: candidate,
+          category: inferred.category,
+          dimensionLabel: inferred.dimensionLabel,
+        },
+      ]);
       setSending(false);
     },
     [saving, sending]
@@ -575,7 +637,6 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   const {
     isStreaming: expertIsStreaming,
-    meterLevel: expertMeterLevel,
     startStreaming: startExpertStreaming,
     stopStreaming: stopExpertStreaming,
     cancelStreaming: cancelExpertStreaming,
@@ -712,7 +773,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
 
   const startVoicePress = useCallback(
     async (pageY?: number) => {
-      if (sending || saving || !!pendingMemory || expertCallOpen) return;
+      if (sending || saving || pendingMemoryEntries.length > 0 || expertCallOpen) return;
       setVoiceWillCancel(false);
       setVoicePanelVisible(true);
       setVoiceStartY(pageY ?? null);
@@ -724,7 +785,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
         setVoicePanelVisible(false);
       }
     },
-    [cancelHoldStreaming, expertCallOpen, pendingMemory, saving, sending, startHoldStreaming]
+    [cancelHoldStreaming, expertCallOpen, pendingMemoryEntries.length, saving, sending, startHoldStreaming]
   );
 
   const trackVoiceMove = useCallback(
@@ -799,7 +860,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   }, [submitMessage]);
 
   const openExpertCall = useCallback(async () => {
-    if (pendingMemory || saving || sending || holdIsStreaming || expertWorkflowLoading) return;
+    if (pendingMemoryEntries.length > 0 || saving || sending || holdIsStreaming || expertWorkflowLoading)
+      return;
     const workflowConfig = getBailianAppConfigStatus();
     if (!workflowConfig.ok) {
       if (__DEV__) {
@@ -842,7 +904,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
   }, [
     expertWorkflowLoading,
     holdIsStreaming,
-    pendingMemory,
+    pendingMemoryEntries.length,
     saving,
     sending,
     startExpertStreaming,
@@ -999,39 +1061,54 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       memoryBlock,
       { id: `done-${Date.now()}`, role: 'clone', text: '记住啦。' },
     ]);
-    setPendingMemory(memoryPayload);
+    setPendingMemoryEntries([
+      {
+        messageId: memMsgId,
+        content: memoryPayload.content,
+        category: memoryPayload.category,
+        dimensionLabel: memoryPayload.dimensionLabel,
+      },
+    ]);
   }, [cancelExpertStreaming, expertIsStreaming, setExpertWorkflowLoadingSync, stopExpertStreaming]);
 
   const handleAccept = useCallback(async () => {
-    if (!pendingMemory || saving) return;
+    if (pendingMemoryEntries.length === 0 || saving) return;
+    const snapshot = [...pendingMemoryEntries];
     setSaving(true);
     try {
-      const created = await memoryApi.addMemoryFact({
-        content: pendingMemory.content,
-        category: pendingMemory.category,
-        confidence: 0.86,
-      });
-      const current = peekMemoryMemories() ?? memories;
-      const inserted = created ?? {
-        id: `local-${Date.now()}`,
-        content: pendingMemory.content,
-        category: pendingMemory.category,
-        confidence: 0.86,
-        createdAt: new Date().toISOString(),
-        deletable: true,
-      };
-      const insertedForDisplay: UserMemory = {
-        ...inserted,
-        content: pendingMemory.content,
-        category: pendingMemory.category,
-        createdAt: inserted.createdAt ?? new Date().toISOString(),
-      };
-      const next = [insertedForDisplay, ...current.filter((m) => m.id !== insertedForDisplay.id)];
-      putMemoryMemories(next);
-      setMemories(next);
-      setPendingMemoryReview(insertedForDisplay);
-      setPendingMemory(null);
+      let current = peekMemoryMemories() ?? memories;
+      const savedDisplay: UserMemory[] = [];
+      for (let i = 0; i < snapshot.length; i++) {
+        const entry = snapshot[i];
+        const created = await memoryApi.addMemoryFact({
+          content: entry.content,
+          category: entry.category,
+          confidence: 0.86,
+        });
+        const inserted = created ?? {
+          id: `local-${Date.now()}-${i}`,
+          content: entry.content,
+          category: entry.category,
+          confidence: 0.86,
+          createdAt: new Date().toISOString(),
+          deletable: true,
+        };
+        const insertedForDisplay: UserMemory = {
+          ...inserted,
+          content: entry.content,
+          category: entry.category,
+          createdAt: inserted.createdAt ?? new Date().toISOString(),
+        };
+        savedDisplay.push(insertedForDisplay);
+        current = [insertedForDisplay, ...current.filter((m) => m.id !== insertedForDisplay.id)];
+      }
+      putMemoryMemories(current);
+      setMemories(current);
+      setPendingMemoryReview(savedDisplay.length === 1 ? savedDisplay[0] : savedDisplay);
+      setPendingMemoryEntries([]);
+      pendingMemoryMessageIdRef.current = null;
       setEditingPendingMemory(false);
+      setEditingMemoryMessageId(null);
       setMessages((prev) => [
         ...prev,
         { id: `saved-${Date.now()}`, role: 'clone', text: '已存入记忆库。' },
@@ -1039,7 +1116,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [memories, pendingMemory, saving]);
+  }, [memories, pendingMemoryEntries, saving]);
 
   const handleSaveMemoryEdit = useCallback(() => {
     const t = memoryEditDraft.replace(/\s+/g, ' ').trim();
@@ -1047,19 +1124,25 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
       Alert.alert('提示', '记忆内容不能为空');
       return;
     }
-    setPendingMemory((p) => (p ? { ...p, content: t } : null));
-    const mid = pendingMemoryMessageIdRef.current;
-    if (mid) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === mid && m.role === 'memory' && m.memory
-            ? { ...m, memory: { ...m.memory, content: t } }
-            : m
-        )
-      );
+    const mid = editingMemoryMessageId ?? pendingMemoryMessageIdRef.current;
+    if (!mid) {
+      setEditingPendingMemory(false);
+      setEditingMemoryMessageId(null);
+      return;
     }
+    setPendingMemoryEntries((prev) =>
+      prev.map((e) => (e.messageId === mid ? { ...e, content: t } : e))
+    );
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === mid && m.role === 'memory' && m.memory
+          ? { ...m, memory: { ...m.memory, content: t } }
+          : m
+      )
+    );
     setEditingPendingMemory(false);
-  }, [memoryEditDraft]);
+    setEditingMemoryMessageId(null);
+  }, [editingMemoryMessageId, memoryEditDraft]);
 
   const voiceInputBusy = holdIsStreaming || sending;
   const isCloneIntroState = messages.length === 1;
@@ -1076,6 +1159,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
             : Math.max(insets.bottom, 8)
         )
       : Math.max(insets.bottom, 8) + modalKeyboardLift;
+
+  const hasPendingMemory = pendingMemoryEntries.length > 0;
 
   return (
     <Modal
@@ -1149,7 +1234,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 if (msg.role === 'user') {
                   return (
                     <View key={msg.id} className="mb-4 items-end">
-                      <View className="max-w-[78%] rounded-2xl bg-black px-4 py-2.5">
+                      <View style={memoryTuneStyles.userBubbleMain}>
                         <ThemedText className="text-[15px] text-white">{msg.text}</ThemedText>
                       </View>
                     </View>
@@ -1157,22 +1242,31 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                 }
 
                 if (msg.role === 'memory' && msg.memory) {
-                  const canEditPending =
-                    pendingMemoryMessageIdRef.current === msg.id && !!pendingMemory;
+                  const canEditThisPending = pendingMemoryEntries.some((e) => e.messageId === msg.id);
+                  const latestPendingId =
+                    pendingMemoryEntries[pendingMemoryEntries.length - 1]?.messageId;
+                  const showPendingActions =
+                    canEditThisPending && msg.id === latestPendingId && !expertCallOpen;
+                  const isEditingThisCard =
+                    editingPendingMemory && editingMemoryMessageId === msg.id;
                   return (
-                    <View key={msg.id} className="mb-4 rounded-3xl bg-[#4A4A4D] p-4">
+                    <View
+                      key={msg.id}
+                      className="mb-4 rounded-3xl border border-white/22 bg-[#4A4A4D] p-4">
                       <View className="mb-1 flex-row items-center justify-between">
                         <ThemedText className="text-[14px] font-bold text-white">
                           {msg.text}
                         </ThemedText>
                         <View className="flex-row flex-wrap items-center justify-end gap-2">
-                          {canEditPending && !editingPendingMemory ? (
+                          {canEditThisPending && !isEditingThisCard ? (
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel="编辑记忆内容"
                               onPress={() => {
                                 setMemoryEditDraft(msg.memory!.content);
                                 setEditingPendingMemory(true);
+                                setEditingMemoryMessageId(msg.id);
+                                pendingMemoryMessageIdRef.current = msg.id;
                               }}
                               hitSlop={8}>
                               <ThemedText className="text-[13px] text-[#21D4C6]">编辑</ThemedText>
@@ -1186,28 +1280,35 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                           </View>
                         </View>
                       </View>
-                      {editingPendingMemory && canEditPending ? (
+                      {isEditingThisCard ? (
                         <TextInput
-                          className="border-white/15 mt-2 min-h-[88px] rounded-xl border bg-black/20 px-3 py-2 text-[13px] text-[#E5E7EB]"
+                          className="mt-2 min-h-[88px] rounded-xl border border-white/25 bg-white/[0.06] px-3 py-2 text-[13px] text-[#E5E7EB]"
                           multiline
                           textAlignVertical="top"
                           value={memoryEditDraft}
                           onChangeText={setMemoryEditDraft}
                           placeholder="编辑记忆正文"
                           placeholderTextColor="#8A8F99"
+                          underlineColorAndroid="transparent"
                         />
                       ) : (
                         <ThemedText className="text-[13px] text-[#E5E7EB]">
                           {msg.memory.content}
                         </ThemedText>
                       )}
-                      {editingPendingMemory && canEditPending ? (
-                        <View className="mt-3 flex-row justify-end gap-5">
+                      {isEditingThisCard ? (
+                        <View className="mt-3 flex-row items-center justify-end gap-3">
                           <Pressable
                             accessibilityRole="button"
-                            onPress={() => setEditingPendingMemory(false)}
+                            className="rounded-full bg-white px-5 py-2"
+                            onPress={() => {
+                              setEditingPendingMemory(false);
+                              setEditingMemoryMessageId(null);
+                            }}
                             hitSlop={8}>
-                            <ThemedText className="text-white/55 text-[13px]">取消</ThemedText>
+                            <ThemedText className="text-[13px] font-medium text-[#111]">
+                              取消
+                            </ThemedText>
                           </Pressable>
                           <Pressable
                             accessibilityRole="button"
@@ -1222,6 +1323,31 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                       <ThemedText className="mt-2 text-[12px] text-[#BFC3CB]">
                         分类：{translateCategory(msg.memory.category)}
                       </ThemedText>
+                      {showPendingActions ? (
+                        <View className="mt-4 flex-row gap-3">
+                          <Pressable
+                            className="flex-1 items-center rounded-full bg-[#3A3B40] py-3.5"
+                            style={memoryTuneStyles.continueConvOutline}
+                            onPress={() => {
+                              setPendingMemoryEntries([]);
+                              pendingMemoryMessageIdRef.current = null;
+                              setEditingPendingMemory(false);
+                              setEditingMemoryMessageId(null);
+                            }}>
+                            <ThemedText className="text-[16px] font-semibold text-white">
+                              继续对话
+                            </ThemedText>
+                          </Pressable>
+                          <Pressable
+                            className={`flex-1 items-center rounded-full border border-white/30 bg-white/12 py-3.5 ${saving ? 'opacity-60' : ''}`}
+                            disabled={saving}
+                            onPress={handleAccept}>
+                            <ThemedText className="text-[16px] font-semibold text-white">
+                              {saving ? '保存中...' : '接受'}
+                            </ThemedText>
+                          </Pressable>
+                        </View>
+                      ) : null}
                     </View>
                   );
                 }
@@ -1243,40 +1369,19 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
             )}
 
 
-            {pendingMemory && !expertCallOpen ? (
-              <View className="mb-3 mt-1 flex-row gap-3 px-4">
-                <Pressable
-                  className="flex-1 items-center rounded-full bg-black py-4"
-                  onPress={() => {
-                    setPendingMemory(null);
-                    setEditingPendingMemory(false);
-                  }}>
-                  <ThemedText className="text-[18px] font-semibold text-white">继续对话</ThemedText>
-                </Pressable>
-                <Pressable
-                  className={`bg-white/12 flex-1 items-center rounded-full border border-white/30 py-4 ${saving ? 'opacity-60' : ''}`}
-                  disabled={saving}
-                  onPress={handleAccept}>
-                  <ThemedText className="text-[18px] font-semibold text-white">
-                    {saving ? '保存中...' : '接受'}
-                  </ThemedText>
-                </Pressable>
-              </View>
-            ) : null}
-
             {!expertCallOpen ? (
               <View
-                className="mb-3 mt-2 flex-row items-center px-4"
+                className="mb-3 mt-2 flex-row items-stretch px-4"
                 style={{ paddingBottom: mainInputBottomPadding }}>
                 <Pressable
-                  className="mr-1.5 h-12 w-12 items-center justify-center rounded-full bg-[#29303B]"
-                  disabled={saving || !!pendingMemory}
+                  className="mr-1.5 h-12 w-12 self-center items-center justify-center rounded-full bg-[#29303B]"
+                  disabled={saving || hasPendingMemory}
                   onPress={() => setAttachMenuVisible(true)}>
                   <Icon name="Plus" size={22} color="#fff" />
                 </Pressable>
                 <Pressable
-                  className="mr-1.5 h-12 w-12 items-center justify-center rounded-full bg-[#29303B]"
-                  disabled={saving || !!pendingMemory}
+                  className="mr-1.5 h-12 w-12 self-center items-center justify-center rounded-full bg-[#29303B]"
+                  disabled={saving || hasPendingMemory}
                   onPress={() => {
                     Keyboard.dismiss();
                     setInputMode((m) => (m === 'text' ? 'voice' : 'text'));
@@ -1284,28 +1389,56 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                   <Icon name={inputMode === 'text' ? 'Mic' : 'Keyboard'} size={22} color="#fff" />
                 </Pressable>
                 {inputMode === 'text' ? (
-                  <View className="h-12 flex-1 flex-row items-center rounded-full border border-[#60626A] bg-[#2A2C33] px-4">
+                  <View className="h-12 flex-1 justify-center rounded-full border border-[#60626A] bg-[#2A2C33] px-3">
                     <TextInput
-                      className="flex-1 py-0 text-base text-white"
+                      className="w-full text-base text-white"
                       placeholder="发消息..."
                       placeholderTextColor="#8A8F99"
                       value={draft}
                       onChangeText={setDraft}
-                      editable={!saving && !holdIsStreaming && !voicePanelVisible && !pendingMemory}
+                      editable={!saving && !holdIsStreaming && !voicePanelVisible && !hasPendingMemory}
                       onSubmitEditing={() => {
                         handleSend().catch(() => {});
                       }}
                       returnKeyType="send"
-                      style={{
-                        lineHeight: 20,
-                        textAlignVertical: 'center',
-                      }}
+                      style={Platform.select({
+                        ios: {
+                          width: '100%',
+                          height: 26,
+                          margin: 0,
+                          paddingVertical: 0,
+                          paddingHorizontal: 0,
+                          fontSize: 16,
+                          lineHeight: 22,
+                          color: '#fff',
+                        },
+                        android: {
+                          width: '100%',
+                          height: 26,
+                          margin: 0,
+                          paddingVertical: 0,
+                          paddingHorizontal: 0,
+                          fontSize: 16,
+                          lineHeight: 22,
+                          color: '#fff',
+                          textAlignVertical: 'center',
+                          includeFontPadding: false,
+                        },
+                        default: {
+                          width: '100%',
+                          height: 26,
+                          margin: 0,
+                          paddingVertical: 0,
+                          fontSize: 16,
+                          color: '#fff',
+                        },
+                      })}
                     />
                   </View>
                 ) : (
                   <Pressable
                     className="h-12 flex-1 items-center justify-center rounded-full border border-[#60626A] bg-[#2A2C33] px-4"
-                    disabled={saving || voiceInputBusy || !!pendingMemory}
+                    disabled={saving || voiceInputBusy || hasPendingMemory}
                     onPressIn={(event) => {
                       startVoicePress(event.nativeEvent.pageY).catch(() => {});
                     }}
@@ -1328,8 +1461,8 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                   </Pressable>
                 )}
                 <Pressable
-                  className="ml-2 h-12 w-12 overflow-hidden rounded-full bg-[#29303B]"
-                  disabled={saving || !!pendingMemory || expertWorkflowLoading}
+                  className="ml-2 h-12 w-12 self-center overflow-hidden rounded-full bg-[#29303B]"
+                  disabled={saving || hasPendingMemory || expertWorkflowLoading}
                   onPress={() => {
                     openExpertCall().catch(() => {});
                   }}
@@ -1438,7 +1571,7 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                     {expertCallLines.map((line) =>
                       line.role === 'user' ? (
                         <View key={line.id} className="mb-3 items-end">
-                          <View className="bg-black/55 max-w-[82%] rounded-2xl px-3.5 py-2.5">
+                          <View style={memoryTuneStyles.userBubbleExpert}>
                             <ThemedText className="text-[15px] text-white">{line.text}</ThemedText>
                           </View>
                         </View>
@@ -1480,22 +1613,6 @@ export default function MemoryTuneModal({ visible, onRequestClose }: Props) {
                         className="h-16 w-16 items-center justify-center rounded-full border-2 border-white/40 bg-white/5">
                         <Icon name="PhoneOff" size={26} color="#EF4444" />
                       </Pressable>
-                    </View>
-                    <View className="h-3 items-center justify-center overflow-hidden rounded-full">
-                      <LinearGradient
-                        colors={
-                          expertIsStreaming && !expertCallMuted
-                            ? [
-                                'transparent',
-                                `rgba(245,211,79,${0.35 + expertMeterLevel * 0.65})`,
-                                'transparent',
-                              ]
-                            : ['transparent', 'rgba(245,211,79,0.85)', 'transparent']
-                        }
-                        start={{ x: 0, y: 0.5 }}
-                        end={{ x: 1, y: 0.5 }}
-                        style={{ height: 4, width: '70%', borderRadius: 999, alignSelf: 'center' }}
-                      />
                     </View>
                   </View>
                 </View>

@@ -144,11 +144,14 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
     },
   });
 
-  /** 略放大弹窗，避免输入区加高后底部麦克风被裁切 */
-  const sheetMaxH = Math.round(windowHeight * 0.93);
-  const sheetMinH = Math.round(
-    Math.min(windowHeight * 0.76, windowHeight - insets.top - Math.max(insets.bottom, 8) - 12)
-  );
+  /** 弹窗占屏幕大部分高度；额外加高一截落在底部区域，给录音区留空 */
+  const SHEET_HEIGHT_EXTRA = 50;
+  const sheetMaxH = Math.round(windowHeight * 0.93) + SHEET_HEIGHT_EXTRA;
+  const sheetMinH =
+    Math.round(
+      Math.min(windowHeight * 0.76, windowHeight - insets.top - Math.max(insets.bottom, 8) - 12)
+    ) + SHEET_HEIGHT_EXTRA;
+
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const [phase, setPhase] = useState<Phase>('input');
@@ -573,11 +576,11 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
       </ImageBackground>
 
       <View
-        className="mt-4 items-center"
+        className="mt-[28px] items-center"
         style={{
           width: '100%',
           backgroundColor: SHEET_BG,
-          paddingBottom: 22 + keyboardLift,
+          paddingBottom: 10 + keyboardLift,
         }}>
         <View style={styles.recordingActionRow}>
           {showRecordingLayout ? (
@@ -665,7 +668,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
             <View style={styles.recordingSideButtonPlaceholder} />
           )}
         </View>
-        <ThemedText className="mt-3" style={{ color: '#A5A5A5', fontSize: 15, lineHeight: 18 }}>
+        <ThemedText className="mt-2" style={{ color: '#A5A5A5', fontSize: 15, lineHeight: 18 }}>
           {voicePhase === 'finalizing'
             ? '正在识别语音…'
             : isVoiceStreaming
@@ -849,14 +852,14 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
 
   const resultFooter = (
     <View
-      className="flex-row gap-2 border-t border-white/10 px-4 pt-3"
+      className="flex-row gap-2 px-4 pt-3"
       style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
       <Pressable
         onPress={closeAll}
-        className="active:opacity-85 flex-1 items-center rounded-full border border-white/25 bg-white/12 py-3"
+        className="active:opacity-85 flex-1 items-center rounded-full bg-white py-3"
         accessibilityRole="button"
         accessibilityLabel="取消">
-        <Text style={styles.footerBtnLabelLight}>取消</Text>
+        <Text style={styles.footerBtnLabelBlack}>取消</Text>
       </Pressable>
       <Pressable
         onPress={() => {
@@ -867,7 +870,7 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
         style={{ backgroundColor: GOLD }}
         accessibilityRole="button"
         accessibilityLabel="保存">
-        <Text style={styles.footerBtnLabelOnGold}>{isSaving ? '保存中…' : '保存'}</Text>
+        <Text style={styles.footerBtnLabelBlack}>{isSaving ? '保存中…' : '保存'}</Text>
       </Pressable>
       <Pressable
         onPress={() => {
@@ -875,10 +878,10 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
           setPhase('input');
           setDraft(rawSubmitted);
         }}
-        className="border-white/35 active:opacity-85 flex-1 items-center rounded-full border py-3"
+        className="active:opacity-85 flex-1 items-center rounded-full bg-black py-3"
         accessibilityRole="button"
         accessibilityLabel="修改">
-        <Text style={styles.footerBtnLabelDark}>修改</Text>
+        <Text style={styles.footerBtnLabelOnBlack}>修改</Text>
       </Pressable>
     </View>
   );
@@ -887,7 +890,6 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
   const keyboardLift = isInputPhase
     ? Math.min(Math.max(0, keyboardHeight - insets.bottom), Math.round(windowHeight * 0.38))
     : 0;
-  const sheetBottomPadding = Math.max(insets.bottom, 16);
   const effectiveSheetMaxH = sheetMaxH;
   const effectiveSheetMinH = sheetMinH;
   const showKeyboardSubmitButton =
@@ -917,8 +919,8 @@ export default function AiRecordModal({ visible, onRequestClose }: Props) {
               styles.sheetWrap,
               {
                 paddingTop: insets.top + 12,
-                paddingBottom: sheetBottomPadding,
-                justifyContent: isInputPhase ? 'flex-end' : 'center',
+                paddingBottom: 0,
+                justifyContent: 'flex-end',
               },
             ]}>
             <View
@@ -1029,16 +1031,14 @@ const styles = StyleSheet.create({
   overlayRoot: {
     flex: 1,
   },
-  /** 弹窗垂直居中，避免 RN 下 flex + max-h 百分比导致子级高度塌成一条底栏 */
+  /** 弹窗垂直居中（结果态）或贴底（输入态），避免 RN 下 flex + max-h 百分比导致子级高度塌成一条底栏 */
   sheetWrap: {
     flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 16,
   },
   sheet: {
     width: '100%',
-    maxWidth: 560,
-    alignSelf: 'center',
+    alignSelf: 'stretch',
     borderRadius: 30,
     backgroundColor: SHEET_BG,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1127,20 +1127,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(245, 211, 79, 0.95)',
     backgroundColor: 'rgba(245, 211, 79, 0.08)',
   },
-  footerBtnLabelLight: {
+  footerBtnLabelBlack: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#f4f4f5',
+    color: '#111111',
   },
-  footerBtnLabelOnGold: {
+  footerBtnLabelOnBlack: {
     fontSize: 14,
     fontWeight: '600',
     color: '#ffffff',
-  },
-  footerBtnLabelDark: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fafafa',
   },
   savedDialogOverlay: {
     ...StyleSheet.absoluteFillObject,
